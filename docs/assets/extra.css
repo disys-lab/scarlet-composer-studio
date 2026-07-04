@@ -1,0 +1,93 @@
+/* ── Fonts ──────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+/* ── Hero section on home page ──────────────────────────────────────────── */
+.hero {
+  padding: 3rem 0 2rem;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.6rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--md-primary-fg-color);
+}
+
+.hero .subtitle {
+  font-size: 1.15rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 620px;
+  margin: 0 auto 2rem;
+  line-height: 1.6;
+}
+
+/* ── Feature grid on home page ──────────────────────────────────────────── */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  background: var(--md-default-bg-color);
+  transition: box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--md-primary-fg-color);
+}
+
+.feature-card p {
+  font-size: 0.9rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Badge chips ────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.3rem;
+}
+
+.badge-scarlets  { background: #fff3e0; color: #e65100; }
+.badge-composer  { background: #fce4ec; color: #c62828; }
+.badge-redis     { background: #e8f5e9; color: #2e7d32; }
+
+/* ── Quick links table ──────────────────────────────────────────────────── */
+.quick-links td:first-child {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ── Code blocks: tighten caption ──────────────────────────────────────── */
+.md-typeset .highlight .filename {
+  font-size: 0.8rem;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────── */
+.md-sidebar--primary {
+  box-shadow: none !important;
+}

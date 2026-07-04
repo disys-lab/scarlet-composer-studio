@@ -1,0 +1,46 @@
+name: Publish
+
+on:
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  publish:
+    if: contains(github.event.head_commit.message, '#buildpackage')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the new tag
+      packages: write   # needed to publish to GitHub Packages
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so setuptools-scm can read all tags
+
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@1.67.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true          # tags look like v0.1.1
+          DEFAULT_BUMP: patch   # default increment; override with #minor or #major in commit message
+
+      - name: Fetch new tag into local repo
+        run: git fetch --tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install build twine setuptools-scm
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish to GitHub Packages
+        run: twine upload dist/*
+        env:
+          TWINE_REPOSITORY_URL: https://upload.pkg.github.com/
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,51 @@
+version: '3.9'
+
+# Scarlet Composer Studio — local quickstart
+#
+# Starts three services against an external Redis instance:
+#   1. scarlet-composer — Composer UI (port 8501) + BackgroundServer (port 9099)
+#   2. hello-agent      — sample Scarlet agent; echoes messages on two Messenger buses
+#
+# APP_ID, NODE_ADDRESS, DEVICE_GROUP, and HEAD_BUS are set directly as env vars.
+# Gustavo is not required for local development — it is only needed for multi-node
+# edge deployments where agents must be pushed to remote machines via Nebula.
+#
+# Usage:
+#   cp .env.example .env          # fill in REDIS_HOST, REDIS_AUTH_TOKEN
+#   docker compose up --build -d
+#   python3 smoke_test.py --env .env
+#
+# After the stack is running, open http://localhost:8501 for the Composer UI.
+
+services:
+
+  # ─── Scarlet Composer Studio UI ────────────────────────────────────────────
+  scarlet-composer:
+    image: ghcr.io/disys-lab/scarlet-composer:${SCARLET_VERSION:-0.5.0}
+    container_name: scarlet-composer
+    restart: unless-stopped
+    ports:
+      - "8501:8501"   # Streamlit UI
+      - "9099:9099"   # Tornado background server (node identity)
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─── Sample hello-agent ────────────────────────────────────────────────────
+  # A minimal Scarlet agent: registers on two Messenger buses, echoes incoming
+  # messages, and broadcasts a heartbeat every 60 s.
+  # Built locally from hello_agent/Dockerfile (extends scarlet-agent-base).
+  hello-agent:
+    build:
+      context: hello_agent
+      dockerfile: Dockerfile
+    container_name: hello-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - APP_ID=hello-agent
+      - NODE_ADDRESS=local
+      - HEAD_BUS=quickstart_headagent
+      - DEVICE_GROUP=quickstart_subagent
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

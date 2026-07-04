@@ -1,0 +1,93 @@
+site_name: Scarlet Composer Studio
+site_description: Distributed shared memory and agent communication for multi-agent systems
+site_author: Paritosh Ramanan
+repo_url: https://github.com/disys-lab/scarlet-composer-studio
+repo_name: disys-lab/scarlet-composer-studio
+edit_uri: edit/main/docs/
+
+# Local development:
+#   pip install -r docs/requirements.txt
+#   mkdocs serve
+#
+# Deploy to GitHub Pages:
+#   mkdocs gh-deploy --force
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quickstart (Docker Compose): quickstart.md
+    - Installation: installation.md
+  - Concepts:
+    - Scarlet Primitives: concepts/scarlets.md
+    - Two-Channel Architecture: concepts/two-channel.md
+    - Campaign Isolation: concepts/campaigns.md
+    - Node Identity: concepts/identity.md
+  - Guides:
+    - Federated Aggregation: guides/federation.md
+    - LLM / MCP Integration: guides/llm-integration.md
+    - Scarlet Declarations: guides/declarations.md
+  - Deployment:
+    - Docker Images: deployment/docker.md
+    - Gustavo Integration: deployment/gustavo.md
+    - Multi-Node Edge: deployment/multi-node.md
+    - Environment Variables: deployment/env-vars.md
+  - Composer UI:
+    - Overview: composer/index.md
+    - Agents: composer/agents.md
+    - Data Sources: composer/data-sources.md
+    - Logging: composer/logging.md
+  - Reference:
+    - Full API Reference: reference/api.md
+    - CLI Reference: reference/cli.md
+    - Redis Key Schema: reference/redis-schema.md
+  - Contributing: contributing.md
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: red
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep orange
+      accent: red
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.footer
+    - navigation.top
+    - navigation.indexes
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - toc.integrate
+    - search.highlight
+    - search.share
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra_css:
+  - assets/extra.css

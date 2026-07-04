@@ -1,0 +1,19 @@
+version: '3'
+services:
+  ipfs:
+    container_name: ipfs
+    image: ipfs/go-ipfs:v0.7.0
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    environment:
+      - LIBP2P_FORCE_PNET=1
+      - IPFS_SWARM_KEY=/key/swarm/psk/1.0.0/\n/base16/\n76acbaacdcc35520c4b9fe8e87e32f45f3405d4208c8b58bd29a55fadee5e922
+
+  redis:
+    container_name: redis
+    image: redis
+    command: redis-server --requirepass "yourpass"
+    ports:
+      - "6379:6379"

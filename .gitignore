@@ -1,0 +1,13 @@
+/dist
+/build
+/__pycache__
+**/__pycache__
+/.coverage
+./.idea
+.DS_Store
+/.idea
+/site
+/*.egg-info
+**/*.egg-info
+/.eggs
+.env
