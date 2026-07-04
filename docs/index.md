@@ -100,7 +100,7 @@ Scarlet Composer answers: *how do many agents share state and coordinate across 
 | Data sovereignty | Cloud-mediated | Operator-controlled |
 | LLM integration | Yes | Yes — `AsTools()` / MCP |
 
-They are complementary. See [positioning_vs_A2A_ACP.md](https://github.com/disys-lab/scarlet-composer-studio/blob/main/proposal/positioning_vs_A2A_ACP.md) for the detailed analysis.
+They are complementary.
 
 ---
 
