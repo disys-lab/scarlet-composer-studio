@@ -1,7 +1,7 @@
 <div class="hero">
 <h1>Scarlet Composer Studio</h1>
 <p class="subtitle">
-Distributed shared memory and agent communication for multi-agent systems —
+Distributed shared memory and communication primitives for decentralized Agentic-AI —
 Redis backend, Apache 2.0, built for the edge.
 </p>
 </div>
