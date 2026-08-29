@@ -61,6 +61,16 @@ it's a genuine test of whether the `Skill` interface generalizes past the
   (`status`/`role`/`capabilities`/`data_sources`/`mcp_tools`/`device_group`/
   `node_address`) so agents built with this harness show up correctly in
   scarlet-composer-studio's own Agents dashboard, not just to each other.
+- **`Skill.coordinator_for()` defaults to a random worker, never the head.**
+  Nothing about `Mapper`/`Federator` requires the head to call
+  `AllGather()`/`Aggregate()` itself — that's an application-level choice,
+  and defaulting to the head would make it a bottleneck for every skill's
+  aggregation step under concurrent invocations, not just dispatch. The head
+  retains control over task *routing* (DESIGN_v3.md §8.5); that's a
+  different thing from being where computation happens. A skill can still
+  override `coordinator_for()` to return `ctx.agent_id` when the aggregation
+  is cheap enough that the extra two message hops aren't worth it — an
+  explicit opt-in, not the default.
 - **A worker never runs its own LLM call for a well-defined skill.** Once
   the head has decided which skill applies, the message it sends is already
   fully structured — re-interpreting it with another LLM call on the worker

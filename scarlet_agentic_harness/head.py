@@ -53,10 +53,13 @@ def run_skill(skill: Skill, params: dict, config: HarnessConfig, buses: Buses) -
         buses.global_bus.Send(worker_id, {"type": msg_type, **request})
 
     if coordinator == config.agent_id:
-        # The head assigned itself as coordinator (e.g. a Federator-backed
-        # skill where a single centralized fold is correct) - run
-        # coordinate() in-process, no message round trip needed. The head
-        # never runs contribute(): it holds no data of its own in this
+        # Only reached if a skill explicitly overrides coordinator_for() to
+        # return the head - not the default (Skill's base default is a
+        # random worker, so the head stays a pure router under concurrent
+        # load rather than becoming a bottleneck for every skill's
+        # aggregation step). When it is reached: run coordinate() in-process,
+        # no message round trip needed. The head never runs contribute():
+        # it holds no data of its own in this
         # design, it only orchestrates.
         return skill.coordinate(ctx, request, workers)
 

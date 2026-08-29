@@ -17,7 +17,6 @@ scarlet-composer-studio's own three-tier data source system
 """
 import heapq
 import os
-import random
 import time
 
 from scarlet_agentic_harness.context import HarnessContext
@@ -43,8 +42,9 @@ class MedianSkill(Skill):
     )
     coordinate_timeout = 15.0
 
-    def coordinator_for(self, ctx: HarnessContext, workers: list[str]) -> str:
-        return random.choice(workers)
+    # No coordinator_for() override needed - Skill's base default (a
+    # randomly-chosen worker) is exactly right for median too, and is now
+    # the default for every skill, not a median-specific choice.
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         sorted_local = sorted(_local_numbers())

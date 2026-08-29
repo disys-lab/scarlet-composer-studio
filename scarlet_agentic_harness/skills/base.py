@@ -25,6 +25,7 @@ implementation never talks to Messenger's routing machinery directly:
     that dict becomes (or is folded into) the skill_result message sent back
     to the head.
 """
+import random
 from abc import ABC, abstractmethod
 
 from scarlet_agentic_harness.context import HarnessContext
@@ -45,17 +46,24 @@ class Skill(ABC):
         """
         Decide which agent's coordinate() answers this invocation.
 
-        Default: the head itself - correct for skills whose aggregation is a
-        centralizable, associative reduction (e.g. sum/mean via Federator,
-        where the head can fold contributions directly with no peer
-        negotiation needed).
+        Default: a randomly-chosen worker, not the head. Nothing about
+        Mapper/Federator requires the head to be the one calling
+        AllGather()/Aggregate() - that's just an application-level choice,
+        and defaulting to the head means every skill's finishing/aggregation
+        work lands on one process. Under concurrent skill invocations that
+        makes the head a bottleneck for actual computation, not just
+        dispatch - the head is supposed to retain control over task
+        *routing* (see DESIGN_v3.md section 8.5), which is a different thing
+        from being where computation happens. Worker-coordination keeps that
+        distinction real: the head decides who finishes the job, a worker
+        does it.
 
-        Override for skills that need a peer-computed merge instead (e.g.
-        median - not an associative reduction, so no single Federator op
-        computes it; a worker must Mapper.AllGather() the sorted partitions
-        and do a real merge). See MedianSkill for the override.
+        Override to return ctx.agent_id for a skill where the aggregation is
+        cheap enough (e.g. folding a handful of Federator scalars) that the
+        extra two message hops (dispatch-to-coordinator, result-back-to-head)
+        aren't worth it - an explicit opt-in for that case, not the default.
         """
-        return ctx.agent_id
+        return random.choice(workers)
 
     @abstractmethod
     def contribute(self, ctx: HarnessContext, request: dict) -> None:

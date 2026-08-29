@@ -18,9 +18,11 @@ def test_tool_schema_shape():
     assert "parameters" in schema["function"]
 
 
-def test_default_coordinator_is_self():
-    """A hypothetical Federator-style skill (default coordinator_for) should
-    pick the head itself - only MedianSkill overrides this."""
+def test_default_coordinator_is_a_worker_not_the_head():
+    """Skill's base default (no coordinator_for() override) should pick a
+    worker, never the head - keeps the head a pure router even for skills
+    that never override this, so it doesn't become a bottleneck for every
+    skill's aggregation step under concurrent invocations."""
 
     class _FakeCtx:
         agent_id = "head_x"
@@ -35,4 +37,8 @@ def test_default_coordinator_is_self():
         def coordinate(self, ctx, request, workers):
             pass
 
-    assert _Dummy().coordinator_for(_FakeCtx(), ["w1", "w2"]) == "head_x"
+    workers = ["w1", "w2", "w3"]
+    for _ in range(20):  # random.choice - sample enough to catch a wrong constant pick
+        picked = _Dummy().coordinator_for(_FakeCtx(), workers)
+        assert picked in workers
+        assert picked != "head_x"
