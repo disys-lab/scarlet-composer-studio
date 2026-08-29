@@ -39,12 +39,24 @@ it's a genuine test of whether the `Skill` interface generalizes past the
   against a disposable local Redis, using the real `Messenger`/`Mapper`
   primitives and the actual `__main__.py` entrypoint — not a shortcut that
   calls skill methods directly. See `tests/test_median_skill.py`.
-- ⏳ The head's LLM tool-loop (turning a human's free-text request into a
-  skill invocation) is **not implemented** — it needs a real
-  OpenAI-compatible backend (litellm credentials, per the plan) before it's
-  buildable/testable. `head.run_skill()` — the actual dispatch mechanics —
-  works today with no LLM at all; `__main__.py`'s head role currently falls
-  back to a manual JSON-lines-on-stdin dispatch mode for exactly this reason.
+- ✅ **The head's LLM tool-calling loop (`head.converse`)** — turns a
+  human's free-text message into zero or more skill invocations plus a
+  final natural-language reply, handling multiple tool calls in one turn
+  (needed for composition, e.g. variance-via-two-sum-calls) and a
+  `max_turns` safety limit. Tested two ways: pure control-flow tests with
+  `head.run_skill` monkeypatched (`tests/test_head_converse.py` — no Redis),
+  and a full end-to-end test where a scripted fake LLM's tool-call decision
+  drives the *real* distributed median computation across 3 real worker
+  subprocesses and real Redis (`tests/test_converse_end_to_end.py`). Only
+  the "which tool to call" *decision* is faked anywhere in this codebase —
+  everything downstream of that decision is real.
+- ✅ **`LLMClient`'s wire-format translation** (canonical message shape ↔
+  the real OpenAI SDK's shape) is unit-tested against a mocked `openai`
+  client object (`tests/test_llm_client.py`) — not yet verified against a
+  *live* backend, since no credentials exist yet. `__main__.py`'s head role
+  now uses `LLMClient` + `converse()` for real once `LLM_BASE_URL` is set;
+  that specific wiring is the one piece in this codebase still unverified
+  end-to-end, purely because there's nothing to point it at yet.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group. That's the deliberate next phase once the
   interface has more than one skill validating it (sum/mean are the natural

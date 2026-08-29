@@ -10,6 +10,7 @@ import sys
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
+from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness import worker as worker_mod
@@ -48,10 +49,22 @@ def main() -> None:
                 except Exception as exc:  # surfaced to the operator driving stdin manually
                     print(json.dumps({"status": "error", "detail": str(exc)}))
         else:
-            raise NotImplementedError(
-                "LLM tool-loop not yet implemented - awaiting real LLM_BASE_URL "
-                "credentials per the user's stated plan."
-            )
+            # head.converse() itself is tested (tests/test_head_converse.py,
+            # tests/test_converse_end_to_end.py) with a scripted fake LLM
+            # client - this specific wiring (a real LLMClient against a real
+            # backend, driven from stdin) is not yet verified against a live
+            # endpoint, since no credentials exist yet.
+            llm_client = LLMClient(config)
+            print("LLM-backed chat mode: type a message per line on stdin.", file=sys.stderr)
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    answer = head_mod.converse(line, config, buses, skills, llm_client)
+                    print(answer)
+                except Exception as exc:
+                    print(json.dumps({"status": "error", "detail": str(exc)}))
 
 
 if __name__ == "__main__":

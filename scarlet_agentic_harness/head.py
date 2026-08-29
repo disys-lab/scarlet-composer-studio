@@ -6,20 +6,29 @@ through - resolve live workers, decide a coordinator, dispatch, wait for the
 result. It is deliberately skill-agnostic (never imports a specific Skill
 subclass) so that adding a new skill never requires touching this function.
 
-HeadAgent wraps run_skill() with an LLM tool-calling loop that turns a
-human's free-text request into a skill invocation. The loop and the dispatch
-mechanics are kept separate on purpose: run_skill() is fully testable today
-against real scarlets/Redis with no LLM backend at all (see
-tests/test_median_skill.py); HeadAgent only becomes testable once real LLM
-credentials are available.
+converse() wraps run_skill() with an LLM tool-calling loop that turns a
+human's free-text request into zero or more skill invocations and a final
+natural-language reply - the actual "multi-turn, possibly-composing-skills"
+loop described for the variance example. It takes an `llm_client` argument
+typed only as anything with a `.chat(messages, tools) -> dict` method (see
+llm/client.py's canonical message shape) - not the concrete LLMClient class -
+specifically so it's testable with a scripted fake today, with zero changes
+needed once a real LLM backend exists. See tests/test_head_converse.py
+(control flow, no Redis) and tests/test_converse_end_to_end.py (real
+subprocess workers + real Redis, LLM decisions still scripted).
 """
 import time
 import uuid
+from typing import Protocol
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.skills.base import Skill
+
+
+class ChatClient(Protocol):
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
 
 
 def run_skill(skill: Skill, params: dict, config: HarnessConfig, buses: Buses) -> dict:
@@ -73,3 +82,47 @@ def run_skill(skill: Skill, params: dict, config: HarnessConfig, buses: Buses) -
             return body
 
     return {"status": "error", "detail": f"coordinator {coordinator} did not respond in time"}
+
+
+class ConversationDidNotConclude(RuntimeError):
+    """Raised if the model keeps calling tools past max_turns without ever
+    producing a final answer - a real safety limit, not a soft warning:
+    without one, a model stuck in a tool-calling loop runs indefinitely."""
+
+
+def converse(
+    human_message: str,
+    config: HarnessConfig,
+    buses: Buses,
+    skills: dict[str, Skill],
+    llm_client: ChatClient,
+    max_turns: int = 5,
+) -> str:
+    """
+    Turn one human message into zero or more skill invocations and a final
+    natural-language reply. A single call can involve multiple tool-call
+    turns - this is what makes the variance-via-two-sum-calls composition
+    possible without any new infrastructure: the model can request another
+    skill, or several in one turn, after seeing an earlier result, and
+    run_skill() is called fresh each time with zero knowledge of the turn
+    before it.
+    """
+    tools = [s.as_tool_schema() for s in skills.values()]
+    messages: list[dict] = [{"role": "user", "content": human_message}]
+
+    for _ in range(max_turns):
+        turn = llm_client.chat(messages, tools=tools)
+        messages.append(turn)
+
+        if not turn["tool_calls"]:
+            return turn["content"] or ""
+
+        for call in turn["tool_calls"]:
+            skill = skills.get(call["name"])
+            if skill is None:
+                result = {"status": "error", "detail": f"unknown skill {call['name']!r}"}
+            else:
+                result = run_skill(skill, call["arguments"], config, buses)
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+
+    raise ConversationDidNotConclude(f"model did not produce a final answer within {max_turns} turns")
