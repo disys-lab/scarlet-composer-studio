@@ -15,16 +15,35 @@ that any well-defined distributed computation implements, plus a thin,
 skill-agnostic harness that dispatches invocations across a head and any
 number of worker agents using only scarlets primitives — no side channels.
 
-The reference implementation is a distributed **median**: workers each hold
-a private, unordered list of numbers; the head assigns one worker as
-coordinator (workers never self-assign — see
-`scarlet_composer_agentic_design/DESIGN_v3.md` §8.5); the coordinator
-gathers every worker's sorted local partition via `Mapper.AllGather()` and
-merges them into the true global median. Median specifically can't be built
-on `Federator` (it isn't an associative reduction the way sum/mean are), so
-it's a genuine test of whether the `Skill` interface generalizes past the
-"head aggregates centrally" case — a new skill is a new module under
-`skills/`, never a change to `head.py`/`worker.py`'s dispatch logic.
+Two skills exist so far, deliberately chosen to exercise different shapes:
+
+- **`median`** — workers each hold a private, unordered list of numbers; the
+  head assigns one worker as coordinator (workers never self-assign — see
+  `scarlet_composer_agentic_design/DESIGN_v3.md` §8.5); the coordinator
+  gathers every worker's sorted local partition via `Mapper.AllGather()` and
+  merges them into the true global median. Median isn't an associative
+  reduction (you can't combine two workers' local medians into the global
+  one), so it can't be built on `Federator` at all — it needs the full
+  partitioned data and a real merge.
+- **`sum`** — the first `Federator`-backed skill, and the first to take a
+  parameter (`transform: identity|square`). `Federator` *is* built for
+  associative reductions, but the coordinator is still a randomly-assigned
+  worker, same as median — nothing about `Federator` requires centralizing
+  on the head (see the coordinator-default discussion). Reports both the
+  total and `n` (total element count across all workers, co-aggregated as
+  one numpy array in a single `Aggregate()` call, not `len(workers)` — those
+  are different numbers, and conflating them was a real bug caught while
+  building this). `sum(transform=identity)` and `sum(transform=square)`,
+  plus `n`, are enough to derive mean/variance/stddev from pure arithmetic
+  with no new skill and no new distributed protocol —
+  `tests/test_sum_skill.py` proves this concretely, deriving a real variance
+  from two real `sum` invocations and checking it against
+  `statistics.pvariance`.
+
+Together these prove the `Skill` interface generalizes past "head
+aggregates centrally" *and* past "every skill needs `Mapper`" — a new skill
+is a new module under `skills/`, never a change to `head.py`/`worker.py`'s
+dispatch logic.
 
 ## Status
 
@@ -57,10 +76,18 @@ it's a genuine test of whether the `Skill` interface generalizes past the
   now uses `LLMClient` + `converse()` for real once `LLM_BASE_URL` is set;
   that specific wiring is the one piece in this codebase still unverified
   end-to-end, purely because there's nothing to point it at yet.
+- ✅ **`sum` skill** — `Federator`-backed, parameterized (`transform`),
+  reports total element count `n` correctly (co-aggregated with the sum, not
+  `len(workers)`). End-to-end tested for both transforms plus a real
+  variance derived from two `sum` calls (`tests/test_sum_skill.py`).
+- No composition layer yet — nothing calls `sum` twice and combines the
+  results automatically; that's still a manual arithmetic step in the test,
+  proving the *data* is composable, not yet that the *system* composes it.
+  The natural next piece is the local, non-distributed "combine" tool
+  discussed for variance, plus `converse()` actually making two tool calls
+  in sequence for a real composed request.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
-  deployed to any device group. That's the deliberate next phase once the
-  interface has more than one skill validating it (sum/mean are the natural
-  next test, since they're `Federator`-shaped rather than `Mapper`-shaped).
+  deployed to any device group.
 
 ## Design decisions worth knowing
 
