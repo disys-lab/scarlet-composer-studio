@@ -15,7 +15,7 @@ that any well-defined distributed computation implements, plus a thin,
 skill-agnostic harness that dispatches invocations across a head and any
 number of worker agents using only scarlets primitives — no side channels.
 
-Two skills exist so far, deliberately chosen to exercise different shapes:
+Three skills exist so far, deliberately chosen to exercise different shapes:
 
 - **`median`** — workers each hold a private, unordered list of numbers; the
   head assigns one worker as coordinator (workers never self-assign — see
@@ -39,11 +39,29 @@ Two skills exist so far, deliberately chosen to exercise different shapes:
   `tests/test_sum_skill.py` proves this concretely, deriving a real variance
   from two real `sum` invocations and checking it against
   `statistics.pvariance`.
+- **`combine`** — the local, non-distributed arithmetic step that closes the
+  composition loop: it evaluates a model-supplied expression (e.g.
+  `"s2/n - (s1/n)**2"`) against model-supplied named variables (e.g. the
+  `result`/`n` from two `sum` calls) via `safe_eval` (an AST-whitelisted
+  evaluator under `skills/safe_eval.py` — numeric constants, variable
+  lookup, `+ - * / **`, unary `+/-` only; everything else, including any
+  function call or attribute access, is rejected before anything runs).
+  Deliberately generic rather than a `CombineVarianceSkill` with the formula
+  baked in — an earlier design considered that and it defeats the whole
+  point of a small composable skill library. `contribute()` is a no-op (no
+  per-worker data to gather); `coordinate()` runs on one randomly-chosen
+  worker, same "head never computes" rule as median/sum, and needs no
+  readiness handshake since it depends on nothing from peers.
+  `tests/test_variance_composition_end_to_end.py` chains two real `sum`
+  calls into one real `combine` call and checks the result against
+  `statistics.pvariance` — the *system* composing sum→combine into variance,
+  not just the underlying data being composable in principle (which
+  `test_sum_skill.py` already showed by hand).
 
 Together these prove the `Skill` interface generalizes past "head
-aggregates centrally" *and* past "every skill needs `Mapper`" — a new skill
-is a new module under `skills/`, never a change to `head.py`/`worker.py`'s
-dispatch logic.
+aggregates centrally", past "every skill needs `Mapper`", and past "every
+skill is distributed" — a new skill is a new module under `skills/`, never
+a change to `head.py`/`worker.py`'s dispatch logic.
 
 ## Status
 
@@ -80,12 +98,17 @@ dispatch logic.
   reports total element count `n` correctly (co-aggregated with the sum, not
   `len(workers)`). End-to-end tested for both transforms plus a real
   variance derived from two `sum` calls (`tests/test_sum_skill.py`).
-- No composition layer yet — nothing calls `sum` twice and combines the
-  results automatically; that's still a manual arithmetic step in the test,
-  proving the *data* is composable, not yet that the *system* composes it.
-  The natural next piece is the local, non-distributed "combine" tool
-  discussed for variance, plus `converse()` actually making two tool calls
-  in sequence for a real composed request.
+- ✅ **`combine` skill** — generic expression+variables evaluator
+  (`safe_eval`, AST-whitelisted), runs on a randomly-chosen worker, no
+  readiness handshake needed. `tests/test_variance_composition_end_to_end.py`
+  chains two real `sum` calls into a real `combine` call and checks the
+  result against `statistics.pvariance` — the system now composes
+  sum→combine automatically via `run_skill`, not just by hand in a test.
+- Still missing: `converse()` itself deciding to make two `sum` calls and a
+  `combine` call in sequence for a human's variance question — the pieces
+  it would chain together are now real and tested, but nothing has driven
+  that chain through the LLM tool-calling loop yet (only `head.run_skill()`
+  called directly, three times, in the composition test above).
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 
