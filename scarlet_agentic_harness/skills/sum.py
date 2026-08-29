@@ -88,22 +88,29 @@ class SumSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        try:
+            return self._coordinate(ctx, request, workers)
+        finally:
+            # Router queues are keyed by request_id (a UUID, never reused) -
+            # without this, every sum invocation over the process's
+            # lifetime leaks one queue. See router.py.
+            ctx.buses.local_router.forget(request["request_id"])
+
+    def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
         ready_from: set[str] = set()
         deadline = time.time() + self.coordinate_timeout
         while len(ready_from) < len(workers) and time.time() < deadline:
-            msg = ctx.buses.local_bus.Receive(timeout=1)
+            msg = ctx.buses.local_router.receive_for(request["request_id"], timeout=1)
             if not msg:
                 continue
             body = msg.get("body", {})
-            if (
-                body.get("type") == _READY_MSG_TYPE
-                and body.get("request_id") == request["request_id"]
-            ):
+            if body.get("type") == _READY_MSG_TYPE:
                 if body.get("map_status") is False:
                     return {
                         "status": "error",
                         "detail": f"worker {body.get('from')} failed to Map its "
                                   f"local sum: {body.get('map_error')}",
+                        "retryable": True,
                     }
                 ready_from.add(body["from"])
 
@@ -112,6 +119,7 @@ class SumSkill(Skill):
             return {
                 "status": "error",
                 "detail": f"workers did not report ready in time: {sorted(missing)}",
+                "retryable": True,
             }
 
         federator = ctx.federator(request["mapper_name"], op=Mapper.SUM)
@@ -122,7 +130,7 @@ class SumSkill(Skill):
         # AllGather results too (it Mapped its own value in contribute()).
         totals, status, exc = federator.Aggregate(np.array([0.0, 0.0]))
         if not status:
-            return {"status": "error", "detail": f"Aggregate failed: {exc}"}
+            return {"status": "error", "detail": f"Aggregate failed: {exc}", "retryable": True}
 
         total, element_count = float(totals[0]), int(totals[1])
         transform_name = request.get("params", {}).get("transform", "identity")

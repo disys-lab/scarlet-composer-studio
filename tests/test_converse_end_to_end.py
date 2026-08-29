@@ -53,11 +53,11 @@ def test_converse_drives_a_real_median_computation(redis_conn_info):
             assistant_final(f"The median is {expected}."),
         ])
 
-        answer = head_mod.converse(
+        result = head_mod.converse(
             "What's the median?", head_config, head_buses, skills, llm, max_turns=3,
         )
 
-        assert answer == f"The median is {expected}."
+        assert result.answer == f"The median is {expected}."
 
         # the tool result fed back to the model on turn 2 must be the real,
         # correctly-computed distributed result - not a stub

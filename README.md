@@ -109,6 +109,62 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   it would chain together are now real and tested, but nothing has driven
   that chain through the LLM tool-calling loop yet (only `head.run_skill()`
   called directly, three times, in the composition test above).
+- ✅ **Auditability** — `converse()` now returns a `ConverseResult`
+  (`answer` + the full canonical-shape `messages` transcript), not a bare
+  string, and takes an optional `on_event` callback fired synchronously for
+  narration, tool calls, tool results, and the final answer as they happen.
+  Previously a turn's own narration ("I'll call X because...") was silently
+  discarded the moment that turn *also* contained a tool call — only the
+  bare final string, or nothing, ever survived. `tests/test_head_converse.py`
+  covers both the retained transcript and the event sequence/ordering.
+  `ConversationDidNotConclude` also now carries the partial transcript for
+  post-mortem. `__main__.py`'s LLM-backed chat mode logs every event to
+  stderr as JSON as a real (if minimal) live audit trail.
+- ✅ **Worker-level concurrency** — a worker no longer blocks its whole
+  dispatch loop inside one `skill.coordinate()` call while it runs (this was
+  a named, explicit limitation before). Fixed via `router.py`'s
+  `MessageRouter`: exactly one background thread owns a bus's `Receive()`
+  (scarlets' `Messenger` is a strict per-agent FIFO with unconditional
+  ack-on-read and no peek/filter — confirmed by reading the installed
+  package's source — so two independent callers of `Receive()` on the same
+  bus can and will silently steal messages meant for each other; this is
+  exactly why naive thread-per-message dispatch would have been unsafe
+  without a demultiplexing layer in front). The router demultiplexes by
+  `request_id` into per-request queues; unmatched (unsolicited) messages go
+  to a `default_handler`, which is how `worker.start_dispatch()` now spawns
+  a thread per incoming `skill_contribute`/`skill_coordinate` instead of
+  looping. `tests/test_worker_concurrency.py` forces two different skill
+  invocations onto the *same* coordinator concurrently and asserts both
+  return fully correct results — the actual risk being tested is message
+  cross-talk/loss between the two, not just raw non-blocking speed.
+- ✅ **Retry on transient mid-computation failure** — `run_skill()` now
+  retries (fresh `request_id`, fresh worker survey, possibly a new
+  coordinator) when a result is marked `"retryable": True` — set by
+  median/sum for failures that are plausibly transient (a contributor never
+  signaled ready, an `AllGather`/`Aggregate` call failed, the coordinator
+  never replied at all). `combine`'s logical errors (bad expression) are
+  explicitly `"retryable": False` — retrying those would just reproduce the
+  same error. A skill that doesn't set the flag defaults to *not*
+  retryable, the conservative choice. This also required teaching
+  `Buses.gather_workers()` a staleness filter (`max_staleness`, default
+  60s): scarlets' own registry entries never expire on their own (confirmed
+  by reading `Messenger.Register()`/`ReportStatus()` — a plain `r.set()`,
+  no TTL; only the 30s heartbeat keeps a live agent's timestamp moving), so
+  without this filter a genuinely dead worker's stale record would be
+  retried against forever instead of ever being excluded.
+  `tests/test_run_skill_retry.py` drives this deterministically (a fake
+  worker impersonated via raw Messenger traffic in the test process, not a
+  real subprocess kill, so the test controls exactly which attempt
+  succeeds) — one test proves recovery after one bad attempt, the other
+  proves it still gives up cleanly once every attempt fails.
+- Known, accepted gap in the retry story: excluding a genuinely-dead worker
+  from a retry relies entirely on the new staleness filter, since scarlets'
+  registry has no TTL of its own — a worker that dies and is replaced by a
+  fresh one *reporting under the same agent_id* within the staleness window
+  would not be distinguished from the original. Not addressed here; would
+  need an upstream change to scarlets' own registry semantics (instance
+  IDs are already tracked internally — see `Messenger._instanceId` — just
+  not surfaced through `GatherStatus()` today).
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 
@@ -145,6 +201,17 @@ a change to `head.py`/`worker.py`'s dispatch logic.
 - **`LOCAL_NUMBERS` env var** (comma-separated floats) is a deliberate
   placeholder for scarlet-composer-studio's own three-tier data source
   system (DESIGN_v3.md §9), not a permanent design choice.
+- **`MessageRouter` (`router.py`) is now the sole caller of `Receive()`** on
+  every bus, via `Buses.global_router`/`local_router` — nothing else may
+  call `global_bus.Receive()`/`local_bus.Receive()` directly. This isn't
+  stylistic: scarlets' `Messenger` transport has no way to filter or peek
+  without consuming, so any second independent caller of `Receive()` on the
+  same bus races the first and can permanently lose a message meant for it.
+  The router demultiplexes by `request_id`; skills call
+  `ctx.buses.local_router.receive_for(request_id, timeout)` instead of
+  `ctx.buses.local_bus.Receive(timeout)`, and must call `.forget(request_id)`
+  once done (success or error) since queues are keyed by UUID and never
+  auto-expire.
 
 ## Running the tests
 

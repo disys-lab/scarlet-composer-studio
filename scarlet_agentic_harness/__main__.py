@@ -7,6 +7,7 @@ against a real Redis while building.
 """
 import json
 import sys
+import threading
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
@@ -23,9 +24,13 @@ def main() -> None:
 
     if config.role == "worker":
         buses.report_status(capabilities=list(skills.keys()))
+        worker_mod.start_dispatch(config, buses, skills)
         print(f"[{config.agent_id}] worker online, skills={list(skills.keys())}", file=sys.stderr)
-        while True:
-            worker_mod.poll_once(config, buses, skills, timeout=1)
+        # Dispatch now happens entirely through buses.global_router's own
+        # background thread plus one handler thread per in-flight request
+        # (see worker.start_dispatch) - nothing left for the main thread to
+        # do but stay alive.
+        threading.Event().wait()
     else:
         buses.report_status(capabilities=[])
         print(f"[{config.agent_id}] head online.", file=sys.stderr)
@@ -56,13 +61,19 @@ def main() -> None:
             # endpoint, since no credentials exist yet.
             llm_client = LLMClient(config)
             print("LLM-backed chat mode: type a message per line on stdin.", file=sys.stderr)
+
+            def _log_event(event: dict) -> None:
+                # Real-time audit trail: narration, tool calls, and tool
+                # results as they happen, not just the final answer.
+                print(json.dumps(event), file=sys.stderr)
+
             for line in sys.stdin:
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    answer = head_mod.converse(line, config, buses, skills, llm_client)
-                    print(answer)
+                    result = head_mod.converse(line, config, buses, skills, llm_client, on_event=_log_event)
+                    print(result.answer)
                 except Exception as exc:
                     print(json.dumps({"status": "error", "detail": str(exc)}))
 

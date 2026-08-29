@@ -29,9 +29,9 @@ def test_no_tool_call_returns_content_directly(monkeypatch):
     monkeypatch.setattr(head_mod, "run_skill", lambda *a, **kw: calls.append((a, kw)))
 
     llm = ScriptedLLMClient([assistant_final("no tools needed, here's the answer")])
-    answer = head_mod.converse("hello", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = head_mod.converse("hello", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
-    assert answer == "no tools needed, here's the answer"
+    assert result.answer == "no tools needed, here's the answer"
     assert calls == []  # run_skill never invoked
 
 
@@ -50,9 +50,9 @@ def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
         assistant_final("the answer is 42"),
     ])
     skills = {"dummy": _DummySkill()}
-    answer = head_mod.converse("what's dummy(1)?", config=None, buses=None, skills=skills, llm_client=llm)
+    result = head_mod.converse("what's dummy(1)?", config=None, buses=None, skills=skills, llm_client=llm)
 
-    assert answer == "the answer is 42"
+    assert result.answer == "the answer is 42"
     assert captured == {"skill": "dummy", "params": {"x": 1}}
 
     # the tool result must have been fed back into the conversation before
@@ -81,9 +81,9 @@ def test_multiple_tool_calls_in_one_turn_all_get_dispatched(monkeypatch):
         },
         assistant_final("combined answer"),
     ])
-    answer = head_mod.converse("do two things", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = head_mod.converse("do two things", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
-    assert answer == "combined answer"
+    assert result.answer == "combined answer"
     assert seen == [{"which": "first"}, {"which": "second"}]
 
     second_call_messages, _ = llm.calls[1]
@@ -98,9 +98,9 @@ def test_unknown_tool_name_reports_error_without_crashing(monkeypatch):
         assistant_tool_call("call_1", "does_not_exist"),
         assistant_final("sorry, I don't have that capability"),
     ])
-    answer = head_mod.converse("do something unsupported", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = head_mod.converse("do something unsupported", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
-    assert answer == "sorry, I don't have that capability"
+    assert result.answer == "sorry, I don't have that capability"
     second_call_messages, _ = llm.calls[1]
     tool_msg = [m for m in second_call_messages if m["role"] == "tool"][0]
     assert tool_msg["content"]["status"] == "error"
@@ -115,7 +115,46 @@ def test_gives_up_after_max_turns(monkeypatch):
     try:
         head_mod.converse("loop forever", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm, max_turns=3)
         assert False, "expected ConversationDidNotConclude"
-    except head_mod.ConversationDidNotConclude:
-        pass
+    except head_mod.ConversationDidNotConclude as exc:
+        # the partial transcript survives the failure too - a caller
+        # debugging why the model never concluded needs exactly this.
+        assert len(exc.messages) > 0
 
     assert len(llm.calls) == 3  # stopped exactly at the limit, not before/after
+
+
+def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
+    monkeypatch.setattr(
+        head_mod, "run_skill",
+        lambda skill, params, config, buses: {"status": "ok", "result": 7},
+    )
+
+    llm = ScriptedLLMClient([
+        {
+            "role": "assistant",
+            "content": "I'll call dummy to check something first.",
+            "tool_calls": [{"id": "call_1", "name": "dummy", "arguments": {}}],
+        },
+        assistant_final("the answer is 7"),
+    ])
+
+    events = []
+    result = head_mod.converse(
+        "what's dummy?", config=None, buses=None, skills={"dummy": _DummySkill()},
+        llm_client=llm, on_event=events.append,
+    )
+
+    assert result.answer == "the answer is 7"
+    # Full transcript retained - previously only the bare final string
+    # survived; the narration and tool exchange are both preserved here.
+    assert any(m.get("role") == "tool" and m["content"] == {"status": "ok", "result": 7} for m in result.messages)
+
+    # The narration that accompanied the tool call is not silently dropped -
+    # this is exactly the case that used to vanish (a turn with both content
+    # and tool_calls only ever surfaced its tool_calls before).
+    event_types = [e["type"] for e in events]
+    assert event_types == ["narration", "tool_call", "tool_result", "final"]
+    assert events[0]["content"] == "I'll call dummy to check something first."
+    assert events[1] == {"type": "tool_call", "turn": 0, "call_id": "call_1", "skill": "dummy", "params": {}}
+    assert events[2]["result"] == {"status": "ok", "result": 7}
+    assert events[3]["content"] == "the answer is 7"

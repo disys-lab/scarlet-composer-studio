@@ -8,12 +8,26 @@ call would just reintroduce the ambiguity-compounding problem one hop later.
 handle_message() is a thin, deterministic lookup from message type -> Skill
 handler.
 
-Note: a worker handles one skill invocation at a time. While acting as
-coordinator, it blocks inside skill.coordinate() (which does its own
-local_bus polling) rather than continuing to service the outer dispatch
-loop. Fine for this build; a known limitation to revisit if concurrent
-invocations on the same worker are ever needed.
+start_dispatch() is what actually drives handle_message() now: it wires
+this worker's global-bus MessageRouter (buses.py) to spawn a new daemon
+thread per incoming skill_contribute/skill_coordinate message, instead of
+handling one message at a time in a blocking poll loop. That used to be a
+real limitation (see the git history for this docstring's previous
+wording): a worker acting as coordinator blocks inside skill.coordinate()
+for up to its coordinate_timeout, and a single blocking Receive()-then-
+handle loop couldn't service a second dispatch in that window at all.
+
+This only works because the router (router.py), not this module, is the
+sole caller of the global bus's Receive() - handle_message() itself never
+touches buses.global_bus.Receive() or buses.local_bus.Receive() directly,
+and neither does any Skill's contribute()/coordinate() (they go through
+ctx.buses.local_router). Spawning a thread per message here is safe
+specifically because message delivery to the right in-flight request is
+already handled by the router underneath, not because threads+shared-FIFO
+receive is safe in general (it is not - see router.py's docstring).
 """
+import threading
+
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
@@ -48,10 +62,17 @@ def handle_message(msg: dict, config: HarnessConfig, buses: Buses, skills: dict[
         })
 
 
-def poll_once(config: HarnessConfig, buses: Buses, skills: dict[str, Skill], timeout: float = 0) -> bool:
-    """Check the global bus once for a dispatch message. Returns True if one was handled."""
-    msg = buses.global_bus.Receive(timeout=timeout)
-    if msg:
-        handle_message(msg, config, buses, skills)
-        return True
-    return False
+def start_dispatch(config: HarnessConfig, buses: Buses, skills: dict[str, Skill]) -> None:
+    """
+    Start servicing this worker's incoming dispatch messages concurrently.
+    Call once at startup. After this, a new skill_contribute/skill_coordinate
+    message arriving while an earlier one is still being handled (e.g. this
+    worker is coordinating a slow skill.coordinate()) gets its own thread
+    immediately, rather than waiting behind it.
+    """
+    def _dispatch(msg: dict) -> None:
+        threading.Thread(
+            target=handle_message, args=(msg, config, buses, skills), daemon=True
+        ).start()
+
+    buses.global_router.default_handler = _dispatch

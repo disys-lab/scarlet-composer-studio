@@ -66,11 +66,14 @@ class CombineSkill(Skill):
         expression = params.get("expression")
         variables = params.get("variables", {})
         if not expression:
-            return {"status": "error", "detail": "combine requires a non-empty `expression`"}
+            # A logical/input error, not a transient one - retrying with a
+            # fresh worker survey would hit the exact same error again, so
+            # this is explicitly not retryable (see head.run_skill()).
+            return {"status": "error", "detail": "combine requires a non-empty `expression`", "retryable": False}
         try:
             result = safe_eval(expression, variables)
         except SafeEvalError as exc:
-            return {"status": "error", "detail": f"invalid expression: {exc}"}
+            return {"status": "error", "detail": f"invalid expression: {exc}", "retryable": False}
         return {
             "status": "ok",
             "result": result,

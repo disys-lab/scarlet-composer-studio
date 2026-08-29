@@ -70,22 +70,29 @@ class MedianSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        try:
+            return self._coordinate(ctx, request, workers)
+        finally:
+            # Router queues are keyed by request_id (a UUID, never reused) -
+            # without this, every median invocation over the process's
+            # lifetime leaks one queue. See router.py.
+            ctx.buses.local_router.forget(request["request_id"])
+
+    def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
         ready_from: set[str] = set()
         deadline = time.time() + self.coordinate_timeout
         while len(ready_from) < len(workers) and time.time() < deadline:
-            msg = ctx.buses.local_bus.Receive(timeout=1)
+            msg = ctx.buses.local_router.receive_for(request["request_id"], timeout=1)
             if not msg:
                 continue
             body = msg.get("body", {})
-            if (
-                body.get("type") == _READY_MSG_TYPE
-                and body.get("request_id") == request["request_id"]
-            ):
+            if body.get("type") == _READY_MSG_TYPE:
                 if body.get("map_status") is False:
                     return {
                         "status": "error",
                         "detail": f"worker {body.get('from')} failed to Map its "
                                   f"local partition: {body.get('map_error')}",
+                        "retryable": True,
                     }
                 ready_from.add(body["from"])
 
@@ -94,12 +101,13 @@ class MedianSkill(Skill):
             return {
                 "status": "error",
                 "detail": f"workers did not report ready in time: {sorted(missing)}",
+                "retryable": True,
             }
 
         mapper = ctx.mapper(request["mapper_name"])
         gathered, status, exc = mapper.AllGather()
         if not status:
-            return {"status": "error", "detail": f"AllGather failed: {exc}"}
+            return {"status": "error", "detail": f"AllGather failed: {exc}", "retryable": True}
 
         partitions = list(gathered.values())
         merged = list(heapq.merge(*partitions))
@@ -108,7 +116,7 @@ class MedianSkill(Skill):
         mapper.clearAll()
 
         if n == 0:
-            return {"status": "error", "detail": "no data across any worker"}
+            return {"status": "error", "detail": "no data across any worker", "retryable": True}
         if n % 2 == 1:
             median = merged[n // 2]
         else:
