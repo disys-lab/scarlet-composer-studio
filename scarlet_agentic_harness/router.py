@@ -33,10 +33,34 @@ are unsolicited from the receiving agent's point of view - see key_fn
 callers in buses.py) go to `default_handler` instead, which is how worker
 dispatch now flows: through the same router that services request-scoped
 waits, not a second independent Receive() loop.
+
+on_key() is the non-blocking counterpart to receive_for(): register a
+callback for a key and return immediately, instead of blocking a thread
+until a match or timeout. The callback fires on a freshly spawned thread
+(never the router's own polling thread - handing off is exactly the same
+discipline worker.start_dispatch() already follows for default_handler,
+and for the same reason: the polling thread must never do slow work, or it
+stalls delivery to every other key on this bus). One-shot per
+registration - call on_key() again inside the callback to keep watching.
+This is what lets a caller wait for a reply without occupying a thread for
+the whole wait: head.run_skill()'s async form registers a callback and
+returns, rather than blocking in _wait_for_result().
+
+on_key() also takes an optional timeout/on_timeout pair, backed by
+TimeoutWatcher (timeout_watcher.py) - a single shared scanning thread per
+router, not one thread per pending wait. This router owns the double-fire
+prevention TimeoutWatcher itself knows nothing about: when the real
+message arrives, any scheduled timeout for that key is cancelled before
+the real callback fires; when a timeout fires instead, the real callback
+registration is dropped first, so a late-arriving message afterward is
+silently ignored rather than invoking a callback that already gave up.
 """
 import queue
 import threading
+import time
 from typing import Callable
+
+from scarlet_agentic_harness.timeout_watcher import TimeoutWatcher
 
 
 class MessageRouter:
@@ -62,8 +86,10 @@ class MessageRouter:
         self.default_handler = default_handler
         self._poll_timeout = poll_timeout
         self._queues: dict[object, queue.Queue] = {}
+        self._callbacks: dict[object, Callable[[dict], None]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._watcher = TimeoutWatcher()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -80,25 +106,84 @@ class MessageRouter:
         except queue.Empty:
             return None
 
+    def on_key(
+        self,
+        key,
+        callback: Callable[[dict], None],
+        timeout: float | None = None,
+        on_timeout: Callable[[], None] | None = None,
+    ) -> None:
+        """
+        Register callback to fire, on a new thread, the next time a message
+        matching key arrives. Non-blocking - registers and returns.
+
+        If a message matching key already arrived and is sitting unclaimed
+        in key's queue (e.g. from before this registration - the same
+        "doesn't matter which came first" guarantee receive_for() gets),
+        the oldest one is drained and the callback fires with it right
+        away, still on a new thread rather than the caller's - and no
+        timeout is scheduled in that case, since the wait is already over.
+
+        timeout/on_timeout: if given, on_timeout fires (on a new thread) if
+        no matching message arrives within `timeout` seconds. Mutually
+        exclusive with callback ever firing for this registration - see
+        the module docstring's double-fire prevention.
+        """
+        pending = None
+        with self._lock:
+            q = self._queues.get(key)
+            if q is not None and not q.empty():
+                pending = q.get_nowait()
+            else:
+                self._callbacks[key] = callback
+        if pending is not None:
+            threading.Thread(target=callback, args=(pending,), daemon=True).start()
+            return
+        if timeout is not None:
+            self._watcher.schedule(key, time.time() + timeout, self._make_timeout_handler(key, on_timeout))
+
     def forget(self, key) -> None:
         """
-        Drop the queue for `key`. Call once a request is fully done (success
-        or error) - keys are UUIDs minted per request, so without this the
-        router leaks one queue per request for the lifetime of the process.
+        Drop the queue and any pending callback for `key`, and cancel any
+        scheduled timeout for it. Call once a request is fully done
+        (success or error) - keys are UUIDs minted per request, so without
+        this the router leaks one queue (and possibly one never-fired
+        callback or timeout) per request for the lifetime of the process.
         """
         with self._lock:
             self._queues.pop(key, None)
+            self._callbacks.pop(key, None)
+        self._watcher.cancel(key)
 
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=2)
+        self._watcher.stop()
+
+    def _make_timeout_handler(self, key, on_timeout: Callable[[], None] | None) -> Callable[[], None]:
+        def _handler():
+            # Whoever successfully pops the callback under the lock is the
+            # one that actually happened - the real message and a
+            # same-moment timeout race here, and only the winner acts. If
+            # _run() already popped it (the real message won), this pop
+            # returns None and on_timeout must NOT fire - the wait was
+            # already satisfied for a real reason.
+            with self._lock:
+                had_callback = self._callbacks.pop(key, None) is not None
+            if had_callback and on_timeout is not None:
+                on_timeout()
+        return _handler
 
     def _queue_for(self, key) -> queue.Queue:
         with self._lock:
-            q = self._queues.get(key)
-            if q is None:
-                q = self._queues[key] = queue.Queue()
-            return q
+            return self._queue_for_locked(key)
+
+    def _queue_for_locked(self, key) -> queue.Queue:
+        # Caller must already hold self._lock.
+        q = self._queues.get(key)
+        if q is None:
+            q = self._queues[key] = queue.Queue()
+        return q
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -106,11 +191,18 @@ class MessageRouter:
             if not msg:
                 continue
             key = self._key_fn(msg)
-            if key is not None:
-                self._queue_for(key).put(msg)
-            elif self.default_handler is not None:
-                self.default_handler(msg)
-            # else: not request-scoped and nothing registered to handle
-            # unsolicited messages - dropped, matching today's behavior for
-            # any message nobody expects (e.g. the head's global bus, which
-            # never wants unsolicited dispatch messages).
+            if key is None:
+                if self.default_handler is not None:
+                    self.default_handler(msg)
+                # else: not request-scoped and nothing registered to handle
+                # unsolicited messages - dropped, matching today's behavior
+                # for any message nobody expects.
+                continue
+            callback = None
+            with self._lock:
+                callback = self._callbacks.pop(key, None)
+                if callback is None:
+                    self._queue_for_locked(key).put(msg)
+            if callback is not None:
+                self._watcher.cancel(key)  # real message won - no timeout should fire for this key
+                threading.Thread(target=callback, args=(msg,), daemon=True).start()
