@@ -13,11 +13,10 @@ never computes" is a design constraint, not just a comment.
 """
 import os
 
-from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def _setup_env(redis_conn_info):
@@ -50,7 +49,7 @@ def test_combine_runs_on_a_worker_not_the_head(redis_conn_info):
 
         wait_for_workers(head_buses, procs, "combine", expected_count=3)
 
-        result = head_mod.run_skill(
+        result = run_skill_sync(
             combine_skill,
             {"expression": "s2/n - (s1/n)**2", "variables": {"s1": 45.0, "s2": 285.0, "n": 9}},
             head_config,
@@ -79,7 +78,7 @@ def test_combine_rejects_invalid_expression(redis_conn_info):
 
         wait_for_workers(head_buses, procs, "combine", expected_count=3)
 
-        result = head_mod.run_skill(
+        result = run_skill_sync(
             combine_skill,
             {"expression": "__import__('os')", "variables": {}},
             head_config,

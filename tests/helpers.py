@@ -8,7 +8,10 @@ workarounds for something that's fundamentally multi-process.
 """
 import subprocess
 import sys
+import threading
 import time
+
+from scarlet_agentic_harness import head as head_mod
 
 APP_ID = "medtest"
 WORKER_DATA = {
@@ -61,3 +64,42 @@ def terminate_all(procs) -> None:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def run_skill_sync(skill, params, config, buses, timeout: float = 60.0, **kwargs) -> dict:
+    """
+    head.run_skill() is fire-and-forget by design (see head.py) - it
+    delivers its result via a callback, not a return value. Tests want a
+    plain synchronous assertion, so this blocks the *calling test thread*
+    on a threading.Event until that callback fires. This is legitimate
+    local blocking to drive a synchronous caller (a test, same as a REPL),
+    not blocking inside run_skill()'s own logic, which is exactly what the
+    async rewrite removed.
+    """
+    done = threading.Event()
+    box: dict = {}
+
+    def on_result(result):
+        box["result"] = result
+        done.set()
+
+    head_mod.run_skill(skill, params, config, buses, on_result, **kwargs)
+    assert done.wait(timeout=timeout), "run_skill() callback never fired"
+    return box["result"]
+
+
+def converse_sync(human_message, config, buses, skills, llm_client, timeout: float = 60.0, **kwargs):
+    """Same pattern as run_skill_sync(), for head.converse()."""
+    done = threading.Event()
+    box: dict = {}
+
+    def on_done(result, error):
+        box["result"] = result
+        box["error"] = error
+        done.set()
+
+    head_mod.converse(human_message, config, buses, skills, llm_client, on_done, **kwargs)
+    assert done.wait(timeout=timeout), "converse() callback never fired"
+    if box["error"] is not None:
+        raise box["error"]
+    return box["result"]

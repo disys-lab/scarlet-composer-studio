@@ -7,11 +7,10 @@ worker.py dispatch code, not a shortcut that calls skill methods directly.
 import os
 import statistics
 
-from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def test_median_across_three_worker_processes(redis_conn_info):
@@ -40,7 +39,7 @@ def test_median_across_three_worker_processes(redis_conn_info):
 
         wait_for_workers(head_buses, procs, "median", expected_count=3)
 
-        result = head_mod.run_skill(median_skill, {}, head_config, head_buses)
+        result = run_skill_sync(median_skill, {}, head_config, head_buses)
 
         all_numbers = [n for nums in WORKER_DATA.values() for n in nums]
         expected = statistics.median(all_numbers)

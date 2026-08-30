@@ -8,12 +8,11 @@ path: real Messenger/Mapper, real subprocesses, real run_skill() dispatch.
 import os
 import statistics
 
-from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
 from tests.fakes import ScriptedLLMClient, assistant_final, assistant_tool_call
-from tests.helpers import APP_ID, WORKER_DATA, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import APP_ID, WORKER_DATA, converse_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def test_converse_drives_a_real_median_computation(redis_conn_info):
@@ -53,7 +52,7 @@ def test_converse_drives_a_real_median_computation(redis_conn_info):
             assistant_final(f"The median is {expected}."),
         ])
 
-        result = head_mod.converse(
+        result = converse_sync(
             "What's the median?", head_config, head_buses, skills, llm, max_turns=3,
         )
 

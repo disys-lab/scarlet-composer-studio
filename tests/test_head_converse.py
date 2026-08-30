@@ -7,10 +7,20 @@ are only about the loop's control flow: does it call the right skill with
 the right args, does it handle multiple tool calls in one turn, does it stop
 when the model stops calling tools, does it give up after max_turns. No
 Redis, no subprocesses, no network.
+
+converse() is fire-and-forget (delivers its result via on_done, not a
+return value - see head.py) - converse_sync() (tests/helpers.py) blocks the
+test thread on a threading.Event until that fires, and re-raises whatever
+error came back, so these tests keep their original synchronous shape.
+Fakes standing in for run_skill() must match its real async signature
+(..., on_result) and call on_result(...) themselves - synchronously is
+fine here, since converse()'s logic doesn't care whether a callback fires
+inline or from another thread.
 """
 from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.skills.base import Skill
 from tests.fakes import ScriptedLLMClient, assistant_final, assistant_tool_call
+from tests.helpers import converse_sync
 
 
 class _DummySkill(Skill):
@@ -29,7 +39,7 @@ def test_no_tool_call_returns_content_directly(monkeypatch):
     monkeypatch.setattr(head_mod, "run_skill", lambda *a, **kw: calls.append((a, kw)))
 
     llm = ScriptedLLMClient([assistant_final("no tools needed, here's the answer")])
-    result = head_mod.converse("hello", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = converse_sync("hello", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
     assert result.answer == "no tools needed, here's the answer"
     assert calls == []  # run_skill never invoked
@@ -38,10 +48,10 @@ def test_no_tool_call_returns_content_directly(monkeypatch):
 def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
     captured = {}
 
-    def fake_run_skill(skill, params, config, buses):
+    def fake_run_skill(skill, params, config, buses, on_result):
         captured["skill"] = skill.name
         captured["params"] = params
-        return {"status": "ok", "result": 42}
+        on_result({"status": "ok", "result": 42})
 
     monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 
@@ -50,7 +60,7 @@ def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
         assistant_final("the answer is 42"),
     ])
     skills = {"dummy": _DummySkill()}
-    result = head_mod.converse("what's dummy(1)?", config=None, buses=None, skills=skills, llm_client=llm)
+    result = converse_sync("what's dummy(1)?", config=None, buses=None, skills=skills, llm_client=llm)
 
     assert result.answer == "the answer is 42"
     assert captured == {"skill": "dummy", "params": {"x": 1}}
@@ -66,10 +76,12 @@ def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
 
 def test_multiple_tool_calls_in_one_turn_all_get_dispatched(monkeypatch):
     seen = []
-    monkeypatch.setattr(
-        head_mod, "run_skill",
-        lambda skill, params, config, buses: seen.append(params) or {"status": "ok", "result": params},
-    )
+
+    def fake_run_skill(skill, params, config, buses, on_result):
+        seen.append(params)
+        on_result({"status": "ok", "result": params})
+
+    monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 
     llm = ScriptedLLMClient([
         {
@@ -81,10 +93,10 @@ def test_multiple_tool_calls_in_one_turn_all_get_dispatched(monkeypatch):
         },
         assistant_final("combined answer"),
     ])
-    result = head_mod.converse("do two things", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = converse_sync("do two things", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
     assert result.answer == "combined answer"
-    assert seen == [{"which": "first"}, {"which": "second"}]
+    assert sorted(seen, key=lambda p: p["which"]) == [{"which": "first"}, {"which": "second"}]
 
     second_call_messages, _ = llm.calls[1]
     tool_call_ids = {m["tool_call_id"] for m in second_call_messages if m["role"] == "tool"}
@@ -98,7 +110,7 @@ def test_unknown_tool_name_reports_error_without_crashing(monkeypatch):
         assistant_tool_call("call_1", "does_not_exist"),
         assistant_final("sorry, I don't have that capability"),
     ])
-    result = head_mod.converse("do something unsupported", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
+    result = converse_sync("do something unsupported", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm)
 
     assert result.answer == "sorry, I don't have that capability"
     second_call_messages, _ = llm.calls[1]
@@ -107,13 +119,15 @@ def test_unknown_tool_name_reports_error_without_crashing(monkeypatch):
 
 
 def test_gives_up_after_max_turns(monkeypatch):
-    monkeypatch.setattr(head_mod, "run_skill", lambda *a, **kw: {"status": "ok", "result": 1})
+    def fake_run_skill(skill, params, config, buses, on_result):
+        on_result({"status": "ok", "result": 1})
+    monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 
     # a model that never stops calling tools
     llm = ScriptedLLMClient([assistant_tool_call(f"call_{i}", "dummy") for i in range(10)])
 
     try:
-        head_mod.converse("loop forever", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm, max_turns=3)
+        converse_sync("loop forever", config=None, buses=None, skills={"dummy": _DummySkill()}, llm_client=llm, max_turns=3)
         assert False, "expected ConversationDidNotConclude"
     except head_mod.ConversationDidNotConclude as exc:
         # the partial transcript survives the failure too - a caller
@@ -124,10 +138,9 @@ def test_gives_up_after_max_turns(monkeypatch):
 
 
 def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
-    monkeypatch.setattr(
-        head_mod, "run_skill",
-        lambda skill, params, config, buses: {"status": "ok", "result": 7},
-    )
+    def fake_run_skill(skill, params, config, buses, on_result):
+        on_result({"status": "ok", "result": 7})
+    monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 
     llm = ScriptedLLMClient([
         {
@@ -139,7 +152,7 @@ def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
     ])
 
     events = []
-    result = head_mod.converse(
+    result = converse_sync(
         "what's dummy?", config=None, buses=None, skills={"dummy": _DummySkill()},
         llm_client=llm, on_event=events.append,
     )

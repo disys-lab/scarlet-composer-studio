@@ -49,8 +49,23 @@ def main() -> None:
                 try:
                     req = json.loads(line)
                     skill = skills[req["skill"]]
-                    result = head_mod.run_skill(skill, req.get("params", {}), config, buses)
-                    print(json.dumps(result))
+                    # run_skill() is fire-and-forget (delivers its result via
+                    # on_result, not a return value - see head.py). This is a
+                    # one-line-at-a-time REPL, so blocking *this* loop on an
+                    # Event until that one call's result arrives is a
+                    # legitimate, local use of blocking - it drives a
+                    # synchronous CLI, it isn't blocking inside run_skill()'s
+                    # own logic.
+                    done = threading.Event()
+                    box: dict = {}
+
+                    def on_result(result):
+                        box["result"] = result
+                        done.set()
+
+                    head_mod.run_skill(skill, req.get("params", {}), config, buses, on_result)
+                    done.wait()
+                    print(json.dumps(box["result"]))
                 except Exception as exc:  # surfaced to the operator driving stdin manually
                     print(json.dumps({"status": "error", "detail": str(exc)}))
         else:
@@ -72,8 +87,23 @@ def main() -> None:
                 if not line:
                     continue
                 try:
-                    result = head_mod.converse(line, config, buses, skills, llm_client, on_event=_log_event)
-                    print(result.answer)
+                    # Same local-blocking pattern as manual dispatch mode
+                    # above - converse() is fire-and-forget, this REPL loop
+                    # waits for one conversation's on_done before reading
+                    # the next line.
+                    done = threading.Event()
+                    box: dict = {}
+
+                    def on_done(result, error):
+                        box["result"] = result
+                        box["error"] = error
+                        done.set()
+
+                    head_mod.converse(line, config, buses, skills, llm_client, on_done, on_event=_log_event)
+                    done.wait()
+                    if box["error"] is not None:
+                        raise box["error"]
+                    print(box["result"].answer)
                 except Exception as exc:
                     print(json.dumps({"status": "error", "detail": str(exc)}))
 

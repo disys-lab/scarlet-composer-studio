@@ -165,6 +165,29 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   need an upstream change to scarlets' own registry semantics (instance
   IDs are already tracked internally — see `Messenger._instanceId` — just
   not surfaced through `GatherStatus()` today).
+- ✅ **`run_skill()`/`converse()` are now fully async — dispatch-and-return,
+  never block-and-wait.** This was a full rewrite, not an extension: both
+  functions' calling convention changed from returning a value to firing a
+  callback (`on_result`/`on_done`) on some later thread, once. Built on top
+  of three foundational, independently-unit-tested pieces added first
+  (`router.py`'s `on_key()` non-blocking registration, `timeout_watcher.py`'s
+  single shared deadline-scanning thread instead of one thread per pending
+  wait, and `conversation_store.py`'s thread-safe state — needed because no
+  single thread's stack spans a conversation anymore once waiting is
+  callback-based; each leg of it runs on a different, short-lived thread).
+  Retry is a chain of callbacks now, not a loop. `converse()`'s tool calls
+  within one turn dispatch *concurrently* (a real behavior change, not just
+  a mechanical port — nothing requires waiting for call 1's reply before
+  starting call 2 once dispatch is non-blocking), and rejoin in the
+  model's original call order regardless of completion order (`_Joiner`),
+  not first-finished order. `tests/helpers.py`'s `run_skill_sync()`/
+  `converse_sync()` give tests (and `__main__.py`'s interactive CLI) a way
+  to block on one specific call's result via a `threading.Event` — legitimate
+  local blocking to drive a synchronous caller, not blocking inside the
+  library's own logic. All 8 tests that called the old synchronous
+  `run_skill()`/`converse()` directly were rewritten against the new
+  callback contract, not left broken; 58 tests total, stable across
+  repeated runs.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

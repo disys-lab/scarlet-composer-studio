@@ -24,11 +24,10 @@ import os
 import statistics
 import threading
 
-from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def test_two_concurrent_invocations_on_the_same_coordinator_both_succeed(redis_conn_info, monkeypatch):
@@ -62,10 +61,10 @@ def test_two_concurrent_invocations_on_the_same_coordinator_both_succeed(redis_c
         results: dict = {}
 
         def run_median():
-            results["median"] = head_mod.run_skill(median_skill, {}, head_config, head_buses)
+            results["median"] = run_skill_sync(median_skill, {}, head_config, head_buses)
 
         def run_sum():
-            results["sum"] = head_mod.run_skill(sum_skill, {"transform": "identity"}, head_config, head_buses)
+            results["sum"] = run_skill_sync(sum_skill, {"transform": "identity"}, head_config, head_buses)
 
         t1 = threading.Thread(target=run_median)
         t2 = threading.Thread(target=run_sum)

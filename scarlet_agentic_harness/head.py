@@ -1,39 +1,39 @@
 """
-Head-side orchestration.
+Head-side orchestration - async.
 
-run_skill() is the generic dispatch logic every skill invocation goes
-through - resolve live workers, decide a coordinator, dispatch, wait for the
-result. It is deliberately skill-agnostic (never imports a specific Skill
-subclass) so that adding a new skill never requires touching this function.
-It retries transient mid-computation failures (a coordinator that never
-responds, a coordinator that reports a worker dropped out) with a fresh
-worker survey and a fresh coordinator, up to `max_attempts` - see the
-`retryable` flag convention in its docstring below. It waits for the
-coordinator's reply via buses.global_router (never buses.global_bus.Receive()
-directly - see router.py/buses.py for why sharing Receive() across
-concurrent callers is unsafe with scarlets' actual transport).
+run_skill() dispatches one skill invocation and returns immediately; the
+result arrives later via `on_result`, never as a return value. This
+replaces a blocking wait (send, then sit on buses.global_router.receive_for()
+until a reply or timeout) with buses.global_router.on_key()'s non-blocking
+registration - see router.py for why: no thread should sit idle for up to
+~15+ seconds waiting on one reply when it could be servicing something
+else, and this is what actually lets a future check-in conversation happen
+*during* that wait instead of only before or after it.
 
-converse() wraps run_skill() with an LLM tool-calling loop that turns a
-human's free-text request into zero or more skill invocations and a final
-natural-language reply - the actual "multi-turn, possibly-composing-skills"
-loop described for the variance example. It takes an `llm_client` argument
-typed only as anything with a `.chat(messages, tools) -> dict` method (see
-llm/client.py's canonical message shape) - not the concrete LLMClient class -
-specifically so it's testable with a scripted fake today, with zero changes
-needed once a real LLM backend exists. It returns a ConverseResult carrying
-the full message transcript (not just the final string) and takes an
-optional `on_event` callback fired synchronously as the turn unfolds -
-narration, tool calls, and tool results that used to be silently discarded
-the moment a turn also contained tool_calls are now both retained (in
-`.messages`) and observable in real time (via `on_event`). Previously
-nothing outside this function ever saw a model's "I'm going to do X because
-Y" narration if it happened to accompany a tool call in the same turn -
-only a bare final answer, or nothing at all, survived. See
-tests/test_head_converse.py (control flow, no Redis) and
-tests/test_converse_end_to_end.py (real subprocess workers + real Redis,
-LLM decisions still scripted).
+Retry is no longer a for-loop - it can't be, since nothing blocks between
+attempts. It's a chain of callbacks: on_timeout or an "ok": False,
+"retryable": True result triggers another call to the same inner attempt()
+closure, with a fresh request_id and worker survey, up to max_attempts.
+The `retryable` flag convention is unchanged from the synchronous version -
+see the docstring on run_skill() below.
+
+converse() is the same shift applied to the LLM tool-calling loop: each
+turn dispatches its tool calls concurrently (they're independent async
+calls now, not sequential blocking ones) and resumes the next turn via
+on_done once every call in the turn has replied. The running transcript
+(previously a local `messages` list, safe because one thread's stack owned
+the whole loop) now lives in a ConversationStore (conversation_store.py),
+since no single thread's stack spans a conversation that's relayed across
+callback threads - see that module's docstring for why.
+
+Neither of these functions block their caller. tests/helpers.py's
+run_skill_sync()/converse_sync() give tests (and __main__.py's interactive
+CLI mode) a way to wait for one specific call's result via a
+threading.Event, which is legitimate local blocking to drive a synchronous
+caller - not blocking inside this module's own logic, which is exactly the
+thing this rewrite removes.
 """
-import time
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
@@ -41,6 +41,7 @@ from typing import Callable, Protocol
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
+from scarlet_agentic_harness.conversation_store import ConversationStore
 from scarlet_agentic_harness.skills.base import Skill
 
 
@@ -48,32 +49,25 @@ class ChatClient(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
 
 
-def _wait_for_result(buses: Buses, request_id: str, timeout: float) -> dict:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        remaining = max(0.0, deadline - time.time())
-        msg = buses.global_router.receive_for(request_id, timeout=(min(1.0, remaining) or 0.01))
-        if msg:
-            return msg.get("body", {})
-    return {"status": "error", "detail": "coordinator did not respond in time", "retryable": True}
-
-
 def run_skill(
     skill: Skill,
     params: dict,
     config: HarnessConfig,
     buses: Buses,
+    on_result: Callable[[dict], None],
     max_attempts: int = 2,
     reply_slack: float = 10.0,
-) -> dict:
+) -> None:
     """
-    Dispatch one invocation of `skill` across currently-registered workers
-    and return the final result dict (shape: {"status": "ok"/"error", ...}).
-    Runs on the head. Workers are discovered fresh via GatherStatus() on
-    every call (and again on every retry attempt), per DESIGN_v3.md section
-    8.5 - never a hardcoded topology, which is exactly what lets a retry
-    naturally exclude a worker that went offline mid-computation without any
-    special-cased "remove this worker" logic.
+    Dispatch one invocation of `skill` across currently-registered workers.
+    Does not block and does not return the result - `on_result` fires
+    exactly once, on some later thread, with the final result dict (shape:
+    {"status": "ok"/"error", ...}), whether that's success, a
+    non-retryable failure, or exhausting every retry attempt. Runs on the
+    head. Workers are discovered fresh via GatherStatus() on every attempt,
+    per DESIGN_v3.md section 8.5 - never a hardcoded topology, which is
+    exactly what lets a retry naturally exclude a worker that went offline
+    mid-computation without any special-cased "remove this worker" logic.
 
     A failed attempt is retried (fresh request_id, fresh worker survey,
     possibly a new coordinator) only if the result carries `"retryable":
@@ -95,13 +89,22 @@ def run_skill(
     waiting through a real ~10s timeout to prove retry behavior.
     """
     ctx = HarnessContext(config, buses)
-    last_result: dict = {}
 
-    for _attempt in range(1, max_attempts + 1):
+    def handle(result: dict, attempt_num: int) -> None:
+        if result.get("status") == "ok":
+            on_result(result)
+            return
+        if not result.get("retryable", False) or attempt_num >= max_attempts:
+            on_result(result)
+            return
+        attempt(attempt_num + 1)
+
+    def attempt(attempt_num: int) -> None:
         workers_info = buses.gather_workers()
         workers = [w for w, rec in workers_info.items() if skill.name in rec.get("capabilities", [])]
         if not workers:
-            return {"status": "error", "detail": f"no online worker currently reports the {skill.name!r} capability"}
+            on_result({"status": "error", "detail": f"no online worker currently reports the {skill.name!r} capability"})
+            return
 
         request_id = str(uuid.uuid4())
         coordinator = skill.coordinator_for(ctx, workers)
@@ -121,35 +124,34 @@ def run_skill(
 
         if coordinator == config.agent_id:
             # Only reached if a skill explicitly overrides coordinator_for()
-            # to return the head - not the default (Skill's base default is
-            # a random worker, so the head stays a pure router under
-            # concurrent load rather than becoming a bottleneck for every
-            # skill's aggregation step). The head never runs contribute():
-            # it holds no data of its own in this design, it only
-            # orchestrates.
-            result = skill.coordinate(ctx, request, workers)
-        else:
-            try:
-                result = _wait_for_result(buses, request_id, skill.coordinate_timeout + reply_slack)
-            finally:
-                # Router queues are keyed by request_id (a UUID, never
-                # reused) - without this, every invocation leaks one queue
-                # for the head's process lifetime. See router.py.
-                buses.global_router.forget(request_id)
+            # to return the head - not the default. Still dispatched onto a
+            # new thread rather than run inline, so run_skill() never blocks
+            # its own caller even in this rare case.
+            def run_in_process():
+                handle(skill.coordinate(ctx, request, workers), attempt_num)
+            threading.Thread(target=run_in_process, daemon=True).start()
+            return
 
-        if result.get("status") == "ok":
-            return result
-        last_result = result
-        if not result.get("retryable", False):
-            return result
-        # else: transient failure - loop again with a fresh survey/attempt
-        # if one remains; falling out of the loop returns last_result below.
+        def on_reply(msg: dict) -> None:
+            handle(msg.get("body", {}), attempt_num)
 
-    return last_result
+        def on_timeout() -> None:
+            handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True}, attempt_num)
+
+        # No explicit forget() needed here, unlike the old receive_for()
+        # flow - on_key()'s callback/timeout pair is self-cleaning either
+        # way it resolves (see router.py).
+        buses.global_router.on_key(
+            request_id, on_reply,
+            timeout=skill.coordinate_timeout + reply_slack, on_timeout=on_timeout,
+        )
+
+    attempt(1)
 
 
 class ConversationDidNotConclude(RuntimeError):
-    """Raised if the model keeps calling tools past max_turns without ever
+    """Raised (via on_done's error argument, not a real raise across
+    threads) if the model keeps calling tools past max_turns without ever
     producing a final answer - a real safety limit, not a soft warning:
     without one, a model stuck in a tool-calling loop runs indefinitely."""
 
@@ -161,14 +163,41 @@ class ConversationDidNotConclude(RuntimeError):
 @dataclass
 class ConverseResult:
     """
-    converse()'s return value. `answer` is the same final string it always
-    returned; `messages` is the full canonical-shape transcript (every turn,
-    every tool call, every tool result) that used to be discarded the moment
-    the function returned - kept for post-hoc audit, not just what
-    on_event saw as it happened.
+    converse()'s result (delivered via on_done, not a return value).
+    `answer` is the final string; `messages` is the full canonical-shape
+    transcript (every turn, every tool call, every tool result) - kept for
+    post-hoc audit, not just what on_event saw as it happened.
     """
     answer: str
     messages: list[dict] = field(default_factory=list)
+
+
+class _Joiner:
+    """
+    Collects N async tool-call results for one turn, then runs
+    `on_all_done` exactly once with every result, keyed by call id in the
+    turn's original order - not completion order, which varies now that
+    each tool call dispatches independently instead of one after another.
+    The decrement-and-check is done atomically under one lock so exactly
+    one thread ever observes "that was the last one", regardless of which
+    call's result arrives last.
+    """
+
+    def __init__(self, calls: list[dict], on_all_done: Callable[[dict], None]):
+        self._calls = calls
+        self._on_all_done = on_all_done
+        self._results: dict[str, dict] = {}
+        self._remaining = len(calls)
+        self._lock = threading.Lock()
+
+    def submit(self, call_id: str, result: dict) -> None:
+        with self._lock:
+            self._results[call_id] = result
+            self._remaining -= 1
+            done = self._remaining == 0
+        if done:
+            ordered = {call["id"]: self._results[call["id"]] for call in self._calls}
+            self._on_all_done(ordered)
 
 
 def converse(
@@ -177,64 +206,100 @@ def converse(
     buses: Buses,
     skills: dict[str, Skill],
     llm_client: ChatClient,
+    on_done: Callable[["ConverseResult | None", Exception | None], None],
     max_turns: int = 5,
     on_event: Callable[[dict], None] | None = None,
-) -> ConverseResult:
+    store: ConversationStore | None = None,
+) -> None:
     """
     Turn one human message into zero or more skill invocations and a final
-    natural-language reply. A single call can involve multiple tool-call
-    turns - this is what makes the variance-via-two-sum-calls composition
-    possible without any new infrastructure: the model can request another
-    skill, or several in one turn, after seeing an earlier result, and
-    run_skill() is called fresh each time with zero knowledge of the turn
-    before it.
+    natural-language reply. Does not block and does not return anything -
+    `on_done(result, error)` fires exactly once, on some later thread, with
+    either a ConverseResult or a ConversationDidNotConclude (never both).
 
-    If `on_event` is given, it is called synchronously (in this thread, in
-    order) for:
+    A single call can involve multiple tool-call turns, and a single turn
+    can request multiple tool calls at once - those now dispatch
+    concurrently (via run_skill(), itself non-blocking) rather than one
+    after another, since nothing requires waiting for call 1's reply
+    before starting call 2 anymore. The turn only advances once every call
+    in it has replied (see _Joiner), and results are placed back into the
+    transcript in the original call order regardless of which finished
+    first, so the model always sees a deterministic conversation shape.
+
+    llm_client.chat() itself is still an ordinary blocking call - only the
+    bus-mediated waiting (skill results, and eventually check-in replies)
+    is non-blocking. Blocking the thread currently running a turn for the
+    LLM round-trip doesn't stall anything else, since it isn't a router's
+    polling thread.
+
+    If `on_event` is given, it is called synchronously (on whichever thread
+    is running that turn, in order for that turn) for:
       - {"type": "narration", "turn": i, "content": ...} whenever a turn
-        carries non-empty content - including when it *also* carries tool
-        calls, which is exactly the case that used to vanish silently.
+        carries non-empty content alongside tool calls.
       - {"type": "tool_call", "turn": i, "call_id", "skill", "params"}
         right before dispatch.
       - {"type": "tool_result", "turn": i, "call_id", "skill", "result"}
-        right after dispatch.
-      - {"type": "final", "content": ...} when the loop concludes with a
-        direct answer.
-    A raising on_event propagates immediately - it runs in-line, not as a
-    fire-and-forget side channel, so a caller using it to gate execution
-    (e.g. "ask a human before running this") can actually block or abort.
+        right after a reply arrives.
+      - {"type": "final", "content": ...} when the loop concludes.
     """
+    store = store if store is not None else ConversationStore()
+    conv_id = str(uuid.uuid4())
     tools = [s.as_tool_schema() for s in skills.values()]
-    messages: list[dict] = [{"role": "user", "content": human_message}]
+    store.create(conv_id, {"messages": [{"role": "user", "content": human_message}]})
 
     def emit(event: dict) -> None:
         if on_event is not None:
             on_event(event)
 
-    for turn_index in range(max_turns):
+    def finish(result: ConverseResult | None, error: Exception | None) -> None:
+        store.forget(conv_id)
+        on_done(result, error)
+
+    def do_turn(turn_index: int) -> None:
+        if turn_index >= max_turns:
+            messages = store.get(conv_id)["messages"]
+            finish(None, ConversationDidNotConclude(
+                f"model did not produce a final answer within {max_turns} turns", messages))
+            return
+
+        messages = store.get(conv_id)["messages"]
         turn = llm_client.chat(messages, tools=tools)
-        messages.append(turn)
+        store.append(conv_id, "messages", turn)
 
         if not turn["tool_calls"]:
             answer = turn["content"] or ""
             emit({"type": "final", "content": answer})
-            return ConverseResult(answer=answer, messages=messages)
+            finish(ConverseResult(answer=answer, messages=store.get(conv_id)["messages"]), None)
+            return
 
         if turn.get("content"):
             # Only the "narration alongside a tool call" case counts as a
             # separate event - a turn with no tool_calls already emits
-            # "final" above with the same content, and double-emitting both
-            # for that turn would misrepresent one turn as two events.
+            # "final" above with the same content.
             emit({"type": "narration", "turn": turn_index, "content": turn["content"]})
 
-        for call in turn["tool_calls"]:
+        calls = turn["tool_calls"]
+
+        def on_all_results(results_by_id: dict) -> None:
+            for call in calls:
+                store.append(conv_id, "messages", {
+                    "role": "tool", "tool_call_id": call["id"], "content": results_by_id[call["id"]],
+                })
+            do_turn(turn_index + 1)
+
+        joiner = _Joiner(calls, on_all_results)
+
+        for call in calls:
             skill = skills.get(call["name"])
             emit({"type": "tool_call", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "params": call["arguments"]})
             if skill is None:
                 result = {"status": "error", "detail": f"unknown skill {call['name']!r}"}
+                emit({"type": "tool_result", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "result": result})
+                joiner.submit(call["id"], result)
             else:
-                result = run_skill(skill, call["arguments"], config, buses)
-            emit({"type": "tool_result", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "result": result})
-            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                def on_result(result: dict, call=call) -> None:
+                    emit({"type": "tool_result", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "result": result})
+                    joiner.submit(call["id"], result)
+                run_skill(skill, call["arguments"], config, buses, on_result)
 
-    raise ConversationDidNotConclude(f"model did not produce a final answer within {max_turns} turns", messages)
+    do_turn(0)

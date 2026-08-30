@@ -23,11 +23,10 @@ test kept eagerly answering the next test's requests).
 """
 import os
 
-from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.base import Skill
-from tests.helpers import APP_ID
+from tests.helpers import APP_ID, run_skill_sync
 
 
 def _stop(buses: Buses) -> None:
@@ -105,7 +104,7 @@ def test_run_skill_retries_after_a_coordinator_timeout(redis_conn_info):
 
     try:
         skill = _StubSkill("stub_retry_test_1")
-        result = head_mod.run_skill(skill, {}, head_config, head_buses, max_attempts=2, reply_slack=0.5)
+        result = run_skill_sync(skill, {}, head_config, head_buses, max_attempts=2, reply_slack=0.5)
 
         assert result["status"] == "ok"
         assert result["result"] == 99
@@ -144,7 +143,7 @@ def test_run_skill_gives_up_after_max_attempts_all_fail(redis_conn_info):
 
     try:
         skill = _StubSkill("stub_retry_test_2")
-        result = head_mod.run_skill(skill, {}, head_config, head_buses, max_attempts=2, reply_slack=0.5)
+        result = run_skill_sync(skill, {}, head_config, head_buses, max_attempts=2, reply_slack=0.5)
 
         assert result["status"] == "error"
         assert result["detail"] == "coordinator did not respond in time"
