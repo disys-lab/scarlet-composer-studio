@@ -1,5 +1,6 @@
 scarlets @ git+https://github.com/disys-lab/scarlet-composer-studio.git
 openai>=1.0.0
+mcp>=2.0.0
 
 # test-only
 pytest>=7.0.0

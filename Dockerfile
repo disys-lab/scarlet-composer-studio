@@ -28,9 +28,10 @@ FROM ghcr.io/disys-lab/scarlet-agent-base:${BASE_VERSION}
 WORKDIR /app
 
 # scarlet-agent-base already provides the scarlets API (redis/numpy/requests
-# or the real scarlets wheel, per its own LOCAL build-arg) - openai is the
-# one extra runtime dependency this harness adds on top (scarlet_agentic_harness/llm/client.py).
-RUN pip install --no-cache-dir openai>=1.0.0
+# or the real scarlets wheel, per its own LOCAL build-arg) - openai and mcp
+# are the extra runtime dependencies this harness adds on top
+# (scarlet_agentic_harness/llm/client.py, mcp_server.py).
+RUN pip install --no-cache-dir openai>=1.0.0 mcp>=2.0.0
 
 # Only what's needed to install and run the package - tests/, transcripts/,
 # and dev tooling are excluded via .dockerignore, keeping this a runtime
@@ -61,7 +62,11 @@ COPY supervisord.conf /etc/supervisor/conf.d/scarlet_agents.conf
 # `docker run -it ... -e ROLE=head ...` (bypassing supervisord, or with
 # stdin properly attached) for head/manual-dispatch use until __main__.py's
 # head branch becomes a real daemon - not something to fix inside a
-# Dockerfile.
+# Dockerfile. mcp_server.py (python -m scarlet_agentic_harness.mcp_server,
+# MCP_TRANSPORT=streamable-http) is a genuine headless alternative for a
+# head role - it needs no stdin at all - but isn't wired as this image's
+# default CMD; run it as a separate `docker run`/supervisord program if
+# you need an MCP-reachable head.
 ENV ROLE="worker" \
     HEAD_BUS="" \
     LLM_MODEL=""

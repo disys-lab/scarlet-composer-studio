@@ -18,6 +18,7 @@ setup(
     install_requires=[
         "scarlets @ git+https://github.com/disys-lab/scarlet-composer-studio.git",
         "openai>=1.0.0",
+        "mcp>=2.0.0",
     ],
     python_requires=">=3.10",
 )

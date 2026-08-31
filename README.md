@@ -483,6 +483,36 @@ a change to `head.py`/`worker.py`'s dispatch logic.
     `tests/test_config.py::test_empty_string_env_vars_treated_as_unset`
     reproduces the exact real-container shape (present-but-empty, not
     merely absent) so this class of bug can't silently return.
+- ✅ **MCP gateway** (`mcp_server.py`) — wraps `head.converse()` as a single
+  MCP tool (`ask_scarlet_agent(message: str) -> str`), replacing
+  `__main__.py`'s stdin REPL as the human/external-agent entry point. A
+  different, higher layer than scarlets' own documented MCP integration
+  (`Messenger.AsTools()` in scarlet-composer-studio's docs/guides/
+  llm-integration.md, which exposes raw bus primitives like `send_message`/
+  `gather_status` as MCP tools, requiring the external client's own LLM to
+  do its own skill-selection reasoning) - this exposes the already-built
+  `converse()` loop instead, so a caller doesn't need to know median/sum/
+  combine exist at all. Skill selection, dispatch, retry, and deliberation
+  all still happen inside this harness using its own LLM backend; only the
+  entry point changes. Requires `ROLE=head` and `LLM_BASE_URL` (no manual-
+  dispatch fallback, unlike the stdin REPL). `MCP_TRANSPORT` env var
+  selects `stdio` (default - a client launches this process directly,
+  e.g. Claude Desktop's local MCP config) or `streamable-http`/`sse` (a
+  real deployment behind Gustavo would expose `MCP_HOST`/`MCP_PORT`) - the
+  `streamable-http` mode is also a genuine headless alternative for a head
+  role, needing no `sys.stdin` at all (see the Dockerfile's own note on
+  this).
+  - **Verified against the real MCP protocol, not just an in-process
+    call**: `tests/test_real_llm_mcp_server.py` uses the real `mcp` client
+    SDK (`mcp.client.stdio.stdio_client`) to spawn `mcp_server.py` as an
+    actual subprocess and speak the real MCP wire protocol to it
+    (`initialize` → `list_tools` → `call_tool`) - not a shortcut that
+    calls the tool function directly. That subprocess's own `converse()`
+    call drove a real distributed median computation across 3 real
+    worker subprocesses and real Redis, and a real Claude Sonnet 4.6
+    reply ("The global median across all worker agents is 5.0...") came
+    back through the MCP tool-call boundary correctly. See
+    `transcripts/test_ask_scarlet_agent_drives_a_real_median_computation_over_real_mcp.md`.
 
 ## Design decisions worth knowing
 
