@@ -71,7 +71,14 @@ jobs:
 
   agent-linuxbuild:
     needs: bumpversion
-    if: contains(github.event.head_commit.message, '#agent-linuxbuild')
+    # always() + explicit needs.bumpversion.result check, not a plain
+    # contains(...) - confirmed by a real run that GitHub Actions skips a
+    # downstream job by default whenever a needed job was skipped (bump
+    # only runs on #agent-bump/#composer-bump, so a commit with only
+    # #agent-linuxbuild would otherwise skip this too, cascading through
+    # every job below it). success() alone doesn't cover a *skipped*
+    # bumpversion, only a *succeeded* one.
+    if: always() && contains(github.event.head_commit.message, '#agent-linuxbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -106,7 +113,7 @@ jobs:
 
   agent-macbuild:
     needs: bumpversion
-    if: contains(github.event.head_commit.message, '#agent-macbuild')
+    if: always() && contains(github.event.head_commit.message, '#agent-macbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -130,7 +137,11 @@ jobs:
 
   agent-dockerbuild:
     needs: agent-linuxbuild
-    if: contains(github.event.head_commit.message, '#agent-dockerbuild') && success()
+    # Deliberately requires needs.agent-linuxbuild.result == 'success'
+    # specifically here (not also 'skipped', unlike the *build jobs above) -
+    # this job needs the wheel artifact agent-linuxbuild uploads, so it must
+    # not run if that job didn't actually run and succeed.
+    if: always() && contains(github.event.head_commit.message, '#agent-dockerbuild') && needs.agent-linuxbuild.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       packages: write
@@ -177,7 +188,7 @@ jobs:
 
   composer-linuxbuild:
     needs: bumpversion
-    if: contains(github.event.head_commit.message, '#composer-linuxbuild')
+    if: always() && contains(github.event.head_commit.message, '#composer-linuxbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -213,7 +224,7 @@ jobs:
 
   composer-macbuild:
     needs: bumpversion
-    if: contains(github.event.head_commit.message, '#composer-macbuild')
+    if: always() && contains(github.event.head_commit.message, '#composer-macbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -238,7 +249,7 @@ jobs:
 
   composer-dockerbuild:
     needs: composer-linuxbuild
-    if: contains(github.event.head_commit.message, '#composer-dockerbuild') && success()
+    if: always() && contains(github.event.head_commit.message, '#composer-dockerbuild') && needs.composer-linuxbuild.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       packages: write
