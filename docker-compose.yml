@@ -1,0 +1,55 @@
+version: '3.9'
+
+# scarlet-agents — local docker-compose
+#
+# Starts two services against an external Redis instance, mirroring
+# scarlet-composer-studio's own quickstart example:
+#   1. scarlet-composer — Composer operator UI (port 8501) + BackgroundServer (port 9099)
+#   2. scarlet-agents    — this harness, built locally from ./Dockerfile (ROLE=worker)
+#
+# Gustavo is not required for local development - it is only needed for
+# multi-node edge deployments where agents must be pushed to remote
+# machines via Nebula.
+#
+# Usage:
+#   cp .env.example .env          # fill in REDIS_HOST, REDIS_AUTH_TOKEN
+#   docker compose up --build -d
+#
+# After the stack is running, open http://localhost:8501 for the Composer UI.
+
+services:
+
+  # ─── Scarlet Composer Studio UI ────────────────────────────────────────────
+  scarlet-composer:
+    image: ghcr.io/disys-lab/scarlet-composer:${SCARLET_VERSION:-0.5.0}
+    container_name: scarlet-composer
+    restart: unless-stopped
+    ports:
+      - "8501:8501"   # Streamlit UI
+      - "9099:9099"   # Tornado background server (node identity)
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─── scarlet-agents worker ──────────────────────────────────────────────────
+  # Built locally from ./Dockerfile (extends scarlet-agent-base). ROLE=worker
+  # here since ROLE=head is currently an interactive CLI, not yet a headless
+  # daemon - see the Dockerfile's own comment on that. Scale to a real
+  # head+worker topology by running this same image again with a different
+  # NODE_ADDRESS (and ROLE=head run manually, not via compose, until that
+  # changes).
+  scarlet-agents:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scarlet-agents
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - ROLE=worker
+      - APP_ID=scarlet-agents
+      - NODE_ADDRESS=local
+      - HEAD_BUS=scarlet-agents_headagent
+      - DEVICE_GROUP=scarlet-agents_subagent
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
