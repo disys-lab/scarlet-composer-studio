@@ -150,16 +150,39 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Determine version
-        id: version
-        run: |
-          TAG=$(git describe --tags --abbrev=0)
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Download scarlets wheel
         uses: actions/download-artifact@v4
         with:
           name: scarlets-wheel
           path: dist
+      # Parsed from the actual downloaded wheel's filename, not recomputed
+      # separately (was `git describe --tags --abbrev=0`, stripped of its
+      # "v" prefix) - found by a real run to diverge from what
+      # setuptools-scm actually named the wheel whenever this commit isn't
+      # *exactly* the tagged commit (e.g. a docker-only retry with no
+      # #agent-bump in the same commit): git describe --abbrev=0 just names
+      # the nearest tag regardless of commit distance, while
+      # setuptools-scm bumps to a dev-suffixed next version the moment
+      # HEAD is even one commit past the tag - VERSION=0.5.1 was passed to
+      # a wheel actually named scarlets-0.5.2.dev3+g<hash>-py3-none-any.whl,
+      # and the Dockerfile's own pip install glob matched nothing. A bare
+      # `python -m setuptools_scm` isn't a fix either - it doesn't read
+      # setup.py's own use_scm_version config without a pyproject.toml,
+      # so it computes yet another, still-different, still-wrong version.
+      # docker_tag is a *separate* output from version - a setuptools-scm
+      # dev version contains a literal "+" (e.g. 0.5.2.dev3+gc6174a400),
+      # which Docker's own tag reference format rejects outright
+      # ("invalid reference format", confirmed against a real `docker
+      # tag`). The build-arg below needs the raw version verbatim (the
+      # Dockerfile's pip install glob must match the wheel's real
+      # filename); the image tag needs the sanitized form.
+      - name: Determine version
+        id: version
+        run: |
+          WHEEL=$(ls dist/scarlets-*.whl | head -1)
+          VERSION=$(basename "$WHEEL" | sed -E 's/^scarlets-(.+)-py3-none-any\.whl$/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=${VERSION//+/-}" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -181,7 +204,7 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             LOCAL=true
           tags: |
-            ghcr.io/disys-lab/scarlet-agent-base:${{ steps.version.outputs.version }}
+            ghcr.io/disys-lab/scarlet-agent-base:${{ steps.version.outputs.docker_tag }}
             ghcr.io/disys-lab/scarlet-agent-base:latest
 
   # ── scarlet-composer ─────────────────────────────────────────────────────
@@ -258,16 +281,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Determine version
-        id: version
-        run: |
-          TAG=$(git describe --tags --abbrev=0)
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
       - name: Download wheels
         uses: actions/download-artifact@v4
         with:
           name: composer-wheels
           path: dist
+      # Parsed from the actual downloaded wheel - see agent-dockerbuild's
+      # Determine version step for why (git describe --abbrev=0 can name a
+      # different version than what setuptools-scm actually gave the wheel).
+      - name: Determine version
+        id: version
+        run: |
+          WHEEL=$(ls dist/scarletcomposer-*.whl | head -1)
+          VERSION=$(basename "$WHEEL" | sed -E 's/^scarletcomposer-(.+)-py3-none-any\.whl$/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=${VERSION//+/-}" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -289,5 +317,5 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
             LOCAL=true
           tags: |
-            ghcr.io/disys-lab/scarlet-composer:${{ steps.version.outputs.version }}
+            ghcr.io/disys-lab/scarlet-composer:${{ steps.version.outputs.docker_tag }}
             ghcr.io/disys-lab/scarlet-composer:latest
