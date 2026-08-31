@@ -102,12 +102,12 @@ def run_skill(
     config: HarnessConfig,
     buses: Buses,
     on_result: Callable[[dict], None],
-    max_attempts: int = 2,
-    reply_slack: float = 10.0,
+    max_attempts: int | None = None,
+    reply_slack: float | None = None,
     dialogue: AgentDialogue | None = None,
     llm_client: ChatClient | None = None,
-    max_check_ins: int = 2,
-    check_in_timeout: float = 10.0,
+    max_check_ins: int | None = None,
+    check_in_timeout: float | None = None,
 ) -> None:
     """
     Dispatch one invocation of `skill` across currently-registered workers.
@@ -144,7 +144,17 @@ def run_skill(
     section. Omit either (the default) for the old, purely mechanical
     behavior. max_check_ins/check_in_timeout only matter when both are
     given - see the same section for what they bound.
+
+    max_attempts/reply_slack/max_check_ins/check_in_timeout each default to
+    None, meaning "use config's value" (HarnessConfig.max_attempts etc. -
+    see config.py, settable via env var for a real deployment) - pass an
+    explicit value here (as tests do) to override just this one call.
     """
+    max_attempts = max_attempts if max_attempts is not None else config.max_attempts
+    reply_slack = reply_slack if reply_slack is not None else config.reply_slack
+    max_check_ins = max_check_ins if max_check_ins is not None else config.max_check_ins
+    check_in_timeout = check_in_timeout if check_in_timeout is not None else config.check_in_timeout
+
     ctx = HarnessContext(config, buses)
 
     def attempt(attempt_num: int) -> None:

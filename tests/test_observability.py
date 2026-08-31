@@ -31,19 +31,22 @@ def test_registry_publishes_in_flight_requests_and_snapshot_reads_it_back(redis_
     registry = CancellationRegistry(activity_mapper=mapper, agent_id=f"{APP_ID}_worker-a")
 
     try:
-        registry.create("req-1")
-        registry.create("req-2")
+        registry.create("req-1", skill_name="median")
+        registry.create("req-2", skill_name="sum")
 
         snap = observability.snapshot(mapper)
         assert f"{APP_ID}_worker-a" in snap
         published = snap[f"{APP_ID}_worker-a"]
-        assert sorted(published["in_flight"]) == ["req-1", "req-2"]
+        assert sorted(published["in_flight"].keys()) == ["req-1", "req-2"]
+        assert published["in_flight"]["req-1"]["skill"] == "median"
+        assert published["in_flight"]["req-2"]["skill"] == "sum"
+        assert "elapsed_seconds" in published["in_flight"]["req-1"]
         assert published["count"] == 2
 
         registry.forget("req-1")
         snap = observability.snapshot(mapper)
         published = snap[f"{APP_ID}_worker-a"]
-        assert published["in_flight"] == ["req-2"]
+        assert list(published["in_flight"].keys()) == ["req-2"]
         assert published["count"] == 1
     finally:
         mapper.clearAll()
@@ -61,8 +64,8 @@ def test_snapshot_shows_multiple_agents_publishing_to_the_shared_mapper(redis_co
         registry_b.create("req-from-b-2")
 
         snap = observability.snapshot(mapper)
-        assert snap[f"{APP_ID}_worker-a"]["in_flight"] == ["req-from-a"]
-        assert sorted(snap[f"{APP_ID}_worker-b"]["in_flight"]) == ["req-from-b-1", "req-from-b-2"]
+        assert list(snap[f"{APP_ID}_worker-a"]["in_flight"].keys()) == ["req-from-a"]
+        assert sorted(snap[f"{APP_ID}_worker-b"]["in_flight"].keys()) == ["req-from-b-1", "req-from-b-2"]
     finally:
         mapper.clearAll()
 
@@ -74,4 +77,4 @@ def test_registry_without_activity_mapper_does_not_touch_redis(redis_conn_info):
     registry = CancellationRegistry()
     registry.create("req-1")
     registry.forget("req-1")
-    assert registry.snapshot() == []
+    assert registry.snapshot() == {}

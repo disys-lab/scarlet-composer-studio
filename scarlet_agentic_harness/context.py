@@ -27,6 +27,9 @@ class _NoopCancellation:
     def on_cancel(self, fn) -> None:
         pass
 
+    def update_progress(self, **kwargs) -> None:
+        pass
+
 
 class HarnessContext:
     def __init__(self, config: HarnessConfig, buses: Buses, cancellation: "CancellationToken | None" = None):
@@ -50,6 +53,17 @@ class HarnessContext:
         request is cancelled - for a skill doing one blocking call with no
         natural checkpoint to poll a flag at. See cancellation.py."""
         self._cancellation.on_cancel(fn)
+
+    def report_progress(self, **kwargs) -> None:
+        """
+        Opt-in: let a skill's coordinate() report real, specific progress
+        (e.g. `ctx.report_progress(ready_count=2, expected_count=3)`) as it
+        goes - this is what makes a check-in reply grounded in genuinely
+        useful detail rather than just "this request exists" (see
+        cancellation.py's CancellationToken.update_progress()). A no-op
+        when this context isn't scoped to a cancellable, tracked request.
+        """
+        self._cancellation.update_progress(**kwargs)
 
     def mapper(self, name: str, description: str = "") -> Mapper:
         """

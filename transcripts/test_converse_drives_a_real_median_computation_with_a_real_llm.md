@@ -8,11 +8,11 @@
 **1. assistant**
 - tool call: `median({})`
 
-**2. tool result** (call `toolu_018d4C2aNXnndjVor4sWpruW`)
+**2. tool result** (call `toolu_01Ev2tiiNDoGps2Rd4A5B3Qq`)
 ```json
 {
   "type": "skill_result",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
   "status": "ok",
   "result": 5.0,
   "detail": "n=9 across 3 workers"
@@ -20,12 +20,13 @@
 ```
 
 **3. assistant**
-> The global median across all worker agents is **5.0**.
+> The **global median** across all worker agents is **5.0**.
 
 Here are some additional details from the computation:
 - **Number of workers:** 3
-- **Total values considered:** 9
-- The skill coordinated sorting and merging of each worker's private list to find the true middle value without revealing individual data points.
+- **Total values considered:** 9 (across all workers)
+
+The workers' private lists were collectively sorted and merged to find the true middle value, which came out to **5.0**.
 
 ---
 
@@ -33,110 +34,78 @@ Here are some additional details from the computation:
 
 7 message(s) captured, in send order.
 
-### 1. `realllm_median_head-node` → `realllm_median_w3` — `skill_coordinate` (global bus)
+### 1. `realllm_median_head-node` → `realllm_median_w1` — `skill_contribute` (global bus)
 
-- timestamp: `1788155499.258921`
+- timestamp: `1788184936.292972`
+- seq: `1`
+
+```json
+{
+  "type": "skill_contribute",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "skill": "median",
+  "mapper_name": "median_24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "coordinator": "realllm_median_w2",
+  "workers": [
+    "realllm_median_w1",
+    "realllm_median_w2",
+    "realllm_median_w3"
+  ],
+  "params": {}
+}
+```
+
+### 2. `realllm_median_head-node` → `realllm_median_w2` — `skill_coordinate` (global bus)
+
+- timestamp: `1788184936.3065012`
 - seq: `1`
 
 ```json
 {
   "type": "skill_coordinate",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
   "skill": "median",
-  "mapper_name": "median_d299fe51-f104-4fce-9207-9cf99b525122",
-  "coordinator": "realllm_median_w3",
+  "mapper_name": "median_24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "coordinator": "realllm_median_w2",
   "workers": [
-    "realllm_median_w3",
     "realllm_median_w1",
-    "realllm_median_w2"
+    "realllm_median_w2",
+    "realllm_median_w3"
   ],
   "params": {}
 }
 ```
 
-### 2. `realllm_median_head-node` → `realllm_median_w1` — `skill_contribute` (global bus)
+### 3. `realllm_median_head-node` → `realllm_median_w3` — `skill_contribute` (global bus)
 
-- timestamp: `1788155499.2760088`
+- timestamp: `1788184936.318361`
 - seq: `1`
 
 ```json
 {
   "type": "skill_contribute",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
   "skill": "median",
-  "mapper_name": "median_d299fe51-f104-4fce-9207-9cf99b525122",
-  "coordinator": "realllm_median_w3",
+  "mapper_name": "median_24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "coordinator": "realllm_median_w2",
   "workers": [
-    "realllm_median_w3",
     "realllm_median_w1",
-    "realllm_median_w2"
+    "realllm_median_w2",
+    "realllm_median_w3"
   ],
   "params": {}
 }
 ```
 
-### 3. `realllm_median_head-node` → `realllm_median_w2` — `skill_contribute` (global bus)
+### 4. `realllm_median_w3` → `realllm_median_w2` — `median_contribution_ready` (local bus)
 
-- timestamp: `1788155499.291293`
-- seq: `1`
-
-```json
-{
-  "type": "skill_contribute",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
-  "skill": "median",
-  "mapper_name": "median_d299fe51-f104-4fce-9207-9cf99b525122",
-  "coordinator": "realllm_median_w3",
-  "workers": [
-    "realllm_median_w3",
-    "realllm_median_w1",
-    "realllm_median_w2"
-  ],
-  "params": {}
-}
-```
-
-### 4. `realllm_median_w1` → `realllm_median_w3` — `median_contribution_ready` (local bus)
-
-- timestamp: `1788155499.339574`
-- seq: `1`
-
-```json
-{
-  "type": "median_contribution_ready",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
-  "from": "realllm_median_w1",
-  "count": 3,
-  "map_status": true,
-  "map_error": null
-}
-```
-
-### 5. `realllm_median_w2` → `realllm_median_w3` — `median_contribution_ready` (local bus)
-
-- timestamp: `1788155499.34147`
-- seq: `2`
-
-```json
-{
-  "type": "median_contribution_ready",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
-  "from": "realllm_median_w2",
-  "count": 2,
-  "map_status": true,
-  "map_error": null
-}
-```
-
-### 6. `realllm_median_w3` → `realllm_median_w3` — `median_contribution_ready` (local bus)
-
-- timestamp: `1788155499.344157`
+- timestamp: `1788184936.382748`
 - seq: `3`
 
 ```json
 {
   "type": "median_contribution_ready",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
   "from": "realllm_median_w3",
   "count": 4,
   "map_status": true,
@@ -144,15 +113,47 @@ Here are some additional details from the computation:
 }
 ```
 
-### 7. `realllm_median_w3` → `realllm_median_head-node` — `skill_result` (global bus)
+### 5. `realllm_median_w1` → `realllm_median_w2` — `median_contribution_ready` (local bus)
 
-- timestamp: `1788155499.504988`
+- timestamp: `1788184936.38275`
+- seq: `1`
+
+```json
+{
+  "type": "median_contribution_ready",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "from": "realllm_median_w1",
+  "count": 3,
+  "map_status": true,
+  "map_error": null
+}
+```
+
+### 6. `realllm_median_w2` → `realllm_median_w2` — `median_contribution_ready` (local bus)
+
+- timestamp: `1788184936.3827589`
+- seq: `2`
+
+```json
+{
+  "type": "median_contribution_ready",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
+  "from": "realllm_median_w2",
+  "count": 2,
+  "map_status": true,
+  "map_error": null
+}
+```
+
+### 7. `realllm_median_w2` → `realllm_median_head-node` — `skill_result` (global bus)
+
+- timestamp: `1788184936.556341`
 - seq: `1`
 
 ```json
 {
   "type": "skill_result",
-  "request_id": "d299fe51-f104-4fce-9207-9cf99b525122",
+  "request_id": "24a23ac0-d2d0-4eae-8b34-5e83da211833",
   "status": "ok",
   "result": 5.0,
   "detail": "n=9 across 3 workers"

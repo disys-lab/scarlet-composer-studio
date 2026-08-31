@@ -73,3 +73,27 @@ def test_forget_cancels_a_scheduled_timeout_too():
         assert not timed_out.wait(timeout=1)
     finally:
         router.stop()
+
+
+def test_timeout_scan_interval_bounds_how_fast_a_short_deadline_actually_fires():
+    """
+    Found via a real-LLM end-to-end test (see README / conversation
+    history): a deadline shorter than the watcher's own scan interval
+    doesn't fire any sooner than the next scan - the deadline value alone
+    isn't the whole story. This proves timeout_scan_interval is actually
+    threaded through to TimeoutWatcher, by observing a *fast* scan
+    interval let a very short deadline fire promptly.
+    """
+    bus = FakeBus()
+    router = MessageRouter(bus, key_fn=_key_by_id, poll_timeout=0.05, timeout_scan_interval=0.02)
+    try:
+        timed_out = threading.Event()
+        started = time.time()
+        router.on_key("req-1", lambda msg: None, timeout=0.01, on_timeout=timed_out.set)
+        assert timed_out.wait(timeout=1)
+        elapsed = time.time() - started
+        # Generous bound (not a race against the exact 0.02s scan interval)
+        # - just proving this is nowhere near the OLD hardcoded 0.5s default.
+        assert elapsed < 0.3, f"took {elapsed:.2f}s - timeout_scan_interval doesn't seem to be taking effect"
+    finally:
+        router.stop()

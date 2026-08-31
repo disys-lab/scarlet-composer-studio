@@ -98,6 +98,10 @@ class SumSkill(Skill):
 
     def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
         ready_from: set[str] = set()
+        # Reported before anything has checked in, not just after the
+        # first one - a check-in arriving in that early window should
+        # still see "0 of N so far", not nothing at all.
+        ctx.report_progress(ready_count=0, expected_count=len(workers))
         deadline = time.time() + self.coordinate_timeout
         while len(ready_from) < len(workers) and time.time() < deadline:
             if ctx.cancelled.is_set():
@@ -118,6 +122,7 @@ class SumSkill(Skill):
                         "retryable": True,
                     }
                 ready_from.add(body["from"])
+                ctx.report_progress(ready_count=len(ready_from), expected_count=len(workers))
 
         if ctx.cancelled.is_set():
             return {"status": "error", "detail": "cancelled", "retryable": False}

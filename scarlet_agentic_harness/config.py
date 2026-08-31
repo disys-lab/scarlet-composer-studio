@@ -32,6 +32,19 @@ class HarnessConfig:
     llm_api_key: str | None
     llm_model: str | None
 
+    # Timing/retry knobs, all with defaults matching what run_skill()/
+    # Buses/MessageRouter already defaulted to before these existed -
+    # adding them here just makes the defaults *changeable* (via env var
+    # in a real deployment, or explicitly in a test) instead of only
+    # reachable by editing source or poking a private attribute. Defaulted
+    # (not required) so every existing HarnessConfig(...) construction
+    # across the test suite keeps working unchanged.
+    timeout_scan_interval: float = 0.5  # MessageRouter's TimeoutWatcher - see router.py/timeout_watcher.py
+    max_attempts: int = 2  # run_skill() - how many attempts before giving up
+    reply_slack: float = 10.0  # run_skill() - extra wait beyond a coordinator's own coordinate_timeout
+    max_check_ins: int = 2  # run_skill() - how many deliberation check-in rounds per attempt
+    check_in_timeout: float = 10.0  # run_skill() - bound on one check-in conversation itself
+
     @property
     def agent_id(self) -> str:
         return f"{self.app_id}_{self.node_address}"
@@ -70,4 +83,12 @@ class HarnessConfig:
             llm_base_url=os.environ.get("LLM_BASE_URL"),
             llm_api_key=os.environ.get("LLM_API_KEY"),
             llm_model=os.environ.get("LLM_MODEL"),
+            # float()/int() raise ValueError on a malformed override - fail
+            # loud on bad config, same as ROLE's validation above, rather
+            # than silently falling back.
+            timeout_scan_interval=float(os.environ.get("TIMEOUT_SCAN_INTERVAL", "0.5")),
+            max_attempts=int(os.environ.get("MAX_ATTEMPTS", "2")),
+            reply_slack=float(os.environ.get("REPLY_SLACK", "10.0")),
+            max_check_ins=int(os.environ.get("MAX_CHECK_INS", "2")),
+            check_in_timeout=float(os.environ.get("CHECK_IN_TIMEOUT", "10.0")),
         )

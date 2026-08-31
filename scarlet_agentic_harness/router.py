@@ -70,6 +70,7 @@ class MessageRouter:
         key_fn: Callable[[dict], object | None],
         default_handler: Callable[[dict], None] | None = None,
         poll_timeout: float = 1.0,
+        timeout_scan_interval: float = 0.5,
     ):
         """
         bus: a Messenger instance - becomes the *only* thing calling
@@ -80,6 +81,14 @@ class MessageRouter:
         default_handler: mutable, may be set/replaced after construction
           (worker.py's entrypoint sets this once it knows how to dispatch
           skill invocations - Buses itself has no opinion on dispatch).
+        timeout_scan_interval: passed straight to TimeoutWatcher - see its
+          docstring. Previously hardcoded (TimeoutWatcher's own 0.5s
+          default, unreachable from here at all) - found to matter in
+          practice while forcing a real end-to-end deliberation test: a
+          deadline shorter than this scan interval doesn't fire any
+          sooner, it just waits for the next scan. Exposed here, and
+          threaded from Buses/HarnessConfig, instead of only reachable by
+          poking a router's private _watcher attribute.
         """
         self._bus = bus
         self._key_fn = key_fn
@@ -89,7 +98,7 @@ class MessageRouter:
         self._callbacks: dict[object, Callable[[dict], None]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._watcher = TimeoutWatcher()
+        self._watcher = TimeoutWatcher(scan_interval=timeout_scan_interval)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 

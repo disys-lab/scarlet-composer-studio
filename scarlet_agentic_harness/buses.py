@@ -82,8 +82,12 @@ class Buses:
                 "the head."
             ),
         )
-        self.global_router = MessageRouter(self.global_bus, key_fn=_global_bus_key)
-        self.local_router = MessageRouter(self.local_bus, key_fn=_local_bus_key)
+        self.global_router = MessageRouter(
+            self.global_bus, key_fn=_global_bus_key, timeout_scan_interval=config.timeout_scan_interval,
+        )
+        self.local_router = MessageRouter(
+            self.local_bus, key_fn=_local_bus_key, timeout_scan_interval=config.timeout_scan_interval,
+        )
 
     def report_status(self, capabilities: list[str], extra: dict | None = None) -> None:
         """

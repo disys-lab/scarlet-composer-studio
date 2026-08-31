@@ -127,7 +127,7 @@ def start_dispatch(
         request_id = body.get("request_id")
 
         if msg_type in ("skill_contribute", "skill_coordinate"):
-            token = registry.create(request_id)
+            token = registry.create(request_id, skill_name=body.get("skill", ""))
             RedisLogger.info(
                 f"[{config.agent_id}] started {msg_type} for skill={body.get('skill')!r} request={request_id}"
             )

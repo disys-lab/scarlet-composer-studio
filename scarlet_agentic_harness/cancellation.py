@@ -22,6 +22,15 @@ this didn't exist:
     "doesn't matter which came first" guarantee router.py's on_key() gives
     for message delivery, applied here to cancellation instead.
 
+A token also tracks skill_name, started_at, and an opt-in progress dict a
+skill's coordinate() can update as it goes (e.g. ready_count/expected_count
+- see median.py/sum.py). This is what makes CancellationRegistry.snapshot()
+- and so a check-in reply's grounding (dialogue.py's context_fn) - genuinely
+specific instead of "here are some request IDs that exist": a real-LLM test
+found that a bare ID list gave a coordinator nothing to reason about beyond
+"this is still going," so it hedged rather than answering confidently. See
+snapshot()'s docstring for the shape this now reports.
+
 The registry (request_id -> CancellationToken) is worker-local, one per
 worker process, constructed once at startup (see worker.start_dispatch()).
 A token is created the moment a dispatch message starts being handled -
@@ -31,13 +40,17 @@ arriving at nearly the same moment as the original dispatch is never
 missed.
 """
 import threading
+import time
 from typing import Callable
 
 
 class CancellationToken:
-    def __init__(self):
+    def __init__(self, skill_name: str = ""):
         self.event = threading.Event()
+        self.skill_name = skill_name
+        self.started_at = time.time()
         self._callbacks: list[Callable[[], None]] = []
+        self._progress: dict = {}
         self._lock = threading.Lock()
 
     def on_cancel(self, fn: Callable[[], None]) -> None:
@@ -57,29 +70,46 @@ class CancellationToken:
         for fn in callbacks:
             threading.Thread(target=fn, daemon=True).start()
 
+    def update_progress(self, **kwargs) -> None:
+        """
+        Called by a skill's coordinate() loop as it makes real, observable
+        progress - e.g. `token.update_progress(ready_count=2,
+        expected_count=3)` each time a contributor signals ready (see
+        median.py/sum.py). Purely additive/opt-in: a skill that never
+        calls this just reports skill_name/elapsed via snapshot(), no
+        progress fields - still far more specific than a bare ID, but not
+        as sharp as a skill that actively reports where it's at.
+        """
+        with self._lock:
+            self._progress.update(kwargs)
+
+    def progress_snapshot(self) -> dict:
+        with self._lock:
+            return dict(self._progress)
+
 
 class CancellationRegistry:
     def __init__(self, activity_mapper=None, agent_id: str | None = None):
         """
         activity_mapper/agent_id: optional - if both are given, every
         create()/forget() also publishes this worker's current in-flight
-        request_ids to a shared Mapper (observability.py), so the same
-        request_id -> token bookkeeping this registry already does doesn't
-        need a second, separate tracker for live-activity visibility. Left
-        as None (the default) means no publishing - callers that only care
-        about cancellation, not observability, pay nothing extra.
+        request detail (the same shape snapshot() returns - see below) to
+        a shared Mapper (observability.py), so the same request_id -> token
+        bookkeeping this registry already does doesn't need a second,
+        separate tracker for live-activity visibility. Left as None (the
+        default) means no publishing - callers that only care about
+        cancellation, not observability, pay nothing extra.
         """
         self._tokens: dict[str, CancellationToken] = {}
         self._lock = threading.Lock()
         self._activity_mapper = activity_mapper
         self._agent_id = agent_id
 
-    def create(self, request_id: str) -> CancellationToken:
-        token = CancellationToken()
+    def create(self, request_id: str, skill_name: str = "") -> CancellationToken:
+        token = CancellationToken(skill_name=skill_name)
         with self._lock:
             self._tokens[request_id] = token
-            in_flight = list(self._tokens.keys())
-        self._publish(in_flight)
+        self._publish()
         return token
 
     def cancel(self, request_id: str) -> None:
@@ -94,18 +124,69 @@ class CancellationRegistry:
     def forget(self, request_id: str) -> None:
         with self._lock:
             self._tokens.pop(request_id, None)
-            in_flight = list(self._tokens.keys())
-        self._publish(in_flight)
+        self._publish()
 
-    def snapshot(self) -> list[str]:
-        """Currently-tracked request_ids, for a caller that wants this
-        worker's own in-flight state directly (e.g. AgentDialogue's
-        context_fn - see __main__.py) rather than round-tripping through
-        the shared Mapper to read back what this same process just wrote."""
+    def snapshot(self) -> dict[str, dict]:
+        """
+        Rich per-request status - request_id -> {"skill", "elapsed_seconds",
+        **progress fields set via update_progress()} - not just a bare list
+        of IDs. This is what a check-in reply (dialogue.py's context_fn,
+        wired in __main__.py) actually grounds itself in, and what a real
+        Claude test showed matters: told only "here are some request IDs
+        that exist," it had nothing concrete to reason from and hedged
+        ("I don't actually have visibility..."); given skill name, real
+        elapsed time, and (when a skill reports it) a ready/expected count,
+        it can answer specifically instead.
+        """
         with self._lock:
-            return list(self._tokens.keys())
+            tokens = dict(self._tokens)
+        now = time.time()
+        return {
+            request_id: {
+                "skill": token.skill_name,
+                "elapsed_seconds": round(now - token.started_at, 1),
+                **token.progress_snapshot(),
+            }
+            for request_id, token in tokens.items()
+        }
 
-    def _publish(self, in_flight: list[str]) -> None:
+    def _publish(self) -> None:
         if self._activity_mapper is None:
             return
-        self._activity_mapper.Map({"in_flight": in_flight, "count": len(in_flight)}, key=self._agent_id)
+        snapshot = self.snapshot()
+        self._activity_mapper.Map(
+            {"in_flight": snapshot, "count": len(snapshot)}, key=self._agent_id,
+        )
+
+
+def describe_in_flight(snapshot: dict) -> str:
+    """
+    Formats CancellationRegistry.snapshot()'s output into explicit,
+    unambiguous sentences - not a raw dict/JSON dump - for use in an LLM
+    prompt (see __main__.py's worker context_fn, dialogue.py's
+    _system_prompt()). Found via a real-LLM test: a bare list of request
+    IDs left a coordinator with nothing concrete to reason from, so it
+    hedged ("I don't actually have visibility...") instead of answering
+    directly. Real numbers - elapsed time, ready-vs-expected counts, when a
+    skill reports them (see median.py/sum.py's ctx.report_progress()) -
+    let it answer specifically instead.
+    """
+    if not snapshot:
+        return "Nothing currently in flight - no requests being coordinated or contributed to right now."
+    lines = []
+    for request_id, info in snapshot.items():
+        skill = info.get("skill") or "an unnamed skill"
+        elapsed = info.get("elapsed_seconds")
+        elapsed_str = f"started {elapsed}s ago" if elapsed is not None else "start time unknown"
+        ready = info.get("ready_count")
+        expected = info.get("expected_count")
+        if ready is not None and expected is not None:
+            remaining = expected - ready
+            progress_str = (
+                f"{ready} of {expected} contributors have checked in, {remaining} still pending"
+                if remaining > 0 else f"all {expected} of {expected} contributors have checked in"
+            )
+        else:
+            progress_str = "no contributor progress reported yet"
+        lines.append(f"- Request {request_id}: coordinating {skill!r}, {elapsed_str}, {progress_str}.")
+    return "\n".join(lines)

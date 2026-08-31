@@ -359,6 +359,50 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   - Median/variance tests use a unique `APP_ID` per test, since
     `transcript.py` scans an entire bus namespace by name — sharing one
     with another test would mix their messages together.
+- ✅ **Real end-to-end deliberation, and two follow-up fixes it motivated
+  directly.** `tests/test_real_llm_stuck_and_checkin.py` forces a real,
+  non-artificial-agent-behavior stuck scenario — real subprocess workers,
+  real coordinator with its own real LLM access, real check-in, real
+  deliberation — by mutating only the *head's own in-process copy* of the
+  skill's `coordinate_timeout` (a different Python object than whatever
+  the worker subprocess's own `discover_skills()` constructed), so the
+  head gets impatient while the coordinator is still genuinely, honestly
+  working. Building this surfaced two real gaps, both now fixed:
+  - **`timeout_scan_interval` is now properly configurable.**
+    `TimeoutWatcher` only scans for expired deadlines every 0.5s by
+    default — a real floor on how fast *any* timeout anywhere fires,
+    discovered when this test's first two attempts (even down to a 1ms
+    nominal deadline) both completed before the watcher ever checked.
+    `MessageRouter`/`Buses` now accept `timeout_scan_interval`, threaded
+    from a new `HarnessConfig.timeout_scan_interval` field
+    (`TIMEOUT_SCAN_INTERVAL` env var, defaults to the same 0.5s as
+    before) — no more reaching into a router's private `_watcher`
+    attribute to change it.
+  - **Retry/check-in bounds are now configurable via `HarnessConfig`
+    too** (`MAX_ATTEMPTS`, `REPLY_SLACK`, `MAX_CHECK_INS`,
+    `CHECK_IN_TIMEOUT` env vars) — `run_skill()`'s corresponding
+    parameters now default to `None`, meaning "use config's value"
+    (matching the old hardcoded defaults exactly, so every existing
+    caller is unaffected), rather than only being reachable by passing an
+    explicit override at every call site.
+  - **The production `context_fn`'s data is now genuinely specific, not
+    just present.** `CancellationToken` gained `skill_name`/`started_at`
+    plus an opt-in `update_progress()` a skill's `coordinate()` calls as
+    it goes (`ctx.report_progress(ready_count=..., expected_count=...)` —
+    wired into `median.py`/`sum.py`). `CancellationRegistry.snapshot()`
+    now returns this per-request (skill, elapsed time, ready/expected
+    counts), and a new `describe_in_flight()` formats it into explicit
+    sentences ("Request X: coordinating 'median', started 4.2s ago, 2 of
+    3 contributors have checked in") rather than a bare ID list or raw
+    JSON dump — directly closes the gap the first version of this test
+    exposed (a coordinator with only a bare ID list to go on had nothing
+    to reason from, so a real model hedged and even recommended RETRY on
+    a computation that was simply early, not stuck). Re-running the same
+    test after this fix: the coordinator answered specifically ("started
+    just 0.0 seconds ago, no contributor progress reported yet"), the
+    deliberation call correctly decided WAIT instead of RETRY, and the
+    computation went on to succeed normally — the whole point of
+    deliberation existing in the first place.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

@@ -10,7 +10,7 @@ import sys
 import threading
 
 from scarlet_agentic_harness.buses import Buses
-from scarlet_agentic_harness.cancellation import CancellationRegistry
+from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
@@ -41,7 +41,7 @@ def main() -> None:
         dialogue = (
             AgentDialogue(
                 buses.global_bus, LLMClient(config),
-                context_fn=lambda: {"in_flight_requests": registry.snapshot()},
+                context_fn=lambda: {"in_flight_status": describe_in_flight(registry.snapshot())},
             )
             if config.llm_base_url else None
         )
