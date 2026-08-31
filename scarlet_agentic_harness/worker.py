@@ -25,17 +25,31 @@ ctx.buses.local_router). Spawning a thread per message here is safe
 specifically because message delivery to the right in-flight request is
 already handled by the router underneath, not because threads+shared-FIFO
 receive is safe in general (it is not - see router.py's docstring).
+
+Cancellation: _dispatch() creates a CancellationToken (cancellation.py)
+*synchronously*, before spawning handle_message()'s thread - not inside
+that thread. This matters because MessageRouter's default_handler calls
+are never concurrent with each other on the same router (there is exactly
+one polling thread calling Receive() then default_handler() in a loop -
+see router.py), so as long as token creation happens before _dispatch()
+returns, a skill_cancel for the same request_id arriving right after (and
+necessarily processed *after*, on that same single-threaded loop) can
+never race ahead of it. Creating the token inside the spawned thread
+instead would reopen exactly that race.
 """
 import threading
 
 from scarlet_agentic_harness.buses import Buses
+from scarlet_agentic_harness.cancellation import CancellationRegistry, CancellationToken
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.skills.base import Skill
 
 
-def handle_message(msg: dict, config: HarnessConfig, buses: Buses, skills: dict[str, Skill]) -> None:
+def handle_message(
+    msg: dict, config: HarnessConfig, buses: Buses, skills: dict[str, Skill], token: CancellationToken,
+) -> None:
     body = msg.get("body", {})
     msg_type = body.get("type")
     if msg_type not in ("skill_contribute", "skill_coordinate"):
@@ -51,7 +65,7 @@ def handle_message(msg: dict, config: HarnessConfig, buses: Buses, skills: dict[
         })
         return
 
-    ctx = HarnessContext(config, buses)
+    ctx = HarnessContext(config, buses, cancellation=token)
     skill.contribute(ctx, body)
 
     if msg_type == "skill_coordinate":
@@ -81,13 +95,33 @@ def start_dispatch(
     instead of being silently dropped. AgentDialogue.handle() manages its
     own threading internally, so it's safe to call directly here rather
     than wrapping it in another spawned thread.
+
+    Also owns this worker's CancellationRegistry (module-private here, one
+    per worker process): skill_cancel messages (sent by head.run_skill()
+    when a retry supersedes an earlier attempt) look up the matching
+    request_id and cancel its token, if this worker is still tracking it -
+    a cancel for a request that already finished, or that this worker was
+    never part of, is a normal race, not an error (see cancellation.py).
     """
+    registry = CancellationRegistry()
+
     def _dispatch(msg: dict) -> None:
-        msg_type = msg.get("body", {}).get("type")
+        body = msg.get("body", {})
+        msg_type = body.get("type")
+        request_id = body.get("request_id")
+
         if msg_type in ("skill_contribute", "skill_coordinate"):
-            threading.Thread(
-                target=handle_message, args=(msg, config, buses, skills), daemon=True
-            ).start()
+            token = registry.create(request_id)
+
+            def run():
+                try:
+                    handle_message(msg, config, buses, skills, token)
+                finally:
+                    registry.forget(request_id)
+
+            threading.Thread(target=run, daemon=True).start()
+        elif msg_type == "skill_cancel":
+            registry.cancel(request_id)
         elif msg_type == "agent_message" and dialogue is not None:
             dialogue.handle(msg)
         # else: unrecognized message, or agent_message with no dialogue

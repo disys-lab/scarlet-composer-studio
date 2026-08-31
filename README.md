@@ -218,6 +218,33 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   `.handle()`, never calls `Receive()` itself, so this is a faithful,
   fully in-process test of the real class, same rigor as `router.py`'s
   tests).
+- ✅ **Cancellation (`cancellation.py`)** — `CancellationToken` gives a
+  skill two fully opt-in ways to notice it's no longer needed: `ctx.cancelled`
+  (a plain `Event`, for code that already loops/polls — `median.py`/`sum.py`'s
+  ready-signal wait loops now check it) and `ctx.on_cancel(fn)` (fires `fn`
+  immediately, on a new thread, for a skill doing one monolithic blocking
+  call with no natural checkpoint — not exercised by any skill yet, since
+  none currently need it, but the hook exists for one that does). A
+  worker-local `CancellationRegistry` (one per worker process,
+  `request_id -> CancellationToken`) is created by `worker.start_dispatch()`
+  and populated *synchronously*, before a dispatch message's handler thread
+  is even spawned — this matters because a `MessageRouter`'s
+  `default_handler` calls are never concurrent with each other (exactly one
+  polling thread, one at a time — see `router.py`), so a `skill_cancel` for
+  the same `request_id` arriving right after can never race ahead of the
+  token's creation. `head.run_skill()`'s retry now broadcasts `skill_cancel`
+  to the superseded attempt's workers before starting the next one —
+  without it, whichever worker was still coordinating that attempt would
+  keep running uselessly until its own `coordinate_timeout` expired on its
+  own, even though the head had already moved on. Tested at three levels:
+  10 unit tests for the token/registry themselves (`tests/test_cancellation.py`,
+  including the "registered after cancel() already fired" race); a real
+  end-to-end test proving a genuinely stuck `MedianSkill.coordinate()` call
+  returns in well under a second of a cancel arriving instead of running
+  its full timeout (`tests/test_worker_cancellation.py`); and a test proving
+  `run_skill()`'s retry actually sends exactly one `skill_cancel`, for the
+  right (superseded) `request_id`, never the one that succeeds
+  (`tests/test_run_skill_retry.py`).
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

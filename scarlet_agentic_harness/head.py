@@ -15,7 +15,12 @@ attempts. It's a chain of callbacks: on_timeout or an "ok": False,
 "retryable": True result triggers another call to the same inner attempt()
 closure, with a fresh request_id and worker survey, up to max_attempts.
 The `retryable` flag convention is unchanged from the synchronous version -
-see the docstring on run_skill() below.
+see the docstring on run_skill() below. A retry also broadcasts skill_cancel
+to the superseded attempt's workers before starting the next one - without
+it, whichever worker was still coordinating that attempt keeps running
+until its own coordinate_timeout expires on its own, uselessly, even
+though the head has already moved on and nothing is waiting on its answer
+anymore (see cancellation.py, worker.py's registry).
 
 converse() is the same shift applied to the LLM tool-calling loop: each
 turn dispatches its tool calls concurrently (they're independent async
@@ -90,15 +95,6 @@ def run_skill(
     """
     ctx = HarnessContext(config, buses)
 
-    def handle(result: dict, attempt_num: int) -> None:
-        if result.get("status") == "ok":
-            on_result(result)
-            return
-        if not result.get("retryable", False) or attempt_num >= max_attempts:
-            on_result(result)
-            return
-        attempt(attempt_num + 1)
-
     def attempt(attempt_num: int) -> None:
         workers_info = buses.gather_workers()
         workers = [w for w, rec in workers_info.items() if skill.name in rec.get("capabilities", [])]
@@ -118,6 +114,21 @@ def run_skill(
             "params": params,
         }
 
+        # Defined here (not shared across attempts) so it closes over this
+        # attempt's own request_id/workers - needed to broadcast
+        # skill_cancel to exactly this attempt's workers if it's the one
+        # that ends up superseded by a retry.
+        def handle(result: dict) -> None:
+            if result.get("status") == "ok":
+                on_result(result)
+                return
+            if not result.get("retryable", False) or attempt_num >= max_attempts:
+                on_result(result)
+                return
+            for worker_id in workers:
+                buses.global_bus.Send(worker_id, {"type": "skill_cancel", "request_id": request_id})
+            attempt(attempt_num + 1)
+
         for worker_id in workers:
             msg_type = "skill_coordinate" if worker_id == coordinator else "skill_contribute"
             buses.global_bus.Send(worker_id, {"type": msg_type, **request})
@@ -128,15 +139,15 @@ def run_skill(
             # new thread rather than run inline, so run_skill() never blocks
             # its own caller even in this rare case.
             def run_in_process():
-                handle(skill.coordinate(ctx, request, workers), attempt_num)
+                handle(skill.coordinate(ctx, request, workers))
             threading.Thread(target=run_in_process, daemon=True).start()
             return
 
         def on_reply(msg: dict) -> None:
-            handle(msg.get("body", {}), attempt_num)
+            handle(msg.get("body", {}))
 
         def on_timeout() -> None:
-            handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True}, attempt_num)
+            handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True})
 
         # No explicit forget() needed here, unlike the old receive_for()
         # flow - on_key()'s callback/timeout pair is self-cleaning either

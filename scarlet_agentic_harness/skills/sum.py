@@ -100,6 +100,11 @@ class SumSkill(Skill):
         ready_from: set[str] = set()
         deadline = time.time() + self.coordinate_timeout
         while len(ready_from) < len(workers) and time.time() < deadline:
+            if ctx.cancelled.is_set():
+                # head.run_skill() already started a fresh attempt under a
+                # new request_id (see cancellation.py) - no point finishing
+                # this one, nothing is waiting on its answer anymore.
+                return {"status": "error", "detail": "cancelled", "retryable": False}
             msg = ctx.buses.local_router.receive_for(request["request_id"], timeout=1)
             if not msg:
                 continue
@@ -113,6 +118,9 @@ class SumSkill(Skill):
                         "retryable": True,
                     }
                 ready_from.add(body["from"])
+
+        if ctx.cancelled.is_set():
+            return {"status": "error", "detail": "cancelled", "retryable": False}
 
         missing = set(workers) - ready_from
         if missing:

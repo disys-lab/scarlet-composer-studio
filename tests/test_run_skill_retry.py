@@ -115,6 +115,63 @@ def test_run_skill_retries_after_a_coordinator_timeout(redis_conn_info):
         _stop(fake_worker_buses)
 
 
+def test_retry_sends_skill_cancel_for_the_superseded_attempt(redis_conn_info):
+    base_env = dict(os.environ)
+    base_env.update({
+        "REDIS_HOST": redis_conn_info["host"],
+        "REDIS_PORT": redis_conn_info["port"],
+        "REDIS_AUTH_TOKEN": redis_conn_info["auth_token"],
+    })
+    os.environ.update(base_env)
+
+    head_config = HarnessConfig(
+        role="head", app_id=APP_ID, node_address="head-node-retry3",
+        device_group=f"{APP_ID}_subagent", head_bus=f"{APP_ID}_headagent",
+        llm_base_url=None, llm_api_key=None, llm_model=None,
+    )
+    head_buses = Buses(head_config)
+
+    fake_worker_config = HarnessConfig(
+        role="worker", app_id=APP_ID, node_address="fakeworker-retry3",
+        device_group=f"{APP_ID}_subagent", head_bus=f"{APP_ID}_headagent",
+        llm_base_url=None, llm_api_key=None, llm_model=None,
+    )
+    fake_worker_buses = Buses(fake_worker_config)
+    fake_worker_buses.report_status(capabilities=["stub_retry_test_3"])
+
+    coordinate_seen = []
+    cancels_seen = []
+
+    def fake_worker_handler(msg: dict) -> None:
+        body = msg.get("body", {})
+        if body.get("type") == "skill_coordinate":
+            coordinate_seen.append(body["request_id"])
+            if len(coordinate_seen) >= 2:
+                fake_worker_buses.global_bus.Send(msg["from"], {
+                    "type": "skill_result", "request_id": body["request_id"], "status": "ok", "result": 1,
+                })
+            # else: first attempt - deliberately ignored, same as the retry test above
+        elif body.get("type") == "skill_cancel":
+            cancels_seen.append(body["request_id"])
+
+    fake_worker_buses.global_router.default_handler = fake_worker_handler
+
+    try:
+        skill = _StubSkill("stub_retry_test_3")
+        result = run_skill_sync(skill, {}, head_config, head_buses, max_attempts=2, reply_slack=0.5)
+
+        assert result["status"] == "ok"
+        assert len(coordinate_seen) == 2
+        first_attempt_id, second_attempt_id = coordinate_seen
+        # Exactly one cancel, for the *first* (superseded) attempt's
+        # request_id - never for the one that actually succeeded.
+        assert cancels_seen == [first_attempt_id]
+        assert second_attempt_id not in cancels_seen
+    finally:
+        _stop(head_buses)
+        _stop(fake_worker_buses)
+
+
 def test_run_skill_gives_up_after_max_attempts_all_fail(redis_conn_info):
     base_env = dict(os.environ)
     base_env.update({
