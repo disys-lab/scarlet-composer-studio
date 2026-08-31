@@ -47,6 +47,37 @@ class ChatClient(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
 
 
+def _system_prompt(agent_id: str, context: dict) -> str:
+    """
+    Establishes identity before the responder's LLM call, not just context.
+    Found via a real-LLM test (tests/test_real_llm_dialogue.py): without
+    this, a real model given only a bare "Local context: {...}" system
+    message answered like a third party asked to interpret someone else's
+    report handed to it ("I don't actually have visibility into this
+    distributed system... I'm reading the context you provided in the
+    prompt") - accurate as a description of the API call, but exactly
+    backwards for what a check-in reply needs to sound like: the injected
+    context IS this agent's own real state, and it should answer as
+    itself, directly, not hedge about lacking visibility into data that
+    was in fact just handed to it as its own.
+    """
+    lines = [
+        f"You are agent {agent_id!r}. Another agent is asking you about your own current "
+        f"status as part of a distributed computation you're involved in.",
+    ]
+    if context:
+        lines.append(
+            f"The following is your own real, current state - not a report someone else "
+            f"handed you, it is what you actually know about your own situation right now: "
+            f"{json.dumps(context)}"
+        )
+    lines.append(
+        "Answer directly and confidently based on that. Don't caveat that you lack "
+        "visibility into the system - the information above is your visibility."
+    )
+    return " ".join(lines)
+
+
 class AgentDialogue:
     def __init__(
         self,
@@ -127,9 +158,7 @@ class AgentDialogue:
         history.append({"role": "user", "content": content})
 
         context = self._context_fn()
-        messages = list(history)
-        if context:
-            messages = [{"role": "system", "content": f"Local context: {json.dumps(context)}"}] + messages
+        messages = [{"role": "system", "content": _system_prompt(self._bus.agentId, context)}] + history
 
         turn = self._llm_client.chat(messages)
         reply_text = turn.get("content") or ""

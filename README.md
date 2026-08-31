@@ -89,11 +89,11 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   everything downstream of that decision is real.
 - ✅ **`LLMClient`'s wire-format translation** (canonical message shape ↔
   the real OpenAI SDK's shape) is unit-tested against a mocked `openai`
-  client object (`tests/test_llm_client.py`) — not yet verified against a
-  *live* backend, since no credentials exist yet. `__main__.py`'s head role
-  now uses `LLMClient` + `converse()` for real once `LLM_BASE_URL` is set;
-  that specific wiring is the one piece in this codebase still unverified
-  end-to-end, purely because there's nothing to point it at yet.
+  client object (`tests/test_llm_client.py`) — **and now also verified
+  against a real live backend** (Claude Sonnet 4.6, via Anthropic's
+  OpenAI-SDK-compatibility endpoint — see the real-LLM validation entry
+  further down) with zero code changes needed. `__main__.py`'s head role
+  uses `LLMClient` + `converse()` for real whenever `LLM_BASE_URL` is set.
 - ✅ **`sum` skill** — `Federator`-backed, parameterized (`transform`),
   reports total element count `n` correctly (co-aggregated with the sum, not
   `len(workers)`). End-to-end tested for both transforms plus a real
@@ -318,6 +318,47 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   through to the `check_in_timeout` path regardless of what was scripted -
   a reminder that `AgentDialogue` replies need the same explicit routing
   `__main__.py` already does, not something automatic.
+- ✅ **Validated against a real LLM backend** — every prior "not yet
+  verified against a live endpoint" caveat in this file is now closed.
+  Tested against Claude Sonnet 4.6 via Anthropic's OpenAI-SDK-compatibility
+  endpoint (`LLMClient` needed zero code changes — it already spoke the
+  right wire format). Six real-LLM tests, each opt-in (skipped unless
+  `LLM_BASE_URL` is set, so the regular 82-test suite stays fast and
+  credential-free), each writing a full transcript to `transcripts/`
+  (`tests/transcript.py` — reconstructed directly from Redis, not
+  instrumented/monkeypatched, since real subprocess workers mean a
+  monkeypatch in the test process would never see their in-process
+  `Send()` calls; Redis is the one place every message from every process
+  actually lands):
+  - `test_real_llm_median.py` — `converse()` correctly picks `median`
+    across 3 real worker subprocesses, real answer narrated back.
+  - `test_real_llm_variance.py` — the real test of "skills as alphabets,
+    agents build paragraphs": with zero hints beyond "you have sum and
+    combine tools available," the model reconstructed the variance
+    formula itself, called `sum(identity)` and `sum(square)` **in the
+    same turn** ("let me fire both at the same time") — a live
+    confirmation that `converse()`'s concurrent-tool-call dispatch (from
+    the async rewrite) is genuinely exercised, not just theoretically
+    supported — then fed both real results into `combine` with the exact
+    correct expression, matching `statistics.pvariance` to machine
+    precision.
+  - `test_real_llm_deliberation.py` — `_deliberate()` correctly decided
+    WAIT/RETRY for three realistic coordinator status replies.
+  - `test_real_llm_dialogue.py` — `AgentDialogue`'s real reply generation,
+    the first worker-side LLM call in this codebase ever exercised
+    against a real backend. **Found and fixed a real prompt-framing bug**:
+    without an explicit identity system prompt, the model answered a
+    check-in like a third party asked to interpret a report handed to it
+    ("I don't actually have visibility into this distributed system...")
+    instead of speaking as the coordinator reporting its own real state.
+    `dialogue.py`'s `_system_prompt()` now establishes "you are agent X,
+    this is your own real, current state, answer directly" before every
+    responder call — re-running the same test afterward produced a
+    confident, in-character reply instead ("Still waiting on one
+    contributor... Monitoring, but not alarmed yet.").
+  - Median/variance tests use a unique `APP_ID` per test, since
+    `transcript.py` scans an entire bus namespace by name — sharing one
+    with another test would mix their messages together.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

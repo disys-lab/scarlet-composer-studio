@@ -18,11 +18,11 @@ class LinkedBus:
     handle(), never Receive())."""
 
     def __init__(self, agent_id: str):
-        self.agent_id = agent_id
+        self.agentId = agent_id  # matches real Messenger's attribute name - dialogue.py reads this for identity framing
         self.other_dialogue: AgentDialogue | None = None
 
     def Send(self, target_agent_id: str, body: dict) -> None:
-        self.other_dialogue.handle({"from": self.agent_id, "to": target_agent_id, "body": body})
+        self.other_dialogue.handle({"from": self.agentId, "to": target_agent_id, "body": body})
 
 
 class FakeDialogueLLM:
@@ -87,7 +87,13 @@ def test_responder_grounds_reply_in_context_fn():
     assert "ready_count" in system_messages[0]["content"]
 
 
-def test_no_context_fn_means_no_system_message():
+def test_no_context_fn_still_establishes_identity_but_no_grounding_claim():
+    # A system message is always present now (identity framing - see
+    # dialogue.py's _system_prompt, added after a real-LLM test showed a
+    # model without it answering like a third party asked to interpret
+    # someone else's report, rather than the agent itself). Without a
+    # context_fn, that framing is still there, but it must not claim to
+    # be grounding the reply in real state it was never actually given.
     llm_a = FakeDialogueLLM([])
     llm_b = FakeDialogueLLM(["reply"])
     dialogue_a, dialogue_b = _linked_pair(llm_a, llm_b)  # context_fn_b omitted
@@ -96,7 +102,10 @@ def test_no_context_fn_means_no_system_message():
     dialogue_a.start("agent_b", "status?", lambda content, sender: done.set())
 
     assert done.wait(timeout=2)
-    assert all(m["role"] != "system" for m in llm_b.calls[0])
+    system_messages = [m for m in llm_b.calls[0] if m["role"] == "system"]
+    assert len(system_messages) == 1
+    assert "agent_b" in system_messages[0]["content"]
+    assert "your own real, current state" not in system_messages[0]["content"]
 
 
 def test_multi_turn_conversation_keeps_the_responders_history():
@@ -126,8 +135,11 @@ def test_multi_turn_conversation_keeps_the_responders_history():
 
     # B's second LLM call saw the full accumulated history, not just the
     # follow-up in isolation - proves the session actually persisted.
+    # First message is the identity-framing system prompt (see dialogue.py's
+    # _system_prompt) - exclude it, this assertion is about the history.
     second_call_messages = llm_b.calls[1]
-    contents = [m["content"] for m in second_call_messages]
+    assert second_call_messages[0]["role"] == "system"
+    contents = [m["content"] for m in second_call_messages[1:]]
     assert contents == ["opening", "first reply", "follow-up question"]
 
 

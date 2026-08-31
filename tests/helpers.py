@@ -21,11 +21,11 @@ WORKER_DATA = {
 }
 
 
-def spawn_worker(node_address: str, numbers: list[float], env: dict) -> subprocess.Popen:
+def spawn_worker(node_address: str, numbers: list[float], env: dict, app_id: str = APP_ID) -> subprocess.Popen:
     worker_env = dict(env)
     worker_env.update({
         "ROLE": "worker",
-        "APP_ID": APP_ID,
+        "APP_ID": app_id,
         "NODE_ADDRESS": node_address,
         "LOCAL_NUMBERS": ",".join(str(n) for n in numbers),
     })
@@ -39,6 +39,10 @@ def spawn_worker(node_address: str, numbers: list[float], env: dict) -> subproce
 
 
 def wait_for_workers(buses, procs, skill_name: str, expected_count: int, timeout: float = 20) -> set[str]:
+    # No app_id parameter needed here - buses.gather_workers() is already
+    # scoped to whichever bus this Buses instance was constructed with
+    # (head_config.head_bus), so uniqueness comes from that, not from
+    # anything this function does itself.
     """Poll GatherStatus() until `expected_count` workers report `skill_name`
     as a capability - real capability discovery, not a fixed sleep."""
     deadline = time.time() + timeout
