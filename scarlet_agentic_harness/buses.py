@@ -31,7 +31,9 @@ def _global_bus_key(msg: dict):
     messages also carry a request_id (it's part of the request payload),
     but nothing is ever waiting to *receive* one of those - they're
     unsolicited from the receiving agent's perspective, so they must always
-    go to default_handler regardless of that shared field name.
+    go to default_handler regardless of that shared field name. Same for
+    agent_message traffic (dialogue.py) - it has no request_id at all, so
+    it already falls through to default_handler here too.
     """
     body = msg.get("body", {})
     if body.get("type") == "skill_result":
@@ -41,12 +43,20 @@ def _global_bus_key(msg: dict):
 
 def _local_bus_key(msg: dict):
     """
-    Every message ever sent on the local bus is a contributor<->coordinator
-    readiness signal for one specific request_id (see median.py/sum.py) -
-    there is no unsolicited traffic on this bus today, so every message is
-    request-scoped.
+    Every skill readiness signal on the local bus (see median.py/sum.py) is
+    request-scoped by request_id. agent_message traffic (dialogue.py) can
+    also ride the local bus for peer-to-peer conversation - like on the
+    global bus, it must always go to default_handler regardless of whether
+    a matching conversation_id is being watched for (see dialogue.py's
+    docstring for why the router's own key/callback matching can't express
+    that distinction). request_id is simply absent from an agent_message
+    body, so this already falls through correctly - spelled out explicitly
+    rather than left as a coincidence of differing field names.
     """
-    return msg.get("body", {}).get("request_id")
+    body = msg.get("body", {})
+    if body.get("type") == "agent_message":
+        return None
+    return body.get("request_id")
 
 
 class Buses:

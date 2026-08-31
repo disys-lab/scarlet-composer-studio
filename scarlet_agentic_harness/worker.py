@@ -31,6 +31,7 @@ import threading
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
+from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.skills.base import Skill
 
 
@@ -62,17 +63,35 @@ def handle_message(msg: dict, config: HarnessConfig, buses: Buses, skills: dict[
         })
 
 
-def start_dispatch(config: HarnessConfig, buses: Buses, skills: dict[str, Skill]) -> None:
+def start_dispatch(
+    config: HarnessConfig,
+    buses: Buses,
+    skills: dict[str, Skill],
+    dialogue: AgentDialogue | None = None,
+) -> None:
     """
     Start servicing this worker's incoming dispatch messages concurrently.
     Call once at startup. After this, a new skill_contribute/skill_coordinate
     message arriving while an earlier one is still being handled (e.g. this
     worker is coordinating a slow skill.coordinate()) gets its own thread
     immediately, rather than waiting behind it.
+
+    dialogue: if given (i.e. an LLM backend is configured - see __main__.py),
+    agent_message traffic (dialogue.py) on the global bus is routed to it
+    instead of being silently dropped. AgentDialogue.handle() manages its
+    own threading internally, so it's safe to call directly here rather
+    than wrapping it in another spawned thread.
     """
     def _dispatch(msg: dict) -> None:
-        threading.Thread(
-            target=handle_message, args=(msg, config, buses, skills), daemon=True
-        ).start()
+        msg_type = msg.get("body", {}).get("type")
+        if msg_type in ("skill_contribute", "skill_coordinate"):
+            threading.Thread(
+                target=handle_message, args=(msg, config, buses, skills), daemon=True
+            ).start()
+        elif msg_type == "agent_message" and dialogue is not None:
+            dialogue.handle(msg)
+        # else: unrecognized message, or agent_message with no dialogue
+        # configured - dropped, matching prior behavior for anything
+        # nobody's set up to handle.
 
     buses.global_router.default_handler = _dispatch

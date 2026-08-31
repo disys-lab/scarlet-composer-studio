@@ -11,6 +11,7 @@ import threading
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
+from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
@@ -24,8 +25,21 @@ def main() -> None:
 
     if config.role == "worker":
         buses.report_status(capabilities=list(skills.keys()))
-        worker_mod.start_dispatch(config, buses, skills)
-        print(f"[{config.agent_id}] worker online, skills={list(skills.keys())}", file=sys.stderr)
+        # AgentDialogue is only constructed if an LLM backend is configured
+        # - without one, agent_message traffic is simply dropped (see
+        # worker.start_dispatch), same as any other message nobody's set up
+        # to handle. No context_fn yet: real grounding data (an in-flight
+        # request registry) doesn't exist until the cancellation/tracking
+        # work is built - wiring a placeholder now would mean narrating
+        # something fabricated, which is exactly what grounding is for
+        # avoiding. See dialogue.py's docstring.
+        dialogue = AgentDialogue(buses.global_bus, LLMClient(config)) if config.llm_base_url else None
+        worker_mod.start_dispatch(config, buses, skills, dialogue=dialogue)
+        print(
+            f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
+            f"dialogue={'on' if dialogue else 'off'}",
+            file=sys.stderr,
+        )
         # Dispatch now happens entirely through buses.global_router's own
         # background thread plus one handler thread per in-flight request
         # (see worker.start_dispatch) - nothing left for the main thread to
@@ -75,6 +89,20 @@ def main() -> None:
             # backend, driven from stdin) is not yet verified against a live
             # endpoint, since no credentials exist yet.
             llm_client = LLMClient(config)
+
+            # Symmetric with the worker branch above: the head can also be
+            # the *responder* in an agent-initiated conversation (e.g. a
+            # coordinator reaching out), not just the initiator of a
+            # check-in - see dialogue.py. Unsolicited agent_message traffic
+            # otherwise has nowhere to go once run_skill()/converse() stop
+            # being the only thing listening on the global bus.
+            dialogue = AgentDialogue(buses.global_bus, llm_client)
+
+            def _global_default_handler(msg: dict) -> None:
+                dialogue.handle(msg)
+
+            buses.global_router.default_handler = _global_default_handler
+
             print("LLM-backed chat mode: type a message per line on stdin.", file=sys.stderr)
 
             def _log_event(event: dict) -> None:

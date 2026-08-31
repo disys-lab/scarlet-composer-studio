@@ -188,6 +188,36 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   `run_skill()`/`converse()` directly were rewritten against the new
   callback contract, not left broken; 58 tests total, stable across
   repeated runs.
+- ✅ **`AgentDialogue` (`dialogue.py`)** — generalized agent-to-agent
+  natural-language conversation, riding the same buses as everything else.
+  One generic message envelope (`agent_message`: `conversation_id` +
+  free-form `content`), not a new fixed-schema type per use case — a
+  status-check protocol with rigid fields would reduce the model to
+  filling in a form, not reasoning. Not built on `router.py`'s `on_key()`:
+  an incoming `agent_message` can be either a reply to a conversation this
+  agent started or a brand-new one someone else started, and only the
+  message reveals which — `AgentDialogue` keeps its own small
+  `conversation_id -> handler` registry, fed by a bus's `default_handler`
+  (the same integration point `worker.start_dispatch()` already uses for
+  skill dispatch), rather than the router's key-matching, which can't
+  express "keyed, but fall through if nobody's waiting" without weakening
+  the guarantee `skill_result` depends on. A responder's reply is grounded
+  via an optional `context_fn`, called fresh before every reply and
+  injected as real local context — not yet wired to real data (the
+  in-flight registry that would supply it doesn't exist until the
+  cancellation work below is built), so no worker constructs one with a
+  `context_fn` yet; wiring a placeholder now would mean grounding replies
+  in something fabricated, defeating the point. Wired into both
+  `__main__.py` entrypoints — a worker gets one whenever `LLM_BASE_URL` is
+  set (this is the first thing in the whole codebase that gives a worker
+  real LLM access, not just the head), and the head can now also be a
+  *responder*, not only an initiator, symmetric with workers. 6 unit
+  tests (`tests/test_dialogue.py`) drive a real two-sided conversation —
+  round trip, multi-turn history, and context grounding — through two
+  linked fake buses (no Redis needed: `AgentDialogue` is only ever fed via
+  `.handle()`, never calls `Receive()` itself, so this is a faithful,
+  fully in-process test of the real class, same rigor as `router.py`'s
+  tests).
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 
