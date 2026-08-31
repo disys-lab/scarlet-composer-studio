@@ -44,6 +44,7 @@ class HarnessConfig:
     reply_slack: float = 10.0  # run_skill() - extra wait beyond a coordinator's own coordinate_timeout
     max_check_ins: int = 2  # run_skill() - how many deliberation check-in rounds per attempt
     check_in_timeout: float = 10.0  # run_skill() - bound on one check-in conversation itself
+    check_in_max_turns: int = 3  # run_skill() - max question/answer rounds within one check-in conversation
 
     @property
     def agent_id(self) -> str:
@@ -91,4 +92,5 @@ class HarnessConfig:
             reply_slack=float(os.environ.get("REPLY_SLACK", "10.0")),
             max_check_ins=int(os.environ.get("MAX_CHECK_INS", "2")),
             check_in_timeout=float(os.environ.get("CHECK_IN_TIMEOUT", "10.0")),
+            check_in_max_turns=int(os.environ.get("CHECK_IN_MAX_TURNS", "3")),
         )

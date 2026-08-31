@@ -403,6 +403,42 @@ a change to `head.py`/`worker.py`'s dispatch logic.
     deliberation call correctly decided WAIT instead of RETRY, and the
     computation went on to succeed normally — the whole point of
     deliberation existing in the first place.
+- ✅ **The check-in itself is now free-flowing, not a fixed script on
+  either side.** Previously only the coordinator's *reply* was real LLM
+  generation — the head's opening question was one hardcoded f-string, and
+  the exchange was always exactly one round: ask, get an answer, decide.
+  Now:
+  - `_compose_checkin_question()` has the head's own LLM write the
+    opening question itself, grounded in the skill name, the timeout, and
+    which check-in round this is — not the same fixed sentence every time.
+  - `_deliberate_or_followup()` replaces the old single-shot `_deliberate()`
+    call *within* a check-in: given the whole conversation so far, it can
+    answer WAIT, RETRY, or `ASK: <a genuine follow-up question>` — and if
+    it asks, `dialogue.reply()` continues the same conversation (the
+    coordinator answers with its own session history intact, via
+    `AgentDialogue`'s existing multi-turn support) before deliberating
+    again. Bounded by a new `check_in_max_turns` (`HarnessConfig` field,
+    `CHECK_IN_MAX_TURNS` env var, default 3) so this can't loop forever —
+    once exhausted, a decision is forced.
+  - `tests/test_deliberation.py::test_followup_question_continues_the_checkin_conversation_before_deciding`
+    scripts an ASK → reply → WAIT exchange deterministically, proving the
+    mechanism itself (re-entering `on_checkin_reply` via `dialogue.reply()`,
+    both sides seeing the growing real transcript) rather than relying on
+    a live model to happen to choose that path on any given run.
+  - Re-run against a real backend after this change
+    (`tests/test_real_llm_stuck_and_checkin.py`): two separate attempts
+    produced two genuinely different opening questions (e.g. "Hey, just
+    checking in on that median computation... it's been a bit longer than
+    expected. Do you have an update on where things stand?" vs. a
+    differently-worded question on the retry) — real variation, not a
+    template fill. The coordinator's grounded answer ("I don't have
+    anything in flight right now... that job isn't something I'm
+    currently tracking") correctly drove a RETRY decision both times; this
+    particular run didn't need a follow-up (the answer was already
+    unambiguous), which is exactly why the deterministic scripted test
+    above exists to cover that branch on its own. See
+    `transcripts/test_real_stuck_coordinator_triggers_a_real_checkin_and_deliberation.md`
+    for the full exchange.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

@@ -25,17 +25,26 @@ anymore (see cancellation.py, worker.py's registry).
 Deliberation (optional - see `dialogue`/`llm_client` below): a plain
 timeout used to mean an immediate, mechanical retry. When both are given,
 on_timeout instead starts a real conversation with the coordinator
-(AgentDialogue - dialogue.py) - "how's this going?" - grounded in the
-coordinator's own real state (see observability.py's activity registry,
-which is what a worker's context_fn now draws on). A small LLM call
-weighs the reply and decides WAIT (re-arm the same wait, no retry yet) or
-RETRY (proceed with the existing cancel-and-retry path). Bounded on two
-axes so this can never hang or loop forever: max_check_ins caps how many
-times this can happen per attempt, and check_in_timeout bounds the
-check-in conversation itself, independently of the coordinator's own
-coordinate_timeout. Falls back to exactly the old mechanical behavior
-(immediate retryable failure) whenever dialogue/llm_client aren't
-supplied - existing callers are unaffected.
+(AgentDialogue - dialogue.py), grounded in the coordinator's own real
+state (see observability.py's activity registry, which is what a
+worker's context_fn now draws on). Neither side of this conversation is
+fixed text: _compose_checkin_question() has an LLM write the opening
+question itself (varying with the skill, the timeout, and which check-in
+round this is), the coordinator's reply is likewise real generation (see
+dialogue.py), and _deliberate_or_followup() then weighs the whole
+exchange so far and decides WAIT (re-arm the same wait, no retry yet),
+RETRY (proceed with the existing cancel-and-retry path), or - if the
+reply left something worth probing - a genuine follow-up question,
+continuing the same conversation via dialogue.reply() before deciding.
+Bounded on three axes so this can never hang or loop forever:
+max_check_ins caps how many separate check-ins this can happen per
+attempt, check_in_max_turns caps how many question/answer rounds one
+check-in's own conversation may run before a decision is forced, and
+check_in_timeout bounds the whole check-in exchange (all its rounds)
+independently of the coordinator's own coordinate_timeout. Falls back to
+exactly the old mechanical behavior (immediate retryable failure)
+whenever dialogue/llm_client aren't supplied - existing callers are
+unaffected.
 
 converse() is the same shift applied to the LLM tool-calling loop: each
 turn dispatches its tool calls concurrently (they're independent async
@@ -96,6 +105,82 @@ def _deliberate(llm_client: ChatClient, coordinator_reply: str, coordinate_timeo
     return answer.startswith("WAIT")
 
 
+def _compose_checkin_question(
+    llm_client: ChatClient, skill_name: str, request_id: str, coordinate_timeout: float,
+    check_in_num: int, max_check_ins: int,
+) -> str:
+    """
+    Composes the head's own opening check-in question - real LLM reasoning,
+    not a fixed template, so the question itself can vary with the
+    situation instead of asking the same fixed sentence every time. Falls
+    back to a plain, functional question if the model returns nothing
+    usable, so a check-in can never silently stall on an empty reply.
+    """
+    prompt = (
+        f"A distributed {skill_name!r} computation (request {request_id}) hasn't produced "
+        f"a final result within its expected time (about {coordinate_timeout:.0f}s). "
+        f"You're about to check in with the agent coordinating it - this is check-in "
+        f"{check_in_num + 1} of {max_check_ins} you're allowed before deciding to retry "
+        f"with a different worker instead.\n\n"
+        f"Write a short, natural message asking them for a status update. Reply with "
+        f"just the message itself, addressed to them directly - it will be sent verbatim."
+    )
+    turn = llm_client.chat([{"role": "user", "content": prompt}])
+    question = (turn.get("content") or "").strip()
+    return question or (
+        f"You're coordinating a {skill_name!r} computation (request {request_id}) that "
+        f"hasn't produced a final result within its expected time. How is it going - "
+        f"still waiting on contributors, or has something gone wrong?"
+    )
+
+
+def _deliberate_or_followup(
+    llm_client: ChatClient, transcript: list[dict], skill_name: str, coordinate_timeout: float,
+    allow_followup: bool,
+) -> dict:
+    """
+    The multi-turn sibling of _deliberate(): given the whole check-in
+    conversation so far (not just the latest reply), decide whether to
+    keep waiting, retry now, or ask a genuine follow-up before deciding -
+    real reasoning over open-ended text either way, never a keyword match
+    or a fixed script. allow_followup is False once check_in_max_turns is
+    reached, forcing a real decision instead of stalling in a loop.
+    Defaults to retry (the conservative choice - see _deliberate()'s
+    docstring) whenever the model's answer doesn't clearly parse as one of
+    the allowed actions.
+    """
+    convo = "\n".join(
+        f"{'You' if turn['speaker'] == 'head' else 'Coordinator'}: {turn['content']}"
+        for turn in transcript
+    )
+    followup_line = (
+        '- "ASK: <your question>" to ask a specific follow-up before deciding, if their '
+        "reply left something worth probing or was too vague to act on\n"
+        if allow_followup else ""
+    )
+    prompt = (
+        f"You're checking in on the coordinator of a distributed {skill_name!r} "
+        f"computation that hasn't produced a final result within its expected time "
+        f"(about {coordinate_timeout:.0f}s). Here is the check-in conversation so far:\n\n"
+        f"{convo}\n\n"
+        f"Decide what to do next. Reply with exactly one of:\n"
+        f'- "WAIT" to give it more time\n'
+        f'- "RETRY" to treat this as stuck and retry with a different worker\n'
+        f"{followup_line}"
+        f"Reply with only that - nothing else."
+    )
+    turn = llm_client.chat([{"role": "user", "content": prompt}])
+    answer = (turn.get("content") or "").strip()
+    upper = answer.upper()
+    if allow_followup and upper.startswith("ASK:"):
+        question = answer.split(":", 1)[1].strip()
+        if question:
+            return {"action": "followup", "question": question}
+    if upper.startswith("WAIT"):
+        return {"action": "wait"}
+    return {"action": "retry"}
+
+
 def run_skill(
     skill: Skill,
     params: dict,
@@ -108,6 +193,7 @@ def run_skill(
     llm_client: ChatClient | None = None,
     max_check_ins: int | None = None,
     check_in_timeout: float | None = None,
+    check_in_max_turns: int | None = None,
 ) -> None:
     """
     Dispatch one invocation of `skill` across currently-registered workers.
@@ -142,18 +228,26 @@ def run_skill(
     dialogue/llm_client: optional. If both are given, a timeout doesn't
     immediately mean retry - see the module docstring's "Deliberation"
     section. Omit either (the default) for the old, purely mechanical
-    behavior. max_check_ins/check_in_timeout only matter when both are
-    given - see the same section for what they bound.
+    behavior. max_check_ins/check_in_timeout/check_in_max_turns only
+    matter when both are given - see the same section for what they
+    bound. check_in_max_turns caps how many question/answer rounds a
+    single check-in conversation may run before a decision is forced -
+    both the opening question and any follow-up are themselves composed
+    by an LLM call (_compose_checkin_question/_deliberate_or_followup),
+    not fixed text, so the exchange can genuinely vary with what the
+    coordinator actually says instead of following one fixed script.
 
-    max_attempts/reply_slack/max_check_ins/check_in_timeout each default to
-    None, meaning "use config's value" (HarnessConfig.max_attempts etc. -
-    see config.py, settable via env var for a real deployment) - pass an
-    explicit value here (as tests do) to override just this one call.
+    max_attempts/reply_slack/max_check_ins/check_in_timeout/
+    check_in_max_turns each default to None, meaning "use config's value"
+    (HarnessConfig.max_attempts etc. - see config.py, settable via env var
+    for a real deployment) - pass an explicit value here (as tests do) to
+    override just this one call.
     """
     max_attempts = max_attempts if max_attempts is not None else config.max_attempts
     reply_slack = reply_slack if reply_slack is not None else config.reply_slack
     max_check_ins = max_check_ins if max_check_ins is not None else config.max_check_ins
     check_in_timeout = check_in_timeout if check_in_timeout is not None else config.check_in_timeout
+    check_in_max_turns = check_in_max_turns if check_in_max_turns is not None else config.check_in_max_turns
 
     ctx = HarnessContext(config, buses)
 
@@ -241,8 +335,10 @@ def run_skill(
             )
 
             # Two independent ways this check-in can resolve - the
-            # coordinator answers it, or check_in_timeout expires first -
-            # only one may ever act, whichever gets here first.
+            # coordinator's conversation concludes in a decision, or
+            # check_in_timeout expires first (bounding the *whole*
+            # exchange, including any follow-up rounds) - only one may
+            # ever act, whichever gets here first.
             resolved = [False]
             resolve_lock = threading.Lock()
 
@@ -252,21 +348,6 @@ def run_skill(
                         return
                     resolved[0] = True
                 action()
-
-            def on_checkin_reply(content: str, sender: str) -> None:
-                should_wait = _deliberate(llm_client, content, skill.coordinate_timeout)
-                RedisLogger.info(
-                    f"[{config.agent_id}] {skill.name!r} request={request_id} check-in reply from "
-                    f"{sender!r}: {content!r} - deliberation: {'wait longer' if should_wait else 'retry now'}"
-                )
-                if should_wait:
-                    resolve_once(wait_for_reply)
-                else:
-                    resolve_once(lambda: handle({
-                        "status": "error",
-                        "detail": f"coordinator did not respond in time (checked in, decided to retry: {content!r})",
-                        "retryable": True,
-                    }))
 
             def on_checkin_timeout() -> None:
                 RedisLogger.info(
@@ -283,13 +364,46 @@ def run_skill(
             timer.daemon = True
             timer.start()
 
-            dialogue.start(
-                coordinator,
-                f"You're coordinating a {skill.name!r} computation (request {request_id}) that "
-                f"hasn't produced a final result within its expected time. How is it going - still "
-                f"waiting on contributors, or has something gone wrong?",
-                on_checkin_reply,
+            # transcript/turns_used are shared, mutable state closed over by
+            # on_checkin_reply, which re-enters itself (via dialogue.reply)
+            # for as many follow-up rounds as check_in_max_turns allows -
+            # both the opening question and every follow-up are composed by
+            # a real LLM call grounded in the actual conversation so far,
+            # not fixed text, so this exchange can genuinely go wherever the
+            # coordinator's own answer leads it, within that bound.
+            transcript: list[dict] = []
+            turns_used = [0]
+
+            def on_checkin_reply(content: str, sender: str) -> None:
+                transcript.append({"speaker": "coordinator", "content": content})
+                allow_followup = turns_used[0] < check_in_max_turns
+                decision = _deliberate_or_followup(
+                    llm_client, transcript, skill.name, skill.coordinate_timeout, allow_followup,
+                )
+                RedisLogger.info(
+                    f"[{config.agent_id}] {skill.name!r} request={request_id} check-in reply from "
+                    f"{sender!r}: {content!r} - decision: {decision}"
+                )
+                if decision["action"] == "followup":
+                    turns_used[0] += 1
+                    question = decision["question"]
+                    transcript.append({"speaker": "head", "content": question})
+                    dialogue.reply(coordinator, conv_id, question, on_checkin_reply)
+                elif decision["action"] == "wait":
+                    resolve_once(wait_for_reply)
+                else:
+                    resolve_once(lambda: handle({
+                        "status": "error",
+                        "detail": f"coordinator did not respond in time (checked in, decided to retry: {content!r})",
+                        "retryable": True,
+                    }))
+
+            opening_question = _compose_checkin_question(
+                llm_client, skill.name, request_id, skill.coordinate_timeout, check_in_num, max_check_ins,
             )
+            transcript.append({"speaker": "head", "content": opening_question})
+            turns_used[0] += 1
+            conv_id = dialogue.start(coordinator, opening_question, on_checkin_reply)
 
         wait_for_reply()
 

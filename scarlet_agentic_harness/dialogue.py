@@ -56,14 +56,22 @@ def _system_prompt(agent_id: str, context: dict) -> str:
     report handed to it ("I don't actually have visibility into this
     distributed system... I'm reading the context you provided in the
     prompt") - accurate as a description of the API call, but exactly
-    backwards for what a check-in reply needs to sound like: the injected
+    backwards for what any grounded reply needs to sound like: the injected
     context IS this agent's own real state, and it should answer as
     itself, directly, not hedge about lacking visibility into data that
     was in fact just handed to it as its own.
+
+    Deliberately says nothing about *what kind* of message this is (status,
+    a question, a negotiation, anything else) - head.py's check-in is the
+    only caller today, but this module's own generic message envelope (see
+    the module docstring) exists so AgentDialogue isn't locked to that one
+    use case, and this prompt shouldn't be either. Whatever the incoming
+    content actually is/asks is in `history` already (see _respond()) -
+    the model reasons about that directly, same as any other turn.
     """
     lines = [
-        f"You are agent {agent_id!r}. Another agent is asking you about your own current "
-        f"status as part of a distributed computation you're involved in.",
+        f"You are agent {agent_id!r}. Another agent has sent you a message as part of a "
+        f"conversation between agents in a distributed system you're involved in.",
     ]
     if context:
         lines.append(
@@ -72,8 +80,8 @@ def _system_prompt(agent_id: str, context: dict) -> str:
             f"{json.dumps(context)}"
         )
     lines.append(
-        "Answer directly and confidently based on that. Don't caveat that you lack "
-        "visibility into the system - the information above is your visibility."
+        "Answer directly and confidently based on that when it's relevant. Don't caveat "
+        "that you lack visibility into the system - the information above is your visibility."
     )
     return " ".join(lines)
 

@@ -137,7 +137,10 @@ def test_wait_decision_lets_a_late_real_result_still_succeed(redis_conn_info):
     # head_dialogue's registered reply handler - real __main__.py wires
     # this the same way for the head's LLM-backed chat mode.
     head_buses.global_router.default_handler = head_dialogue.handle
-    deliberation_llm = ScriptedChatClient(["WAIT"])
+    # Two calls per check-in now: the opening question is itself composed
+    # by an LLM call (_compose_checkin_question), then a second call
+    # weighs the coordinator's reply (_deliberate_or_followup).
+    deliberation_llm = ScriptedChatClient(["how's the median coming along?", "WAIT"])
 
     try:
         skill = _StubSkill("stub_deliberate_wait")
@@ -171,7 +174,7 @@ def test_wait_decision_lets_a_late_real_result_still_succeed(redis_conn_info):
         assert result_box["result"]["status"] == "ok"
         assert result_box["result"]["result"] == 42
         assert len(coordinate_seen) == 1  # no retry happened - WAIT means no new attempt
-        assert len(deliberation_llm.calls) == 1
+        assert len(deliberation_llm.calls) == 2  # compose the opening question, then decide
     finally:
         _stop(head_buses)
         _stop(fake_worker_buses)
@@ -207,7 +210,7 @@ def test_retry_decision_proceeds_with_normal_retry(redis_conn_info):
 
     head_dialogue = AgentDialogue(head_buses.global_bus, ScriptedChatClient([]))
     head_buses.global_router.default_handler = head_dialogue.handle
-    deliberation_llm = ScriptedChatClient(["RETRY"])
+    deliberation_llm = ScriptedChatClient(["how's the median coming along?", "RETRY"])
 
     try:
         skill = _StubSkill("stub_deliberate_retry")
@@ -230,7 +233,83 @@ def test_retry_decision_proceeds_with_normal_retry(redis_conn_info):
         assert result_box["result"]["result"] == 7
         assert len(coordinate_seen) == 2  # the retry actually happened
         assert cancels_seen == [coordinate_seen[0]]  # first attempt cancelled, not the second
-        assert len(deliberation_llm.calls) == 1
+        assert len(deliberation_llm.calls) == 2  # compose the opening question, then decide
+    finally:
+        _stop(head_buses)
+        _stop(fake_worker_buses)
+
+
+def test_followup_question_continues_the_checkin_conversation_before_deciding(redis_conn_info):
+    """A live model may or may not choose to ask a follow-up on any given
+    run (see tests/test_real_llm_stuck_and_checkin.py's transcripts for
+    real examples) - this scripts one deterministically, proving the
+    mechanism itself (dialogue.reply() re-entering on_checkin_reply,
+    growing the same transcript, both sides seeing the real conversation
+    so far) actually works, independent of whether any particular real
+    run happens to exercise it."""
+    head_config, head_buses, fake_worker_config, fake_worker_buses = _setup(redis_conn_info, "followup")
+
+    coordinate_seen: list[str] = []
+    replies_received: list[str] = []
+    both_rounds_answered = threading.Event()
+
+    worker_dialogue = AgentDialogue(
+        fake_worker_buses.global_bus,
+        ScriptedChatClient([
+            "still working on it, one contributor hasn't checked in yet",
+            "it's the second worker - haven't heard from it in a while",
+        ]),
+    )
+
+    def fake_worker_handler(msg: dict) -> None:
+        body = msg.get("body", {})
+        msg_type = body.get("type")
+        if msg_type == "skill_coordinate":
+            coordinate_seen.append(body["request_id"])
+        elif msg_type == "agent_message":
+            replies_received.append(body.get("content"))
+            worker_dialogue.handle(msg)
+            if len(replies_received) >= 2:
+                both_rounds_answered.set()
+
+    fake_worker_buses.global_router.default_handler = fake_worker_handler
+
+    head_dialogue = AgentDialogue(head_buses.global_bus, ScriptedChatClient([]))
+    head_buses.global_router.default_handler = head_dialogue.handle
+    deliberation_llm = ScriptedChatClient([
+        "how's the median coming along?",
+        "ASK: which contributor specifically hasn't checked in?",
+        "WAIT",
+    ])
+
+    try:
+        skill = _StubSkill("stub_deliberate_followup")
+        result_box: dict = {}
+        done = threading.Event()
+
+        def on_result(result):
+            result_box["result"] = result
+            done.set()
+
+        head_mod.run_skill(
+            skill, {}, head_config, head_buses, on_result,
+            max_attempts=2, reply_slack=2.0,
+            dialogue=head_dialogue, llm_client=deliberation_llm,
+            max_check_ins=2, check_in_timeout=5.0, check_in_max_turns=3,
+        )
+
+        assert both_rounds_answered.wait(timeout=5), "the follow-up round never reached the coordinator"
+        assert len(replies_received) == 2  # the opening question, then a genuine follow-up - not one fixed exchange
+        assert not done.is_set(), "run_skill() concluded before the late real result was sent - WAIT didn't re-arm"
+
+        fake_worker_buses.global_bus.Send(head_config.agent_id, {
+            "type": "skill_result", "request_id": coordinate_seen[0], "status": "ok", "result": 42,
+        })
+
+        assert done.wait(timeout=5)
+        assert result_box["result"]["status"] == "ok"
+        assert len(coordinate_seen) == 1  # WAIT (after the follow-up) means no retry happened
+        assert len(deliberation_llm.calls) == 3  # compose question, decide -> ASK, decide (after follow-up) -> WAIT
     finally:
         _stop(head_buses)
         _stop(fake_worker_buses)
@@ -255,7 +334,11 @@ def test_checkin_itself_timing_out_falls_back_to_retry(redis_conn_info):
     fake_worker_buses.global_router.default_handler = fake_worker_handler
 
     head_dialogue = AgentDialogue(head_buses.global_bus, ScriptedChatClient([]))
-    deliberation_llm = ScriptedChatClient([])  # never called - the check-in itself times out first
+    # One reply here, not zero: composing the opening question still happens
+    # (it's what gets sent) - it's only the *deliberate* call (weighing a
+    # reply) that never happens, since the check-in itself times out first
+    # with no reply ever received.
+    deliberation_llm = ScriptedChatClient(["how's the median coming along?"])
 
     try:
         skill = _StubSkill("stub_deliberate_checkintimeout")
@@ -277,7 +360,7 @@ def test_checkin_itself_timing_out_falls_back_to_retry(redis_conn_info):
         assert result_box["result"]["status"] == "ok"
         assert result_box["result"]["result"] == 3
         assert len(coordinate_seen) == 2
-        assert deliberation_llm.calls == []
+        assert len(deliberation_llm.calls) == 1  # only the opening question composition
     finally:
         _stop(head_buses)
         _stop(fake_worker_buses)
