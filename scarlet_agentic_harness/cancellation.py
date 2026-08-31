@@ -59,14 +59,27 @@ class CancellationToken:
 
 
 class CancellationRegistry:
-    def __init__(self):
+    def __init__(self, activity_mapper=None, agent_id: str | None = None):
+        """
+        activity_mapper/agent_id: optional - if both are given, every
+        create()/forget() also publishes this worker's current in-flight
+        request_ids to a shared Mapper (observability.py), so the same
+        request_id -> token bookkeeping this registry already does doesn't
+        need a second, separate tracker for live-activity visibility. Left
+        as None (the default) means no publishing - callers that only care
+        about cancellation, not observability, pay nothing extra.
+        """
         self._tokens: dict[str, CancellationToken] = {}
         self._lock = threading.Lock()
+        self._activity_mapper = activity_mapper
+        self._agent_id = agent_id
 
     def create(self, request_id: str) -> CancellationToken:
         token = CancellationToken()
         with self._lock:
             self._tokens[request_id] = token
+            in_flight = list(self._tokens.keys())
+        self._publish(in_flight)
         return token
 
     def cancel(self, request_id: str) -> None:
@@ -81,3 +94,18 @@ class CancellationRegistry:
     def forget(self, request_id: str) -> None:
         with self._lock:
             self._tokens.pop(request_id, None)
+            in_flight = list(self._tokens.keys())
+        self._publish(in_flight)
+
+    def snapshot(self) -> list[str]:
+        """Currently-tracked request_ids, for a caller that wants this
+        worker's own in-flight state directly (e.g. AgentDialogue's
+        context_fn - see __main__.py) rather than round-tripping through
+        the shared Mapper to read back what this same process just wrote."""
+        with self._lock:
+            return list(self._tokens.keys())
+
+    def _publish(self, in_flight: list[str]) -> None:
+        if self._activity_mapper is None:
+            return
+        self._activity_mapper.Map({"in_flight": in_flight, "count": len(in_flight)}, key=self._agent_id)

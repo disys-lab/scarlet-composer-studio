@@ -39,6 +39,8 @@ instead would reopen exactly that race.
 """
 import threading
 
+from scarlets.utils.RedisLogger import RedisLogger
+
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, CancellationToken
 from scarlet_agentic_harness.config import HarnessConfig
@@ -70,6 +72,10 @@ def handle_message(
 
     if msg_type == "skill_coordinate":
         result = skill.coordinate(ctx, body, body.get("workers", []))
+        RedisLogger.info(
+            f"[{config.agent_id}] finished coordinating {skill.name!r} "
+            f"request={body.get('request_id')} status={result.get('status')}"
+        )
         buses.global_bus.Send(msg["from"], {
             "type": "skill_result",
             "request_id": body.get("request_id"),
@@ -82,7 +88,8 @@ def start_dispatch(
     buses: Buses,
     skills: dict[str, Skill],
     dialogue: AgentDialogue | None = None,
-) -> None:
+    registry: CancellationRegistry | None = None,
+) -> CancellationRegistry:
     """
     Start servicing this worker's incoming dispatch messages concurrently.
     Call once at startup. After this, a new skill_contribute/skill_coordinate
@@ -96,14 +103,23 @@ def start_dispatch(
     own threading internally, so it's safe to call directly here rather
     than wrapping it in another spawned thread.
 
-    Also owns this worker's CancellationRegistry (module-private here, one
-    per worker process): skill_cancel messages (sent by head.run_skill()
-    when a retry supersedes an earlier attempt) look up the matching
-    request_id and cancel its token, if this worker is still tracking it -
-    a cancel for a request that already finished, or that this worker was
+    registry: this worker's CancellationRegistry - constructed here if not
+    given (existing callers that don't need one, e.g. most tests, are
+    unaffected), but a caller that wants live observability (see
+    observability.py) or a context_fn grounded in real in-flight state
+    (see dialogue.py) needs to construct its own CancellationRegistry
+    (optionally wired to a shared Mapper - see __main__.py) and pass it in
+    *before* calling start_dispatch(), so it can also be handed to
+    AgentDialogue's context_fn. Returned either way, so a caller that let
+    this function construct one can still get a handle to it.
+
+    skill_cancel messages (sent by head.run_skill() when a retry
+    supersedes an earlier attempt) look up the matching request_id in the
+    registry and cancel its token, if this worker is still tracking it - a
+    cancel for a request that already finished, or that this worker was
     never part of, is a normal race, not an error (see cancellation.py).
     """
-    registry = CancellationRegistry()
+    registry = registry if registry is not None else CancellationRegistry()
 
     def _dispatch(msg: dict) -> None:
         body = msg.get("body", {})
@@ -112,6 +128,9 @@ def start_dispatch(
 
         if msg_type in ("skill_contribute", "skill_coordinate"):
             token = registry.create(request_id)
+            RedisLogger.info(
+                f"[{config.agent_id}] started {msg_type} for skill={body.get('skill')!r} request={request_id}"
+            )
 
             def run():
                 try:
@@ -121,6 +140,7 @@ def start_dispatch(
 
             threading.Thread(target=run, daemon=True).start()
         elif msg_type == "skill_cancel":
+            RedisLogger.info(f"[{config.agent_id}] received skill_cancel for request={request_id}")
             registry.cancel(request_id)
         elif msg_type == "agent_message" and dialogue is not None:
             dialogue.handle(msg)
@@ -129,3 +149,4 @@ def start_dispatch(
         # nobody's set up to handle.
 
     buses.global_router.default_handler = _dispatch
+    return registry

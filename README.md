@@ -245,6 +245,43 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   `run_skill()`'s retry actually sends exactly one `skill_cancel`, for the
   right (superseded) `request_id`, never the one that succeeds
   (`tests/test_run_skill_retry.py`).
+- ✅ **Observability (`observability.py`)** — live cross-agent visibility,
+  layered on top of `CancellationRegistry` rather than a second, parallel
+  tracker: it already knows exactly the data ("what request_ids is this
+  worker currently handling") this needs, so `CancellationRegistry` gained
+  an *optional* `activity_mapper`/`agent_id` — when given, `create()`/
+  `forget()` also publish this worker's current in-flight `request_id`s to
+  a shared Mapper, keyed by agent, `AllGather()`-able by anyone as
+  `observability.snapshot()`. Unlike scarlets' own agent registry
+  (confirmed by reading `Messenger.Register()`/`ReportStatus()` to have no
+  TTL at all — the same finding that made `gather_workers()`'s staleness
+  filter necessary earlier), Mapper values *do* expire on their own
+  (`scarletDataExpiry`, ~1hr default), so a crashed worker's activity
+  entry doesn't linger forever the way the raw agent registry's would.
+  Purely observational — nothing about dispatch, retry, or cancellation
+  depends on it. A worker's `AgentDialogue` (`dialogue.py`) now gets a
+  *real* `context_fn`, grounded in the registry's own live
+  `in_flight_requests`, closing the exact gap flagged when `AgentDialogue`
+  was first built ("no worker constructs one with a context_fn yet").
+- ✅ **`RedisLogger` audit trail** — this ecosystem already has a working,
+  idiomatic way to write timestamped, app/node-tagged status entries to
+  Redis (`scarlets.utils.RedisLogger`, already used internally by
+  `Messenger` for transport-level events) — extended into this codebase's
+  own application-level lifecycle, not reinvented. Head side
+  (`head.run_skill()`): every dispatch, every retry (and why), every
+  `skill_cancel` broadcast, every final success/failure. Worker side
+  (`worker.py`): every dispatch started, every `skill_cancel` received,
+  every coordination finished (with its outcome). Together with the
+  Mapper snapshot above, this is deliberately two different shapes for
+  two different questions — Mapper is "what's happening *right now*" (one
+  live value per agent, overwritten each time), `RedisLogger` is "what
+  *happened*, and when" (an append-only entry per event) — see
+  `observability.py`'s docstring for why one wouldn't substitute for the
+  other. 3 real-Redis tests (`tests/test_observability.py`, since `Mapper`
+  is Redis-backed and can't be faked in-process) prove two separate
+  registries (standing in for two worker processes) publishing to the
+  same shared Mapper produce a real cross-agent snapshot, not just
+  read-your-own-writes.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 

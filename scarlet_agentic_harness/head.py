@@ -43,6 +43,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from scarlets.utils.RedisLogger import RedisLogger
+
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
@@ -120,15 +122,28 @@ def run_skill(
         # that ends up superseded by a retry.
         def handle(result: dict) -> None:
             if result.get("status") == "ok":
+                RedisLogger.info(f"[{config.agent_id}] {skill.name!r} request={request_id} succeeded")
                 on_result(result)
                 return
             if not result.get("retryable", False) or attempt_num >= max_attempts:
+                RedisLogger.info(
+                    f"[{config.agent_id}] {skill.name!r} request={request_id} failed permanently: "
+                    f"{result.get('detail')}"
+                )
                 on_result(result)
                 return
+            RedisLogger.info(
+                f"[{config.agent_id}] {skill.name!r} request={request_id} failed (retryable): "
+                f"{result.get('detail')} - retrying as attempt {attempt_num + 1}"
+            )
             for worker_id in workers:
                 buses.global_bus.Send(worker_id, {"type": "skill_cancel", "request_id": request_id})
             attempt(attempt_num + 1)
 
+        RedisLogger.info(
+            f"[{config.agent_id}] dispatching {skill.name!r} request={request_id} "
+            f"attempt={attempt_num} coordinator={coordinator} workers={workers}"
+        )
         for worker_id in workers:
             msg_type = "skill_coordinate" if worker_id == coordinator else "skill_contribute"
             buses.global_bus.Send(worker_id, {"type": msg_type, **request})

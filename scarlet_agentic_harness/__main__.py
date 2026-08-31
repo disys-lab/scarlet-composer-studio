@@ -10,9 +10,11 @@ import sys
 import threading
 
 from scarlet_agentic_harness.buses import Buses
+from scarlet_agentic_harness.cancellation import CancellationRegistry
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
+from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness import worker as worker_mod
@@ -25,16 +27,25 @@ def main() -> None:
 
     if config.role == "worker":
         buses.report_status(capabilities=list(skills.keys()))
-        # AgentDialogue is only constructed if an LLM backend is configured
-        # - without one, agent_message traffic is simply dropped (see
-        # worker.start_dispatch), same as any other message nobody's set up
-        # to handle. No context_fn yet: real grounding data (an in-flight
-        # request registry) doesn't exist until the cancellation/tracking
-        # work is built - wiring a placeholder now would mean narrating
-        # something fabricated, which is exactly what grounding is for
-        # avoiding. See dialogue.py's docstring.
-        dialogue = AgentDialogue(buses.global_bus, LLMClient(config)) if config.llm_base_url else None
-        worker_mod.start_dispatch(config, buses, skills, dialogue=dialogue)
+        # Activity publishing (observability.py) is unconditional - it's
+        # useful for a dashboard/human regardless of whether this worker
+        # has LLM access. AgentDialogue is only constructed if an LLM
+        # backend is configured - without one, agent_message traffic is
+        # simply dropped (see worker.start_dispatch), same as any other
+        # message nobody's set up to handle. Its context_fn now has real
+        # grounding data to draw on: the registry's own in-flight
+        # request_ids, not a placeholder.
+        registry = CancellationRegistry(
+            activity_mapper=observability.activity_mapper(config.app_id), agent_id=config.agent_id,
+        )
+        dialogue = (
+            AgentDialogue(
+                buses.global_bus, LLMClient(config),
+                context_fn=lambda: {"in_flight_requests": registry.snapshot()},
+            )
+            if config.llm_base_url else None
+        )
+        worker_mod.start_dispatch(config, buses, skills, dialogue=dialogue, registry=registry)
         print(
             f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
             f"dialogue={'on' if dialogue else 'off'}",
