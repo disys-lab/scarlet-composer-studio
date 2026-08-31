@@ -13,7 +13,74 @@ to call" are concerns specific to this harness, not the underlying scarlets
 primitives.
 """
 import os
+import socket
 from dataclasses import dataclass, field
+
+from scarlets.utils.RedisLogger import RedisLogger
+
+
+def _env(key: str) -> str | None:
+    """
+    os.environ.get() that also treats an explicitly-empty value as absent.
+    Found via a real container smoke test (docker run against the actual
+    built image): scarlet-agent-base's own Dockerfile declares several
+    optional vars as ENV KEY="" placeholders rather than leaving them
+    genuinely unset (e.g. DEVICE_GROUP="", MANAGER_HOST="") - so does this
+    harness's own Dockerfile (HEAD_BUS="", LLM_MODEL="") - and a plain
+    os.environ.get(key, default) can't tell that apart from a real
+    override: the key is present either way, so its own default argument
+    never kicks in. device_group came back "" (not f"{app_id}_subagent")
+    from a real run before this fix.
+    """
+    value = os.environ.get(key)
+    return value if value else None
+
+
+def _resolve_node_address(app_id: str, manager_host: str, manager_port: str) -> str:
+    """
+    Mirrors scarlets.types.ScarletBase._resolveNodeAddress() - the real,
+    already-shipped implementation every other scarlets primitive
+    (Messenger, etc.) uses - which this harness previously didn't call at
+    all (see from_env()'s old, hard "NODE_ADDRESS is required" check).
+    Priority: env var (checked by the caller, not here) -> the Gustavo
+    manager's /api/v2/getNodeInfo endpoint (resolves this node's Nebula
+    overlay IP via app_id, the same lookup Gustavo performs at enrollment
+    time) -> local hostname IP -> "127.0.0.1" if even that fails. Matches
+    ScarletBase's real request shape exactly (query param is `app_id`, not
+    `node` - the docs' simplified description of this endpoint doesn't
+    match the actual implementation, which is what this mirrors).
+
+    On a successful getNodeInfo resolution, sets os.environ["NODE_ADDRESS"]
+    (and DEVICE_GROUP, if not already genuinely set - see _env() above for
+    why this checks _env() rather than using plain dict.setdefault(), which
+    an existing DEVICE_GROUP="" placeholder would defeat the same way) as a
+    side effect - same as ScarletBase does - so that scarlets primitives
+    constructed later in this same process (Messenger, etc., which
+    independently run this same priority chain via their own
+    ScarletBase.__init__) see the already-resolved value via step 1 of
+    their own chain instead of each making a redundant getNodeInfo call.
+    """
+    if manager_host and manager_port:
+        try:
+            import requests
+            url = f"http://{manager_host}:{manager_port}/api/v2/getNodeInfo"
+            resp = requests.get(url, params={"app_id": app_id}, timeout=3)
+            if resp.status_code == 200:
+                data = resp.json()
+                resolved = data.get("node_address")
+                if resolved:
+                    os.environ["NODE_ADDRESS"] = resolved
+                    device_group = data.get("device_group")
+                    if device_group and not _env("DEVICE_GROUP"):
+                        os.environ["DEVICE_GROUP"] = device_group
+                    return resolved
+        except Exception as exc:
+            RedisLogger.warning(f"Could not resolve node address via getNodeInfo: {exc}")
+
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except Exception:
+        return "127.0.0.1"
 
 
 @dataclass(frozen=True)
@@ -52,28 +119,34 @@ class HarnessConfig:
 
     @staticmethod
     def from_env() -> "HarnessConfig":
-        role = os.environ.get("ROLE", "worker").strip().lower()
+        role = (_env("ROLE") or "worker").strip().lower()
         if role not in ("head", "worker"):
             raise ValueError(f"ROLE must be 'head' or 'worker', got {role!r}")
 
-        app_id = os.environ.get("APP_ID")
+        app_id = _env("APP_ID")
         if not app_id:
             raise ValueError("APP_ID is required (see DESIGN_v3.md section 15.2)")
 
-        # NODE_ADDRESS: required here, unlike scarlets' own fallback chain
-        # (env var -> getNodeInfo call -> local hostname IP) - this harness
-        # doesn't yet implement the getNodeInfo HTTP fallback, so callers must
-        # set NODE_ADDRESS explicitly (Gustavo does this at enrollment time in
-        # a real deployment; tests set it directly).
-        node_address = os.environ.get("NODE_ADDRESS")
+        # NODE_ADDRESS: same priority chain scarlets' own ScarletBase uses
+        # (env var -> getNodeInfo -> local hostname IP -> "127.0.0.1") - see
+        # _resolve_node_address() above. Gustavo's documented app-config
+        # pattern deliberately leaves NODE_ADDRESS unset and expects the
+        # agent to resolve it itself via this chain (contrary to this
+        # harness's old assumption that Gustavo injected it directly - it
+        # doesn't), so this is required for real Gustavo deployments to
+        # work at all, not just a nice-to-have.
+        node_address = _env("NODE_ADDRESS")
         if not node_address:
-            raise ValueError(
-                "NODE_ADDRESS is required (this harness does not yet implement "
-                "the getNodeInfo fallback scarlets.ScarletBase supports)"
+            node_address = _resolve_node_address(
+                app_id, _env("MANAGER_HOST") or "", _env("MANAGER_PORT") or "",
             )
 
-        device_group = os.environ.get("DEVICE_GROUP", f"{app_id}_subagent")
-        head_bus = os.environ.get("HEAD_BUS", f"{app_id}_headagent")
+        # Read after node_address resolution, not before - a successful
+        # getNodeInfo call above may have set DEVICE_GROUP as a side effect
+        # (see _resolve_node_address()'s docstring), and an explicit env
+        # var should still win over that.
+        device_group = _env("DEVICE_GROUP") or f"{app_id}_subagent"
+        head_bus = _env("HEAD_BUS") or f"{app_id}_headagent"
 
         return HarnessConfig(
             role=role,
@@ -81,9 +154,9 @@ class HarnessConfig:
             node_address=node_address,
             device_group=device_group,
             head_bus=head_bus,
-            llm_base_url=os.environ.get("LLM_BASE_URL"),
-            llm_api_key=os.environ.get("LLM_API_KEY"),
-            llm_model=os.environ.get("LLM_MODEL"),
+            llm_base_url=_env("LLM_BASE_URL"),
+            llm_api_key=_env("LLM_API_KEY"),
+            llm_model=_env("LLM_MODEL"),
             # float()/int() raise ValueError on a malformed override - fail
             # loud on bad config, same as ROLE's validation above, rather
             # than silently falling back.

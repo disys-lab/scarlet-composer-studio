@@ -439,8 +439,50 @@ a change to `head.py`/`worker.py`'s dispatch logic.
     above exists to cover that branch on its own. See
     `transcripts/test_real_stuck_coordinator_triggers_a_real_checkin_and_deliberation.md`
     for the full exchange.
-- Not packaged into a Docker image, no Gustavo app config written, nothing
-  deployed to any device group.
+- ✅ **Packaged into a Docker image** (`Dockerfile`, extends
+  `ghcr.io/disys-lab/scarlet-agent-base:0.5.0`, matches
+  scarlet-composer-studio's own hello_agent quickstart convention) — built
+  and run for real against a disposable Redis (not just a syntax check):
+  `docker build` succeeds, and the running container reaches `worker
+  online, skills=['combine', 'median', 'sum'], dialogue=off`, a real
+  Redis-backed capability registration. `docker-compose.yml`/`.env.example`
+  run it alongside a `scarlet-composer` sibling container for local dev,
+  mirroring the quickstart example (`scarlet-composer` is a standalone
+  operator UI, never combined into an agent's own image anywhere in this
+  ecosystem). `ROLE=head` isn't yet suited to run this way - `__main__.py`'s
+  head branch is currently an interactive REPL reading `sys.stdin`, not a
+  headless daemon; documented in the Dockerfile rather than silently
+  shipped broken.
+- ✅ **`NODE_ADDRESS` is now genuinely optional, matching Gustavo's actual
+  deployment contract.** Checked against scarlet-composer-studio's real
+  docs and source (`docs/concepts/identity.md`,
+  `scarlets/types/ScarletBase.py`) while verifying Gustavo compatibility:
+  Gustavo's documented app-config pattern deliberately leaves
+  `NODE_ADDRESS: ""` empty and expects the agent to resolve it itself -
+  this harness previously assumed the opposite (`from_env()` raised if
+  `NODE_ADDRESS` was unset) and would have crashed on every node under a
+  real Gustavo deployment. `_resolve_node_address()` now mirrors
+  `ScarletBase._resolveNodeAddress()`'s real priority chain exactly (env
+  var → the Gustavo manager's `/api/v2/getNodeInfo` endpoint via
+  `MANAGER_HOST`/`MANAGER_PORT` → local hostname IP → `"127.0.0.1"`),
+  including its `app_id` query-param shape (not `node`, as the docs'
+  simplified description states - the real implementation was the source
+  of truth here) and its `os.environ` side-effect so other scarlets
+  primitives constructed later in the same process skip a redundant call.
+  `tests/test_config.py` covers all four branches with mocked
+  `requests`/`socket`, no real network calls.
+  - **Real bug found via an actual container run, not just unit tests**:
+    `scarlet-agent-base`'s own Dockerfile (and this harness's own,
+    extending it) declare several optional vars as `ENV KEY=""`
+    placeholders rather than leaving them genuinely unset -
+    `os.environ.get(key, default)` can't tell that apart from a real
+    override, since the key is present either way. `device_group` came
+    back `""` (not the intended `f"{app_id}_subagent"`) from a real
+    `docker run` before this was fixed. `_env()` now treats an
+    explicitly-empty value as absent everywhere in `config.py` -
+    `tests/test_config.py::test_empty_string_env_vars_treated_as_unset`
+    reproduces the exact real-container shape (present-but-empty, not
+    merely absent) so this class of bug can't silently return.
 
 ## Design decisions worth knowing
 
