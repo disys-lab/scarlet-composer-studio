@@ -22,6 +22,21 @@ until its own coordinate_timeout expires on its own, uselessly, even
 though the head has already moved on and nothing is waiting on its answer
 anymore (see cancellation.py, worker.py's registry).
 
+Deliberation (optional - see `dialogue`/`llm_client` below): a plain
+timeout used to mean an immediate, mechanical retry. When both are given,
+on_timeout instead starts a real conversation with the coordinator
+(AgentDialogue - dialogue.py) - "how's this going?" - grounded in the
+coordinator's own real state (see observability.py's activity registry,
+which is what a worker's context_fn now draws on). A small LLM call
+weighs the reply and decides WAIT (re-arm the same wait, no retry yet) or
+RETRY (proceed with the existing cancel-and-retry path). Bounded on two
+axes so this can never hang or loop forever: max_check_ins caps how many
+times this can happen per attempt, and check_in_timeout bounds the
+check-in conversation itself, independently of the coordinator's own
+coordinate_timeout. Falls back to exactly the old mechanical behavior
+(immediate retryable failure) whenever dialogue/llm_client aren't
+supplied - existing callers are unaffected.
+
 converse() is the same shift applied to the LLM tool-calling loop: each
 turn dispatches its tool calls concurrently (they're independent async
 calls now, not sequential blocking ones) and resumes the next turn via
@@ -49,11 +64,36 @@ from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.conversation_store import ConversationStore
+from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.skills.base import Skill
 
 
 class ChatClient(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
+
+
+def _deliberate(llm_client: ChatClient, coordinator_reply: str, coordinate_timeout: float) -> bool:
+    """
+    True = keep waiting, False = retry now. A single, narrow LLM call -
+    not converse()'s tool-calling loop, this isn't about choosing a skill,
+    it's about weighing one piece of qualitative evidence. Defaults to
+    False (retry) whenever the model's answer isn't clearly "wait" - the
+    conservative choice, matching every other default-to-safe convention
+    in this codebase (e.g. Skill results default to not-retryable unless
+    explicitly marked otherwise).
+    """
+    prompt = (
+        f"A distributed computation's coordinator has not produced a final "
+        f"answer within its expected time (about {coordinate_timeout:.0f}s). "
+        f"Asked for a status update, it replied:\n\n"
+        f'"{coordinator_reply}"\n\n'
+        f"Based only on this reply, should we give it more time, or treat "
+        f"this as stuck and retry with a different worker? Reply with "
+        f"exactly one word: WAIT or RETRY."
+    )
+    turn = llm_client.chat([{"role": "user", "content": prompt}])
+    answer = (turn.get("content") or "").strip().upper()
+    return answer.startswith("WAIT")
 
 
 def run_skill(
@@ -64,6 +104,10 @@ def run_skill(
     on_result: Callable[[dict], None],
     max_attempts: int = 2,
     reply_slack: float = 10.0,
+    dialogue: AgentDialogue | None = None,
+    llm_client: ChatClient | None = None,
+    max_check_ins: int = 2,
+    check_in_timeout: float = 10.0,
 ) -> None:
     """
     Dispatch one invocation of `skill` across currently-registered workers.
@@ -94,6 +138,12 @@ def run_skill(
     slack accounts for message round-trip time on top of the coordinator's
     internal deadline. Overridable mainly so tests can shrink it instead of
     waiting through a real ~10s timeout to prove retry behavior.
+
+    dialogue/llm_client: optional. If both are given, a timeout doesn't
+    immediately mean retry - see the module docstring's "Deliberation"
+    section. Omit either (the default) for the old, purely mechanical
+    behavior. max_check_ins/check_in_timeout only matter when both are
+    given - see the same section for what they bound.
     """
     ctx = HarnessContext(config, buses)
 
@@ -161,16 +211,77 @@ def run_skill(
         def on_reply(msg: dict) -> None:
             handle(msg.get("body", {}))
 
-        def on_timeout() -> None:
-            handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True})
+        def wait_for_reply() -> None:
+            # No explicit forget() needed here, unlike the old receive_for()
+            # flow - on_key()'s callback/timeout pair is self-cleaning
+            # either way it resolves (see router.py).
+            buses.global_router.on_key(
+                request_id, on_reply,
+                timeout=skill.coordinate_timeout + reply_slack, on_timeout=lambda: on_timeout(0),
+            )
 
-        # No explicit forget() needed here, unlike the old receive_for()
-        # flow - on_key()'s callback/timeout pair is self-cleaning either
-        # way it resolves (see router.py).
-        buses.global_router.on_key(
-            request_id, on_reply,
-            timeout=skill.coordinate_timeout + reply_slack, on_timeout=on_timeout,
-        )
+        def on_timeout(check_in_num: int) -> None:
+            if dialogue is None or llm_client is None or check_in_num >= max_check_ins:
+                handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True})
+                return
+
+            RedisLogger.info(
+                f"[{config.agent_id}] {skill.name!r} request={request_id} coordinator {coordinator!r} "
+                f"has not replied - checking in (round {check_in_num + 1}/{max_check_ins})"
+            )
+
+            # Two independent ways this check-in can resolve - the
+            # coordinator answers it, or check_in_timeout expires first -
+            # only one may ever act, whichever gets here first.
+            resolved = [False]
+            resolve_lock = threading.Lock()
+
+            def resolve_once(action: Callable[[], None]) -> None:
+                with resolve_lock:
+                    if resolved[0]:
+                        return
+                    resolved[0] = True
+                action()
+
+            def on_checkin_reply(content: str, sender: str) -> None:
+                should_wait = _deliberate(llm_client, content, skill.coordinate_timeout)
+                RedisLogger.info(
+                    f"[{config.agent_id}] {skill.name!r} request={request_id} check-in reply from "
+                    f"{sender!r}: {content!r} - deliberation: {'wait longer' if should_wait else 'retry now'}"
+                )
+                if should_wait:
+                    resolve_once(wait_for_reply)
+                else:
+                    resolve_once(lambda: handle({
+                        "status": "error",
+                        "detail": f"coordinator did not respond in time (checked in, decided to retry: {content!r})",
+                        "retryable": True,
+                    }))
+
+            def on_checkin_timeout() -> None:
+                RedisLogger.info(
+                    f"[{config.agent_id}] {skill.name!r} request={request_id} coordinator {coordinator!r} "
+                    f"did not answer the check-in itself"
+                )
+                resolve_once(lambda: handle({
+                    "status": "error",
+                    "detail": "coordinator did not respond in time (unresponsive to check-in)",
+                    "retryable": True,
+                }))
+
+            timer = threading.Timer(check_in_timeout, on_checkin_timeout)
+            timer.daemon = True
+            timer.start()
+
+            dialogue.start(
+                coordinator,
+                f"You're coordinating a {skill.name!r} computation (request {request_id}) that "
+                f"hasn't produced a final result within its expected time. How is it going - still "
+                f"waiting on contributors, or has something gone wrong?",
+                on_checkin_reply,
+            )
+
+        wait_for_reply()
 
     attempt(1)
 
@@ -236,6 +347,7 @@ def converse(
     max_turns: int = 5,
     on_event: Callable[[dict], None] | None = None,
     store: ConversationStore | None = None,
+    dialogue: AgentDialogue | None = None,
 ) -> None:
     """
     Turn one human message into zero or more skill invocations and a final
@@ -251,6 +363,12 @@ def converse(
     in it has replied (see _Joiner), and results are placed back into the
     transcript in the original call order regardless of which finished
     first, so the model always sees a deterministic conversation shape.
+
+    dialogue: optional - if given, every run_skill() call this conversation
+    makes gets deliberation on timeout (see run_skill()'s docstring)
+    instead of an immediate mechanical retry, reusing this same
+    `llm_client` for the deliberation call itself (no separate client
+    needed - it's the same backend either way).
 
     llm_client.chat() itself is still an ordinary blocking call - only the
     bus-mediated waiting (skill results, and eventually check-in replies)
@@ -326,6 +444,6 @@ def converse(
                 def on_result(result: dict, call=call) -> None:
                     emit({"type": "tool_result", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "result": result})
                     joiner.submit(call["id"], result)
-                run_skill(skill, call["arguments"], config, buses, on_result)
+                run_skill(skill, call["arguments"], config, buses, on_result, dialogue=dialogue, llm_client=llm_client)
 
     do_turn(0)

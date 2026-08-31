@@ -138,7 +138,7 @@ def main() -> None:
                         box["error"] = error
                         done.set()
 
-                    head_mod.converse(line, config, buses, skills, llm_client, on_done, on_event=_log_event)
+                    head_mod.converse(line, config, buses, skills, llm_client, on_done, on_event=_log_event, dialogue=dialogue)
                     done.wait()
                     if box["error"] is not None:
                         raise box["error"]

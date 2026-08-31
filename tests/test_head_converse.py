@@ -48,7 +48,7 @@ def test_no_tool_call_returns_content_directly(monkeypatch):
 def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
     captured = {}
 
-    def fake_run_skill(skill, params, config, buses, on_result):
+    def fake_run_skill(skill, params, config, buses, on_result, **_kwargs):
         captured["skill"] = skill.name
         captured["params"] = params
         on_result({"status": "ok", "result": 42})
@@ -77,7 +77,7 @@ def test_single_tool_call_dispatches_and_returns_final_content(monkeypatch):
 def test_multiple_tool_calls_in_one_turn_all_get_dispatched(monkeypatch):
     seen = []
 
-    def fake_run_skill(skill, params, config, buses, on_result):
+    def fake_run_skill(skill, params, config, buses, on_result, **_kwargs):
         seen.append(params)
         on_result({"status": "ok", "result": params})
 
@@ -119,7 +119,7 @@ def test_unknown_tool_name_reports_error_without_crashing(monkeypatch):
 
 
 def test_gives_up_after_max_turns(monkeypatch):
-    def fake_run_skill(skill, params, config, buses, on_result):
+    def fake_run_skill(skill, params, config, buses, on_result, **_kwargs):
         on_result({"status": "ok", "result": 1})
     monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 
@@ -138,7 +138,7 @@ def test_gives_up_after_max_turns(monkeypatch):
 
 
 def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
-    def fake_run_skill(skill, params, config, buses, on_result):
+    def fake_run_skill(skill, params, config, buses, on_result, **_kwargs):
         on_result({"status": "ok", "result": 7})
     monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
 

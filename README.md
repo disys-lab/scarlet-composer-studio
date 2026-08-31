@@ -282,6 +282,42 @@ a change to `head.py`/`worker.py`'s dispatch logic.
   registries (standing in for two worker processes) publishing to the
   same shared Mapper produce a real cross-agent snapshot, not just
   read-your-own-writes.
+- ✅ **Deliberation** — the last piece of the plan: a timeout no longer
+  means an automatic mechanical retry. `run_skill()` gained optional
+  `dialogue`/`llm_client` parameters; when both are given, a timeout
+  triggers a real check-in conversation with the coordinator
+  (`AgentDialogue`) — "how's this going?" — grounded in the coordinator's
+  own real state (the observability work above is what makes that
+  grounding real, not fabricated). A small, narrow LLM call (`_deliberate`
+  — deliberately *not* `converse()`'s tool-calling loop; this is weighing
+  one piece of qualitative evidence, not choosing a skill) reads the
+  reply and decides `WAIT` (re-arm the original wait, no retry yet) or
+  `RETRY` (proceed with the existing cancel-and-retry path). Bounded on
+  two independent axes so this can never hang or loop forever:
+  `max_check_ins` caps how many check-in rounds one attempt gets, and
+  `check_in_timeout` bounds the check-in conversation itself, separately
+  from the coordinator's own `coordinate_timeout`. Defaults to exactly the
+  old mechanical behavior whenever `dialogue`/`llm_client` aren't supplied
+  — every existing caller (all of `median`/`sum`/`combine`'s own tests,
+  `test_run_skill_retry.py`) is unaffected. `converse()` now takes the
+  same optional `dialogue` and threads it (plus its own `llm_client`, the
+  same backend, no second client needed) into every `run_skill()` call it
+  makes — wired end-to-end in `__main__.py`'s LLM-backed chat mode, not
+  just available as an unused parameter.
+  `tests/test_deliberation.py` proves all three real outcomes against a
+  fake coordinator (a real `AgentDialogue` + scripted LLM, same rigor as
+  `test_run_skill_retry.py`'s fake-worker pattern): a `WAIT` decision
+  genuinely re-arms the wait and lets a late-arriving real result still
+  succeed (not just get discarded); a `RETRY` decision proceeds through
+  the existing cancel-and-retry path exactly as before; and the coordinator
+  never answering the check-in *itself* correctly falls back to retry via
+  `check_in_timeout`, without ever reaching the deliberation LLM call at
+  all. One real bug caught while building this test file, worth noting: a
+  missing `default_handler` wiring on the test's own head-side router
+  silently dropped every check-in reply, making every scenario fall
+  through to the `check_in_timeout` path regardless of what was scripted -
+  a reminder that `AgentDialogue` replies need the same explicit routing
+  `__main__.py` already does, not something automatic.
 - Not packaged into a Docker image, no Gustavo app config written, nothing
   deployed to any device group.
 
