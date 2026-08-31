@@ -25,3 +25,17 @@ export interface AgentsResponse {
   bus: string;
   agents: Agent[];
 }
+
+export interface AuthStatus {
+  auth_enabled: boolean;
+}
+
+export interface LoginResponse {
+  token: string;
+  username: string;
+  is_admin: boolean;
+}
+
+export interface ComposerConfig {
+  gustavo_api_url: string;
+}

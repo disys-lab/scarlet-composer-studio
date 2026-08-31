@@ -5,11 +5,11 @@ import {
   LayoutDashboard, Users, Database, FileText, Container, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/context/AuthContext";
 
 // Ported from gustavo-ui/components/layout/Sidebar.tsx - same shell,
-// same nav-array-mapped-to-Link pattern, same active-state logic. No
-// user/role block below the nav - composer has no auth system today,
-// unlike Gustavo.
+// same nav-array-mapped-to-Link pattern, same active-state logic, same
+// conditional-on-username user block + sign-out button at the bottom.
 const NAV = [
   { href: "/dashboard",        label: "Dashboard",        icon: LayoutDashboard },
   { href: "/agents",           label: "Agents",           icon: Users },
@@ -22,6 +22,7 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { username, isAdmin, logout } = useAuth();
 
   return (
     <aside className="flex flex-col w-56 min-h-screen bg-white border-r border-gray-200 px-3 py-5 shrink-0">
@@ -49,6 +50,26 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {username && (
+        <div className="border-t pt-3 px-3">
+          <p className="truncate text-sm font-medium text-gray-900" title={username}>
+            {username}
+          </p>
+          <p className="text-xs text-gray-400">{isAdmin ? "Admin" : "User"}</p>
+        </div>
+      )}
+
+      {username && (
+        <div className="mt-2 pt-2">
+          <button
+            onClick={logout}
+            className="w-full rounded-md px-3 py-2 text-sm font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors text-left"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
