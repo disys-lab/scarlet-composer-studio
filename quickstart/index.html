@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1540,28 +1540,28 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 <p>From a Python REPL on any machine that can reach your Redis:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.messaging</span><span class="w"> </span><span class="kn">import</span> <span class="n">Messenger</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">sender</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">&quot;quickstart_headagent&quot;</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">&quot;my-repl&quot;</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">sender</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_headagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"my-repl"</span><span class="p">)</span>
 <a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># hello-agent&#39;s agentId is &quot;hello-agent_local&quot;</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">sender</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">&quot;hello-agent_local&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;task&quot;</span><span class="p">:</span> <span class="s2">&quot;ping&quot;</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="s2">&quot;hello world&quot;</span><span class="p">})</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># hello-agent's agentId is "hello-agent_local"</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">sender</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"ping"</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">:</span> <span class="s2">"hello world"</span><span class="p">})</span>
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
 <a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">sender</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">&quot;body&quot;</span><span class="p">])</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># → {&quot;echo&quot;: {&quot;task&quot;: &quot;ping&quot;, &quot;data&quot;: &quot;hello world&quot;}, &quot;from&quot;: &quot;hello-agent_local&quot;, ...}</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">])</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># → {"echo": {"task": "ping", "data": "hello world"}, "from": "hello-agent_local", ...}</span>
 </code></pre></div>
 <h3 id="check-who-is-online">Check who is online</h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">print</span><span class="p">(</span><span class="n">sender</span><span class="o">.</span><span class="n">GatherStatus</span><span class="p">())</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># {</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1">#   &quot;hello-agent_local&quot;: {</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1">#     &quot;status&quot;: &quot;online&quot;,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1">#     &quot;capabilities&quot;: [&quot;echo&quot;, &quot;heartbeat&quot;],</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1">#     &quot;device_group&quot;: &quot;quickstart_subagent&quot;,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1">#     &quot;head_bus&quot;: &quot;quickstart_headagent&quot;,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1">#   "hello-agent_local": {</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1">#     "status": "online",</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1">#     "capabilities": ["echo", "heartbeat"],</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1">#     "device_group": "quickstart_subagent",</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1">#     "head_bus": "quickstart_headagent",</span>
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1">#   }</span>
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># }</span>
 </code></pre></div>
 <h3 id="broadcast-to-all-agents">Broadcast to all agents</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">sender</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">({</span><span class="s2">&quot;directive&quot;</span><span class="p">:</span> <span class="s2">&quot;update_config&quot;</span><span class="p">,</span> <span class="s2">&quot;version&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">sender</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">({</span><span class="s2">"directive"</span><span class="p">:</span> <span class="s2">"update_config"</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">:</span> <span class="mi">2</span><span class="p">})</span>
 </code></pre></div>
 <h3 id="run-the-smoke-test">Run the smoke test</h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>python3<span class="w"> </span>smoke_test.py<span class="w"> </span>--env<span class="w"> </span>.env
@@ -1569,10 +1569,10 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 <hr />
 <h2 id="step-5-explore-the-local-bus">Step 5 — Explore the local bus</h2>
 <p><code>hello-agent</code> also listens on <code>quickstart_subagent</code> for intra-group communication:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">local</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">&quot;quickstart_subagent&quot;</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">&quot;peer&quot;</span><span class="p">)</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">local</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">&quot;hello-agent_local&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;task&quot;</span><span class="p">:</span> <span class="s2">&quot;local-ping&quot;</span><span class="p">})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">local</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_subagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"peer"</span><span class="p">)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">local</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"local-ping"</span><span class="p">})</span>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">local</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">&quot;body&quot;</span><span class="p">][</span><span class="s2">&quot;channel&quot;</span><span class="p">])</span>  <span class="c1"># &quot;quickstart_subagent&quot;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">][</span><span class="s2">"channel"</span><span class="p">])</span>  <span class="c1"># "quickstart_subagent"</span>
 </code></pre></div>
 <hr />
 <h2 id="step-6-tear-down">Step 6 — Tear down</h2>
@@ -1686,7 +1686,7 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

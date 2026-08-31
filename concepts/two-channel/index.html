@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1414,9 +1414,9 @@
 <p>Every agent in Scarlet Composer Studio opens exactly two Messenger buses. This is not a convention — it reflects the physical structure of most distributed agent deployments.</p>
 <hr />
 <h2 id="the-pattern">The Pattern</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;HEAD_BUS&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DEVICE_GROUP&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"HEAD_BUS"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent"</span><span class="p">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"DEVICE_GROUP"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent"</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">"</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">global_bus</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">HEAD_BUS</span><span class="p">,</span>     <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>   <span class="c1"># campaign coordination</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">local_bus</span>  <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">DEVICE_GROUP</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>   <span class="c1"># intra-group communication</span>
@@ -1451,13 +1451,13 @@
 <p><strong>Single bus (naive approach):</strong>
 Every message from any node goes to every other node. A head agent broadcasting a configuration update hits all 20 workers simultaneously — fine. But a worker on Line 1 wanting to ask a peer on Line 1 about its sensor reading has to use the same bus and wait for any head-agent polling.</p>
 <p><strong>Two buses:</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>global_bus (&quot;factory_headagent&quot;)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>global_bus ("factory_headagent")
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  ↕ head agent ↔ all 20 workers
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>local_bus (&quot;line1_subagent&quot;)
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>local_bus ("line1_subagent")
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  ↕ 5 workers on Line 1 ↔ each other
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>local_bus (&quot;line2_subagent&quot;)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>local_bus ("line2_subagent")
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  ↕ 5 workers on Line 2 ↔ each other
 </code></pre></div></p>
 <p>The head sees everything via the global bus. Workers communicate locally without routing through the head. Coordination overhead scales with the number of groups, not the number of workers.</p>
@@ -1465,9 +1465,9 @@ Every message from any node goes to every other node. A head agent broadcasting 
 <h2 id="message-routing">Message Routing</h2>
 <p>When a worker receives a message it echoes the reply on the same bus it received from:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">handle_message</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">source_bus_name</span><span class="p">):</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">sender</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;from&quot;</span><span class="p">)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">sender</span> <span class="o">=</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"from"</span><span class="p">)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">reply_bus</span> <span class="o">=</span> <span class="n">global_bus</span> <span class="k">if</span> <span class="n">source_bus_name</span> <span class="o">==</span> <span class="n">HEAD_BUS</span> <span class="k">else</span> <span class="n">local_bus</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">reply_bus</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">sender</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;result&quot;</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span> <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="n">source_bus_name</span><span class="p">})</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">reply_bus</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="n">sender</span><span class="p">,</span> <span class="p">{</span><span class="s2">"result"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span> <span class="s2">"channel"</span><span class="p">:</span> <span class="n">source_bus_name</span><span class="p">})</span>
 </code></pre></div>
 <p>This means:
 - Tasks dispatched from the head via <code>global_bus</code> get replies on <code>global_bus</code>.
@@ -1486,26 +1486,26 @@ Every message from any node goes to every other node. A head agent broadcasting 
 <hr />
 <h2 id="head_bus-override">HEAD_BUS Override</h2>
 <p>By default, workers derive the global bus name from their <code>APP_ID</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">HEAD_BUS</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;HEAD_BUS&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># APP_ID=quickstart → HEAD_BUS=&quot;quickstart_headagent&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">HEAD_BUS</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"HEAD_BUS"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent"</span><span class="p">)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># APP_ID=quickstart → HEAD_BUS="quickstart_headagent"</span>
 </code></pre></div>
 <p>Setting <code>HEAD_BUS</code> explicitly enables a shared head agent that manages multiple campaigns — see <a href="../campaigns/#pattern-b-shared-head">Campaign Isolation</a>.</p>
 <hr />
 <h2 id="example-hello-agent">Example: hello-agent</h2>
 <p>The quickstart <code>hello_agent.py</code> demonstrates this pattern in full:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">APP_ID</span>       <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;APP_ID&quot;</span><span class="p">,</span> <span class="s2">&quot;quickstart&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">NODE</span>         <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;NODE_ADDRESS&quot;</span><span class="p">,</span> <span class="s2">&quot;local&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DEVICE_GROUP&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;HEAD_BUS&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">APP_ID</span>       <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"APP_ID"</span><span class="p">,</span> <span class="s2">"quickstart"</span><span class="p">)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">NODE</span>         <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"NODE_ADDRESS"</span><span class="p">,</span> <span class="s2">"local"</span><span class="p">)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"DEVICE_GROUP"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent"</span><span class="p">)</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"HEAD_BUS"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent"</span><span class="p">)</span>
 <a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
 <a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">global_bus</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">HEAD_BUS</span><span class="p">,</span>     <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>
 <a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">local_bus</span>  <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">DEVICE_GROUP</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>
 <a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
 <a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># Report capabilities on both buses at startup</span>
 <a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="n">capabilities</span> <span class="o">=</span> <span class="p">{</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="s2">&quot;online&quot;</span><span class="p">,</span> <span class="s2">&quot;capabilities&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;echo&quot;</span><span class="p">,</span> <span class="s2">&quot;heartbeat&quot;</span><span class="p">],</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="s2">&quot;device_group&quot;</span><span class="p">:</span> <span class="n">DEVICE_GROUP</span><span class="p">,</span> <span class="s2">&quot;head_bus&quot;</span><span class="p">:</span> <span class="n">HEAD_BUS</span><span class="p">,</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="s2">"status"</span><span class="p">:</span> <span class="s2">"online"</span><span class="p">,</span> <span class="s2">"capabilities"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"echo"</span><span class="p">,</span> <span class="s2">"heartbeat"</span><span class="p">],</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="s2">"device_group"</span><span class="p">:</span> <span class="n">DEVICE_GROUP</span><span class="p">,</span> <span class="s2">"head_bus"</span><span class="p">:</span> <span class="n">HEAD_BUS</span><span class="p">,</span>
 <a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p">}</span>
 <a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="n">global_bus</span><span class="o">.</span><span class="n">ReportStatus</span><span class="p">(</span><span class="n">capabilities</span><span class="p">)</span>
 <a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="n">local_bus</span><span class="o">.</span><span class="n">ReportStatus</span><span class="p">(</span><span class="n">capabilities</span><span class="p">)</span>
@@ -1620,7 +1620,7 @@ Every message from any node goes to every other node. A head agent broadcasting 
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

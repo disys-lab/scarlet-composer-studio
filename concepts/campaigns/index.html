@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1424,16 +1424,16 @@
 <h2 id="pattern-a-isolated-campaign">Pattern A — Isolated Campaign</h2>
 <p>Each campaign manages its own head agent bus. This is the default.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>APP_ID=quickstart
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  global_bus → &quot;quickstart_headagent&quot;
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  local_bus  → &quot;quickstart_subagent&quot;
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  global_bus → "quickstart_headagent"
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  local_bus  → "quickstart_subagent"
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>APP_ID=training
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  global_bus → &quot;training_headagent&quot;
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  local_bus  → &quot;training_subagent&quot;
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  global_bus → "training_headagent"
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  local_bus  → "training_subagent"
 </code></pre></div>
 <p><strong>Setup (default — no extra env vars):</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">APP_ID</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;APP_ID&quot;</span><span class="p">]</span>   <span class="c1"># &quot;quickstart&quot; or &quot;training&quot;</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">HEAD_BUS</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent&quot;</span>  <span class="c1"># derived automatically if HEAD_BUS is not set</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">APP_ID</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"APP_ID"</span><span class="p">]</span>   <span class="c1"># "quickstart" or "training"</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">HEAD_BUS</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent"</span>  <span class="c1"># derived automatically if HEAD_BUS is not set</span>
 </code></pre></div>
 <p><strong>When to use Pattern A:</strong>
 - Independent workloads that must never share a head agent
@@ -1442,15 +1442,15 @@
 <hr />
 <h2 id="pattern-b-shared-head">Pattern B — Shared Head</h2>
 <p>Multiple campaigns share a single head agent bus. Workers in different campaigns can all be addressed from one place, and the head can route cross-campaign work.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>HEAD_BUS = &quot;platform_headagent&quot;  (set explicitly on all workers)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>HEAD_BUS = "platform_headagent"  (set explicitly on all workers)
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>APP_ID=campaign_1
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  global_bus → &quot;platform_headagent&quot;   ← shared
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  local_bus  → &quot;campaign_1_subagent&quot;  ← campaign-private
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  global_bus → "platform_headagent"   ← shared
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  local_bus  → "campaign_1_subagent"  ← campaign-private
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>APP_ID=campaign_2
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  global_bus → &quot;platform_headagent&quot;   ← shared
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>  local_bus  → &quot;campaign_2_subagent&quot;  ← campaign-private
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  global_bus → "platform_headagent"   ← shared
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>  local_bus  → "campaign_2_subagent"  ← campaign-private
 </code></pre></div>
 <p><strong>Setup:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># In docker-compose.yml or k8s env for all workers</span>
@@ -1480,9 +1480,9 @@
 <hr />
 <h2 id="mapper-namespaces">Mapper Namespaces</h2>
 <p>Campaign isolation for <code>Mapper</code> is by convention — prefix the <code>scarletName</code> with <code>APP_ID</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">Mapper</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_gradient_bus&quot;</span><span class="p">)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># APP_ID=anomaly   → &quot;anomaly_gradient_bus_key-value:...&quot;</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># APP_ID=fedlearn  → &quot;fedlearn_gradient_bus_key-value:...&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">m</span> <span class="o">=</span> <span class="n">Mapper</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_gradient_bus"</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># APP_ID=anomaly   → "anomaly_gradient_bus_key-value:..."</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># APP_ID=fedlearn  → "fedlearn_gradient_bus_key-value:..."</span>
 </code></pre></div>
 <p>This ensures two campaigns' workers never contaminate each other's aggregation buckets.</p>
 <hr />
@@ -1598,7 +1598,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

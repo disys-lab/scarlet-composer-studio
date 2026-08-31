@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1456,7 +1456,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>GET http://127.0.0.1:9099/api/v2/getNodeInfo
 </code></pre></div>
 <p>The BackgroundServer looks up the current hostname in the <code>node-aliases</code> Redis key:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">aliases</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="s2">&quot;node-aliases&quot;</span><span class="p">)</span>   <span class="c1"># {&quot;my-hostname&quot;: &quot;10.0.1.42&quot;}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">aliases</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="s2">"node-aliases"</span><span class="p">)</span>   <span class="c1"># {"my-hostname": "10.0.1.42"}</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">node_ip</span> <span class="o">=</span> <span class="n">aliases</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">gethostname</span><span class="p">())</span>
 </code></pre></div>
 <p>This is how Gustavo-managed deployments work. When Nebula enrolls a node, it writes its overlay IP to <code>node-aliases</code>. The agent then discovers its own Nebula IP without any static configuration.</p>
@@ -1472,8 +1472,8 @@
 <hr />
 <h2 id="how-agent-ids-are-formed">How Agent IDs Are Formed</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">NODE_ADDRESS</span> <span class="o">=</span> <span class="n">resolve</span><span class="p">()</span>   <span class="c1"># priority chain above</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">AGENT_ID</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">&quot;</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># APP_ID=quickstart, NODE_ADDRESS=10.0.1.42 → &quot;quickstart_10.0.1.42&quot;</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">AGENT_ID</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># APP_ID=quickstart, NODE_ADDRESS=10.0.1.42 → "quickstart_10.0.1.42"</span>
 </code></pre></div>
 <p>The <code>AGENT_ID</code> becomes:
 - The <code>agentId</code> passed to <code>Messenger</code> — determines which inbox the agent reads
@@ -1635,7 +1635,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

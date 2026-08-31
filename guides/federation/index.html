@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1440,7 +1440,7 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.formulations.Federator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Federator</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.types.ScarletBase</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScarletBase</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">fdr</span> <span class="o">=</span> <span class="n">Federator</span><span class="p">(</span><span class="s2">&quot;model_sync&quot;</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="n">ScarletBase</span><span class="o">.</span><span class="n">SUM</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">fdr</span> <span class="o">=</span> <span class="n">Federator</span><span class="p">(</span><span class="s2">"model_sync"</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="n">ScarletBase</span><span class="o">.</span><span class="n">SUM</span><span class="p">)</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">fdr</span><span class="o">.</span><span class="n">Map</span><span class="p">(</span><span class="n">local_model_weights</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">NODE_ADDRESS</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># Head — runs once all workers have posted</span>
@@ -1514,15 +1514,15 @@ The head calls <code>fdr.Aggregate(init)</code> — this runs <code>mpr_reducer.
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.types.ScarletBase</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScarletBase</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">MODEL_DIM</span> <span class="o">=</span> <span class="mi">128</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">SCARLET</span>   <span class="o">=</span> <span class="s2">&quot;fedavg_round1&quot;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">SCARLET</span>   <span class="o">=</span> <span class="s2">"fedavg_round1"</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># --- each worker does this ---</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">worker_id</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;NODE_ADDRESS&quot;</span><span class="p">]</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">worker_id</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"NODE_ADDRESS"</span><span class="p">]</span>
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">fdr</span> <span class="o">=</span> <span class="n">Federator</span><span class="p">(</span><span class="n">SCARLET</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="n">ScarletBase</span><span class="o">.</span><span class="n">SUM</span><span class="p">)</span>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">local_gradient</span> <span class="o">=</span> <span class="n">compute_local_gradient</span><span class="p">(</span><span class="n">local_data</span><span class="p">)</span>
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="n">fdr</span><span class="o">.</span><span class="n">Map</span><span class="p">(</span><span class="n">local_gradient</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">worker_id</span><span class="p">)</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">worker_id</span><span class="si">}</span><span class="s2">] posted gradient&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[</span><span class="si">{</span><span class="n">worker_id</span><span class="si">}</span><span class="s2">] posted gradient"</span><span class="p">)</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># --- head agent does this ---</span>
 <a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="n">fdr_head</span> <span class="o">=</span> <span class="n">Federator</span><span class="p">(</span><span class="n">SCARLET</span><span class="p">,</span> <span class="n">op</span><span class="o">=</span><span class="n">ScarletBase</span><span class="o">.</span><span class="n">SUM</span><span class="p">)</span>
@@ -1542,11 +1542,11 @@ The head calls <code>fdr.Aggregate(init)</code> — this runs <code>mpr_reducer.
 <h2 id="reading-the-global-model">Reading the Global Model</h2>
 <p>After <code>Aggregate</code>, the global value lives in <code>mpr_global</code> under key <code>"global"</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">result_dict</span><span class="p">,</span> <span class="n">ok</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fdr_head</span><span class="o">.</span><span class="n">mpr_global</span><span class="o">.</span><span class="n">AllGather</span><span class="p">()</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">global_value</span> <span class="o">=</span> <span class="n">result_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;global&quot;</span><span class="p">)</span>   <span class="c1"># numpy array</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">global_value</span> <span class="o">=</span> <span class="n">result_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"global"</span><span class="p">)</span>   <span class="c1"># numpy array</span>
 </code></pre></div>
 <p>Workers can fetch it for the next round:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">result_dict</span><span class="p">,</span> <span class="n">ok</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">fdr</span><span class="o">.</span><span class="n">mpr_global</span><span class="o">.</span><span class="n">AllGather</span><span class="p">()</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">global_model</span> <span class="o">=</span> <span class="n">result_dict</span><span class="p">[</span><span class="s2">&quot;global&quot;</span><span class="p">]</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">global_model</span> <span class="o">=</span> <span class="n">result_dict</span><span class="p">[</span><span class="s2">"global"</span><span class="p">]</span>
 </code></pre></div>
 <hr />
 <h2 id="round-management">Round Management</h2>
@@ -1561,7 +1561,7 @@ The head calls <code>fdr.Aggregate(init)</code> — this runs <code>mpr_reducer.
 <hr />
 <h2 id="timeseries-contributions">Timeseries Contributions</h2>
 <p>Workers can post multiple updates over time by appending timestamps:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">fdr</span><span class="o">.</span><span class="n">Map</span><span class="p">(</span><span class="n">gradient</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">worker_id</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">timeseries</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">fdr</span><span class="o">.</span><span class="n">Map</span><span class="p">(</span><span class="n">gradient</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">worker_id</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">timeseries</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
 <p>The head's <code>Aggregate</code> will sum all timestamped contributions from all keys. Useful for streaming gradient accumulation within a round.</p>
 <hr />
@@ -1696,7 +1696,7 @@ The head calls <code>fdr.Aggregate(init)</code> — this runs <code>mpr_reducer.
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

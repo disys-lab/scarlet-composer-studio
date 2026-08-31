@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1415,17 +1415,17 @@
 <hr />
 <h2 id="syntax">Syntax</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Single-line declaration</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">#scarlet Mapper gradient_bus &quot;Collects per-worker numpy gradients. Key: {NODE_ADDRESS}.&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">#scarlet Mapper gradient_bus "Collects per-worker numpy gradients. Key: {NODE_ADDRESS}."</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Multi-line declaration with attributes</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">#scarlet Messenger task_bus &quot;Head-to-worker task dispatch channel.&quot;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">#scarlet Messenger task_bus "Head-to-worker task dispatch channel."</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1">#scarlet+ description: Carries task dicts of form {task, model, data}. Workers reply on the same bus.</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">#scarlet+ bus: quickstart_headagent</span>
 </code></pre></div>
 <p>Declarations are comments — they have no runtime effect on Python execution.</p>
 <hr />
 <h2 id="token-grammar">Token Grammar</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>#scarlet &lt;type&gt; &lt;name&gt; [&quot;&lt;description&gt;&quot;]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>#scarlet &lt;type&gt; &lt;name&gt; ["&lt;description&gt;"]
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>#scarlet+ &lt;attribute&gt;: &lt;value&gt;
 </code></pre></div>
 <table>
@@ -1466,37 +1466,37 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarletcomposer.interpreter.ScarletInterpreter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScarletInterpreter</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">si</span> <span class="o">=</span> <span class="n">ScarletInterpreter</span><span class="p">()</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">scarlets</span> <span class="o">=</span> <span class="n">si</span><span class="o">.</span><span class="n">interpret_file</span><span class="p">(</span><span class="s2">&quot;agents/hello_agent.py&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># Returns list of dicts: [{&quot;type&quot;: &quot;Mapper&quot;, &quot;name&quot;: &quot;gradient_bus&quot;, &quot;description&quot;: &quot;...&quot;}, ...]</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">scarlets</span> <span class="o">=</span> <span class="n">si</span><span class="o">.</span><span class="n">interpret_file</span><span class="p">(</span><span class="s2">"agents/hello_agent.py"</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># Returns list of dicts: [{"type": "Mapper", "name": "gradient_bus", "description": "..."}, ...]</span>
 </code></pre></div>
 <p>The Composer UI calls this automatically when you click <strong>Load from file</strong> on the Scarlets tab.</p>
 <hr />
 <h2 id="full-example">Full Example</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="ch">#!/usr/bin/env python3</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="sd">&quot;&quot;&quot;</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="sd">"""</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="sd">Hello Agent — quickstart example for Scarlet Composer Studio.</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="sd">&quot;&quot;&quot;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="sd">"""</span>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1">#scarlet Messenger quickstart_headagent &quot;Global coordination bus for the quickstart campaign.&quot;</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1">#scarlet Messenger quickstart_headagent "Global coordination bus for the quickstart campaign."</span>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1">#scarlet+ description: Head dispatches tasks here. Workers reply on the same bus. agentId: {APP_ID}_{NODE_ADDRESS}.</span>
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1">#scarlet+ bus: quickstart_headagent</span>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1">#scarlet Messenger quickstart_subagent &quot;Intra-group peer bus for quickstart workers.&quot;</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1">#scarlet Messenger quickstart_subagent "Intra-group peer bus for quickstart workers."</span>
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="c1">#scarlet+ description: Direct worker-to-worker communication. Head does not monitor this bus.</span>
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="c1">#scarlet+ bus: quickstart_subagent</span>
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="c1">#scarlet Mapper quickstart_heartbeats &quot;Heartbeat map — each worker writes its status every 60 s.&quot;</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="c1">#scarlet Mapper quickstart_heartbeats "Heartbeat map — each worker writes its status every 60 s."</span>
 <a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="c1">#scarlet+ description: Values are dicts with keys: status, last_seen, capabilities. Key: {NODE_ADDRESS}.</span>
 <a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>
 <a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
 <a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.messaging</span><span class="w"> </span><span class="kn">import</span> <span class="n">Messenger</span>
 <a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>
-<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="n">APP_ID</span>       <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;APP_ID&quot;</span><span class="p">,</span> <span class="s2">&quot;quickstart&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="n">NODE</span>         <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;NODE_ADDRESS&quot;</span><span class="p">,</span> <span class="s2">&quot;local&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;HEAD_BUS&quot;</span><span class="p">,</span>     <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DEVICE_GROUP&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="n">APP_ID</span>       <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"APP_ID"</span><span class="p">,</span> <span class="s2">"quickstart"</span><span class="p">)</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="n">NODE</span>         <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"NODE_ADDRESS"</span><span class="p">,</span> <span class="s2">"local"</span><span class="p">)</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="n">HEAD_BUS</span>     <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"HEAD_BUS"</span><span class="p">,</span>     <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_headagent"</span><span class="p">)</span>
+<a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="n">DEVICE_GROUP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"DEVICE_GROUP"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_subagent"</span><span class="p">)</span>
+<a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="n">AGENT_ID</span>     <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE</span><span class="si">}</span><span class="s2">"</span>
 <a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a>
 <a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="n">global_bus</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">HEAD_BUS</span><span class="p">,</span>     <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>
 <a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="n">local_bus</span>  <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="n">DEVICE_GROUP</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="n">AGENT_ID</span><span class="p">)</span>
@@ -1515,7 +1515,7 @@
 <p>At runtime, every <code>Mapper</code>/<code>Messenger</code> constructor calls <code>register_scarlet_definition</code> automatically:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Inside Mapper.__init__:</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="bp">self</span><span class="o">.</span><span class="n">register_scarlet_definition</span><span class="p">(</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">scarlet_type</span><span class="o">=</span><span class="s2">&quot;Mapper&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">scarlet_type</span><span class="o">=</span><span class="s2">"Mapper"</span><span class="p">,</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">description</span><span class="o">=</span><span class="n">description</span><span class="p">,</span>
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">overwrite</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>    <span class="c1"># first caller wins</span>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
@@ -1622,7 +1622,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.footer", "navigation.top", "navigation.indexes", "content.code.annotate", "content.code.copy", "content.tabs.link", "toc.integrate", "search.highlight", "search.share"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
