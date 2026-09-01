@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScarletCard } from "@/components/scarlets/ScarletCard";
-import { deployScarlets, interpretScarlets, listScarlets } from "@/lib/api/scarlets";
+import { deployScarlets, interpretScarlets, interpretScarletsFile, listScarlets } from "@/lib/api/scarlets";
 import type { InterpretedScarlets } from "@/lib/types";
 
 // Replaces scarletcomposer/Scarlets.py's View + Deploy tabs (Container
@@ -55,6 +55,7 @@ function ViewTab() {
 
 function DeployTab() {
   const [path, setPath] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [interpreting, setInterpreting] = useState(false);
   const [interpreted, setInterpreted] = useState<InterpretedScarlets | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +63,25 @@ function DeployTab() {
   const [deployMessage, setDeployMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const handleInterpret = async () => {
+  const handleInterpretUpload = async () => {
+    if (!file) return;
+    setInterpreting(true);
+    setError(null);
+    setDeployMessage(null);
+    try {
+      const res = await interpretScarletsFile(file);
+      if (res.error) {
+        setError(String(res.response));
+        setInterpreted(null);
+      } else {
+        setInterpreted(res.response.scarlets);
+      }
+    } finally {
+      setInterpreting(false);
+    }
+  };
+
+  const handleInterpretPath = async () => {
     setInterpreting(true);
     setError(null);
     setDeployMessage(null);
@@ -110,7 +129,30 @@ function DeployTab() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Interpret</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="file">Upload a script</Label>
+            <input
+              id="file"
+              type="file"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              Scans the uploaded file for <code>#scarlet</code> declaration comments - works
+              from any machine, not just wherever composer-api itself runs.
+            </p>
+            <Button onClick={handleInterpretUpload} disabled={interpreting || !file} className="mt-2">
+              {interpreting ? "Interpreting…" : "Upload & Interpret"}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs text-gray-400">
+            <div className="h-px flex-1 bg-border" />
+            or
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <div>
             <Label htmlFor="path">Script or directory path</Label>
             <Input
@@ -122,12 +164,14 @@ function DeployTab() {
             />
             <p className="mt-1 text-xs text-gray-400">
               Scans for <code>#scarlet</code> declaration comments - a path on the machine
-              composer-api itself runs on, not your browser.
+              composer-api itself runs on, not your browser. Use this for a whole directory;
+              a single file is usually easier to just upload above.
             </p>
+            <Button onClick={handleInterpretPath} disabled={interpreting || !path} className="mt-2">
+              {interpreting ? "Interpreting…" : "Interpret"}
+            </Button>
           </div>
-          <Button onClick={handleInterpret} disabled={interpreting || !path}>
-            {interpreting ? "Interpreting…" : "Interpret"}
-          </Button>
+
           {error && <p className="text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>

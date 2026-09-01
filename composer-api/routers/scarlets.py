@@ -27,9 +27,10 @@ state held between requests.
 """
 import json
 import logging
+import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from scarlets.core.Mapper import Mapper
 from scarlets.utils.ScarletUtils import redisConnect, register_scarlet_definition
 from scarletcomposer.composer.ScarletInterpreter import ScarletInterpreter
@@ -154,6 +155,34 @@ async def interpret_scarlets(body: dict, session: Session = Depends(require_admi
         return {"error": False, "response": {"scarlets": interpreter.scarletContent}}
     except Exception as exc:
         logging.error(f"interpret_scarlets failed: {exc}")
+        return {"error": True, "response": str(exc)}
+
+
+@router.post("/interpret/upload")
+async def interpret_scarlets_upload(file: UploadFile = File(...), session: Session = Depends(require_admin)):
+    """
+    Same extraction as POST /interpret, but for a file the operator's
+    browser uploads directly - the path-based endpoint above only works
+    when the script already sits on composer-api's own filesystem, which
+    is almost never the same machine as the operator's browser in a real
+    deployment. Written to a throwaway temp file only so
+    ScarletInterpreter.scarletExtractor() (tokenize-based, file-path only)
+    can read it - never persisted past this request.
+    """
+    try:
+        content = await file.read()
+        suffix = Path(file.filename or "upload").suffix or ".py"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        try:
+            interpreter = ScarletInterpreter()
+            interpreter.scarletExtractor(str(tmp_path))
+            return {"error": False, "response": {"scarlets": interpreter.scarletContent}}
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    except Exception as exc:
+        logging.error(f"interpret_scarlets_upload failed: {exc}")
         return {"error": True, "response": str(exc)}
 
 
