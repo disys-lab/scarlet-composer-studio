@@ -124,3 +124,45 @@ class HarnessContext:
                 f"{self.agent_id} has no LLM backend configured - cannot mint a scarlet via reasoning"
             )
         return mint_scarlet_with_reasoning(self.llm_client, self.agent_id, motivation)
+
+    def invoke_skill(self, skill: "Skill", params: dict, timeout: float = 60.0, **run_skill_kwargs) -> dict:
+        """
+        Dispatch `skill` across this agent's own peer set - using this
+        context's own config/buses, not the head's - and block until the
+        result arrives. This is what makes a Skill invocable by ANY agent
+        (head, a coordinating worker, or a contributing worker), not only
+        by head via its own top-level run_skill()/converse() entry points:
+        head.run_skill() itself has no head-specific logic in it at all -
+        it only ever touches whatever config/buses it's handed - so this is
+        a thin synchronous wrapper around it (same "local blocking to drive
+        a synchronous caller" pattern tests/helpers.py's run_skill_sync()
+        uses), not a new dispatch mechanism. See skills/create_scarlet.py
+        for the motivating case: a worker establishing shared aggregation/
+        dissemination infrastructure with its peers on its own initiative,
+        without routing through head at all.
+
+        Deferred import: head.py imports HarnessContext already, so a
+        module-level import here would be circular.
+
+        Returns run_skill()'s result dict directly (same shape as
+        run_skill_sync() in tests), or a synthetic {"status": "error",
+        "retryable": True, "detail": "invoke_skill() timed out..."} if no
+        result arrives within `timeout` seconds.
+        """
+        from scarlet_agentic_harness import head as head_mod
+
+        done = threading.Event()
+        box: dict = {}
+
+        def on_result(result: dict) -> None:
+            box["result"] = result
+            done.set()
+
+        head_mod.run_skill(skill, params, self.config, self.buses, on_result, **run_skill_kwargs)
+        if not done.wait(timeout=timeout):
+            return {
+                "status": "error",
+                "detail": f"invoke_skill({skill.name!r}) timed out after {timeout}s waiting for a result",
+                "retryable": True,
+            }
+        return box["result"]

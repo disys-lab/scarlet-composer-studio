@@ -263,11 +263,16 @@ def run_skill(
     Does not block and does not return the result - `on_result` fires
     exactly once, on some later thread, with the final result dict (shape:
     {"status": "ok"/"error", ...}), whether that's success, a
-    non-retryable failure, or exhausting every retry attempt. Runs on the
-    head. Workers are discovered fresh via GatherStatus() on every attempt,
-    per DESIGN_v3.md section 8.5 - never a hardcoded topology, which is
-    exactly what lets a retry naturally exclude a worker that went offline
-    mid-computation without any special-cased "remove this worker" logic.
+    non-retryable failure, or exhausting every retry attempt. Despite the
+    module name, nothing here is actually head-specific - it only ever
+    touches the `config`/`buses` it's handed, which is exactly what lets a
+    worker call this too (see HarnessContext.invoke_skill()) to dispatch a
+    skill across its own peers on its own initiative, with no head
+    involvement at all. Workers are discovered fresh via GatherStatus() on
+    every attempt, per DESIGN_v3.md section 8.5 - never a hardcoded
+    topology, which is exactly what lets a retry naturally exclude a worker
+    that went offline mid-computation without any special-cased "remove
+    this worker" logic.
 
     A failed attempt is retried (fresh request_id, fresh worker survey,
     possibly a new coordinator) only if the result carries `"retryable":
@@ -374,9 +379,12 @@ def run_skill(
 
         if coordinator == config.agent_id:
             # Only reached if a skill explicitly overrides coordinator_for()
-            # to return the head - not the default. Still dispatched onto a
-            # new thread rather than run inline, so run_skill() never blocks
-            # its own caller even in this rare case.
+            # to return the invoking agent's own id - not the default,
+            # regardless of whether that invoker is the head or a worker
+            # calling this via HarnessContext.invoke_skill(). Still
+            # dispatched onto a new thread rather than run inline, so
+            # run_skill() never blocks its own caller even in this rare
+            # case.
             def run_in_process():
                 handle(skill.coordinate(ctx, request, workers))
             threading.Thread(target=run_in_process, daemon=True).start()
