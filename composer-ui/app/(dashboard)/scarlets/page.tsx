@@ -20,7 +20,7 @@ function ViewTab() {
   const { data, isLoading } = useQuery({
     queryKey: ["scarlets"],
     queryFn: listScarlets,
-    staleTime: 15_000,
+    refetchInterval: 15_000,
   });
 
   const scarlets = data && !data.error ? data.response.scarlets : [];
