@@ -1516,13 +1516,17 @@
 </code></pre></div>
 <hr />
 <h2 id="integration-with-open-webui-mcp">Integration with Open WebUI (MCP)</h2>
-<p>Open WebUI supports native MCP server connections. You can wrap a Messenger as a minimal FastMCP server:</p>
+<p>Open WebUI supports native MCP server connections. You can wrap a Messenger as a minimal MCP server.</p>
+<p>Note: this example targets <code>mcp&gt;=2.0.0</code>, where <code>FastMCP</code> was renamed to
+<code>MCPServer</code> (<code>mcp.server.mcpserver</code>) - <code>mcp.server.fastmcp.FastMCP</code> no
+longer exists as of mcp 2.x. If you're pinned to <code>mcp&lt;2</code>, use
+<code>from mcp.server.fastmcp import FastMCP</code> and <code>FastMCP(...)</code> instead.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># mcp_server.py</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.fastmcp</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastMCP</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.mcpserver</span><span class="w"> </span><span class="kn">import</span> <span class="n">MCPServer</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.messaging</span><span class="w"> </span><span class="kn">import</span> <span class="n">Messenger</span>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">"scarlet-quickstart"</span><span class="p">)</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">mcp</span> <span class="o">=</span> <span class="n">MCPServer</span><span class="p">(</span><span class="s2">"scarlet-quickstart"</span><span class="p">)</span>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">bus</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_headagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"mcp_bridge"</span><span class="p">)</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">_</span><span class="p">,</span> <span class="n">handlers</span> <span class="o">=</span> <span class="n">bus</span><span class="o">.</span><span class="n">AsTools</span><span class="p">()</span>
 <a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>

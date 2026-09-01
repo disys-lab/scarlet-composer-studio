@@ -1516,8 +1516,19 @@
 <td><code>{APP_ID}_headagent</code></td>
 <td>Messenger bus name for the global / coordination bus. Set explicitly for Pattern B (shared head)</td>
 </tr>
+<tr>
+<td><code>MANAGER_HOST</code></td>
+<td><em>(empty)</em></td>
+<td>Gustavo manager host, used by <code>ScarletBase._resolveNodeAddress()</code>'s step 2 (<code>getNodeInfo</code>) when <code>NODE_ADDRESS</code> isn't set directly. Required for real node-address auto-resolution in a Gustavo-managed deployment - without it, resolution falls straight through to the DNS fallback.</td>
+</tr>
+<tr>
+<td><code>MANAGER_PORT</code></td>
+<td><code>8080</code></td>
+<td>Paired with <code>MANAGER_HOST</code>, same purpose.</td>
+</tr>
 </tbody>
 </table>
+<p>Note: <strong><code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> are a different pair from <code>GUSTAVO_MANAGER_URL</code></strong> (below) and from <code>MANAGER_CONTAINER_HOST</code>/<code>MANAGER_CONTAINER_PORT</code>/<code>MANAGER_CONTAINER_AUTH_TOKEN</code> (used by <code>BackgroundServer._query_nebula_manager</code> specifically) - three separate "manager" naming schemes currently live in this codebase for related-but-distinct purposes. <code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> is the one node-address resolution (<code>ScarletBase</code>, and scarlet-agentic-harness's own <code>HarnessConfig</code>) actually depends on.</p>
 <hr />
 <h2 id="optional-composer-ui">Optional — Composer UI</h2>
 <table>
@@ -1605,14 +1616,16 @@
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="nv">NODE_ADDRESS</span><span class="o">=</span><span class="nb">local</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="nv">DEVICE_GROUP</span><span class="o">=</span>quickstart_subagent
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># HEAD_BUS=shared_headagent   # uncomment for Pattern B</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># ── Composer UI (optional) ───────────────────────────</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="c1"># STREAMLIT_PORT=8501</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># BACKGROUND_SERVER_PORT=9099</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># STALE_THRESHOLD=120</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="c1"># ── Logging (optional) ───────────────────────────────</span>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="c1"># LOG_LEVEL=DEBUG</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="c1"># MANAGER_HOST=gustavo-manager-host   # only needed if NODE_ADDRESS is unset</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># MANAGER_PORT=8080</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># ── Composer UI (optional) ───────────────────────────</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># STREAMLIT_PORT=8501</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># BACKGROUND_SERVER_PORT=9099</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="c1"># STALE_THRESHOLD=120</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="c1"># ── Logging (optional) ───────────────────────────────</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="c1"># LOG_LEVEL=DEBUG</span>
 </code></pre></div>
 <hr />
 <h2 id="precedence">Precedence</h2>

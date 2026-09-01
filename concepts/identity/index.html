@@ -1452,28 +1452,46 @@
 <p>When <code>NODE_ADDRESS</code> is set, steps 2 and 3 are skipped entirely.</p>
 <hr />
 <h2 id="step-2-backgroundserver-nebula-alias">Step 2 — BackgroundServer / Nebula alias</h2>
-<p>When <code>NODE_ADDRESS</code> is not set, the agent queries the local BackgroundServer:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>GET http://127.0.0.1:9099/api/v2/getNodeInfo
+<p>When <code>NODE_ADDRESS</code> is not set, and <code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> are both
+set, the agent queries BackgroundServer at that address (this is
+<code>ScarletBase._resolveNodeAddress()</code> - see <code>scarlets/types/ScarletBase.py</code> -
+which is what this whole priority chain actually implements; the harness
+project mirrors this same logic in its own <code>HarnessConfig</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>GET http://{MANAGER_HOST}:{MANAGER_PORT}/api/v2/getNodeInfo?app_id={APP_ID}
 </code></pre></div>
-<p>The BackgroundServer looks up the current hostname in the <code>node-aliases</code> Redis key:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">aliases</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="s2">"node-aliases"</span><span class="p">)</span>   <span class="c1"># {"my-hostname": "10.0.1.42"}</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">node_ip</span> <span class="o">=</span> <span class="n">aliases</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">gethostname</span><span class="p">())</span>
+<p>Not a fixed <code>127.0.0.1:9099</code> - the target is wherever <code>MANAGER_HOST</code>/
+<code>MANAGER_PORT</code> point, and the one query param the endpoint actually reads
+is <code>app_id</code>, not <code>node</code> (see <a href="../../deployment/env-vars/">Environment Variables</a>
+for these two vars).</p>
+<p>The BackgroundServer side (<code>scarletcomposer/pages/config/BackgroundServer.py</code>'s
+<code>NodeInfoHandler</code>) does <strong>not</strong> do a hostname lookup. It resolves the
+<em>caller's own IP</em> (from <code>X-Forwarded-For</code> or the raw socket, same as
+<code>getNodeIp</code> below), reads the <code>node-aliases</code> Redis key as a single <strong>JSON
+string</strong> (<code>json.loads(r.get("node-aliases"))</code>, not a Hash), and matches
+by scanning for the entry whose <code>hostname</code> field equals that caller IP:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">alias_data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"node-aliases"</span><span class="p">))</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">for</span> <span class="n">alias</span><span class="p">,</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">alias_data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="k">if</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"hostname"</span><span class="p">)</span> <span class="o">==</span> <span class="n">host_ip</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>        <span class="n">node_address</span><span class="p">,</span> <span class="n">device_group</span> <span class="o">=</span> <span class="n">alias</span><span class="p">,</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"device_group"</span><span class="p">)</span>
 </code></pre></div>
 <p>This is how Gustavo-managed deployments work. When Nebula enrolls a node, it writes its overlay IP to <code>node-aliases</code>. The agent then discovers its own Nebula IP without any static configuration.</p>
-<p>The BackgroundServer endpoint also accepts an alias name:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>GET http://127.0.0.1:9099/api/v2/getNodeInfo?node=my-hostname
-</code></pre></div>
+<p>If <code>device_group</code> is still unresolved after that lookup, and
+<code>MANAGER_CONTAINER_HOST</code>/<code>MANAGER_CONTAINER_PORT</code>/<code>MANAGER_CONTAINER_AUTH_TOKEN</code>
+are set (a separate env-var trio from <code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> above -
+this one configures BackgroundServer's <em>own</em> upstream call to the real
+Nebula manager, not how the agent reaches BackgroundServer), it queries
+Nebula directly for the app's <code>device_group</code>.</p>
 <hr />
 <h2 id="step-3-dns-fallback">Step 3 — DNS fallback</h2>
 <p>If the BackgroundServer is not running or the hostname has no alias, the agent falls back to:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">gethostname</span><span class="p">())</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">gethostname</span><span class="p">())</span>
 </code></pre></div>
 <p>This returns the machine's primary IP as seen by the OS. On a developer laptop with no Nebula overlay this typically returns <code>127.0.0.1</code> or the LAN IP.</p>
 <hr />
 <h2 id="how-agent-ids-are-formed">How Agent IDs Are Formed</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">NODE_ADDRESS</span> <span class="o">=</span> <span class="n">resolve</span><span class="p">()</span>   <span class="c1"># priority chain above</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">AGENT_ID</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">"</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># APP_ID=quickstart, NODE_ADDRESS=10.0.1.42 → "quickstart_10.0.1.42"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">NODE_ADDRESS</span> <span class="o">=</span> <span class="n">resolve</span><span class="p">()</span>   <span class="c1"># priority chain above</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">AGENT_ID</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">NODE_ADDRESS</span><span class="si">}</span><span class="s2">"</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># APP_ID=quickstart, NODE_ADDRESS=10.0.1.42 → "quickstart_10.0.1.42"</span>
 </code></pre></div>
 <p>The <code>AGENT_ID</code> becomes:
 - The <code>agentId</code> passed to <code>Messenger</code> — determines which inbox the agent reads
@@ -1481,7 +1499,9 @@
 - The label shown in the Composer UI agent cards</p>
 <hr />
 <h2 id="backgroundserver-endpoints">BackgroundServer Endpoints</h2>
-<p>The <code>BackgroundServer</code> (Tornado, port 9099) exposes two endpoints:</p>
+<p>The <code>BackgroundServer</code> (Tornado, port 9099 by default - the actual bind
+port is a CLI flag to <code>scarlet-composer composer gui</code>, not an env var)
+exposes two endpoints:</p>
 <table>
 <thead>
 <tr>
@@ -1492,21 +1512,27 @@
 </thead>
 <tbody>
 <tr>
-<td><code>/api/v2/getNodeInfo</code></td>
+<td><code>/api/v2/getNodeIp</code></td>
 <td>GET</td>
-<td>Resolve node alias → IP. Query param <code>node=&lt;hostname&gt;</code> optional.</td>
+<td>Returns <code>{"host_ip": "&lt;caller's resolved IP&gt;"}</code> - no params.</td>
 </tr>
 <tr>
 <td><code>/api/v2/getNodeInfo</code></td>
-<td>POST</td>
-<td>Same, body <code>{"node": "&lt;hostname&gt;"}</code></td>
+<td>GET</td>
+<td>Resolves the <em>caller's own IP</em> against the <code>node-aliases</code> map. Optional query param <code>app_id=&lt;APP_ID&gt;</code>, used only to also look up <code>device_group</code> from Nebula if the alias map doesn't already have one. Returns <code>{"host_ip", "node_address", "device_group"}</code>. There is no <code>node=</code> param - passing one has no effect.</td>
 </tr>
 </tbody>
 </table>
-<p>The Composer UI calls <code>/api/v2/getNodeInfo</code> to resolve display names for each agent card.</p>
 <hr />
 <h2 id="composer-ui">Composer UI</h2>
-<p>The Agents page calls <code>getNodeInfo</code> for each agent ID it discovers in the Messenger registry. If Nebula aliases are configured, agent cards show stable overlay IPs instead of ephemeral container IPs.</p>
+<p>The Agents page does <strong>not</strong> call <code>getNodeInfo</code> itself - agent cards just
+display whatever <code>agent_id</code> string is already in the Messenger registry
+record (<code>{APP_ID}_{NODE_ADDRESS}</code>, per "How Agent IDs Are Formed" above).
+<code>getNodeInfo</code> is resolved once, by each <em>agent process itself</em> at
+startup - if Nebula aliases are configured, that's what makes the
+resolved <code>NODE_ADDRESS</code> (and therefore the <code>agent_id</code> the UI displays) a
+stable overlay alias instead of an ephemeral container IP, not anything
+the UI does at render time.</p>
 <hr />
 <h2 id="recommendations">Recommendations</h2>
 <table>

@@ -1619,10 +1619,15 @@
 </code></pre></div>
 <hr />
 <h2 id="node-identity-and-alias-resolution">Node Identity and Alias Resolution</h2>
-<p>When <code>NODE_ADDRESS</code> is not set, Scarlet agents query the local BackgroundServer which looks up the Nebula overlay IP from Redis:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>redis HGET node-aliases &lt;hostname&gt; → 10.0.1.42
-</code></pre></div>
-<p>Gustavo populates this during enrollment. As long as the BackgroundServer is running on port 9099, agents get the correct Nebula IP without any static configuration.</p>
+<p>When <code>NODE_ADDRESS</code> is not set (and <code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> point at
+this deployment's BackgroundServer), Scarlet agents query it, which
+resolves the <em>caller's own IP</em> against the <code>node-aliases</code> Redis key - a
+single JSON-encoded string, not a Hash (<code>json.loads(r.get("node-aliases"))</code>,
+matched by scanning for the entry whose <code>hostname</code> equals the caller's IP -
+not a direct <code>HGET</code> by hostname).</p>
+<p>Gustavo populates this during enrollment. As long as <code>MANAGER_HOST</code>/
+<code>MANAGER_PORT</code> correctly point at the BackgroundServer, agents get the
+correct Nebula IP without any static configuration.</p>
 <p>See <a href="../../concepts/identity/">Node Identity</a> for the full resolution chain.</p>
 
 
