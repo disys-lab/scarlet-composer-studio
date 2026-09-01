@@ -42,12 +42,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy local wheel (only used when LOCAL=true; file is excluded by .dockerignore in production)
 COPY dist/ /tmp/dist/
 
-RUN if [ "$LOCAL" = "true" ]; then \
+# LOCAL=false branch previously never actually installed scarlets - it only
+# echoed that it did, then installed scarlets' own transitive deps
+# (redis/numpy/requests) directly, leaving `import scarlets` broken in any
+# image built the documented "production" way (no --build-arg LOCAL=true).
+# Fixed to actually use the --secret id=gemfury_token,env=GEMFURY_TOKEN
+# mechanism this file's own build example above already documented but
+# never wired in. `pip install scarlets==${VERSION}` resolves its
+# dependencies itself (declared in scarlets' own setup.py) - no need to
+# list redis/numpy/requests separately once the real package is installed.
+RUN --mount=type=secret,id=gemfury_token \
+    if [ "$LOCAL" = "true" ]; then \
         pip install --no-cache-dir /tmp/dist/scarlets-${VERSION}-*.whl && \
         echo "Installed scarlets ${VERSION} from local wheel"; \
     else \
-        echo "LOCAL build not requested — install scarlets from Gemfury in production CI"; \
-        pip install --no-cache-dir redis numpy requests; \
+        GEMFURY_TOKEN="$(cat /run/secrets/gemfury_token 2>/dev/null || true)"; \
+        if [ -z "$GEMFURY_TOKEN" ]; then \
+            echo "ERROR: LOCAL=false (the default) requires --secret id=gemfury_token,env=GEMFURY_TOKEN - see this file's own build examples above, or pass --build-arg LOCAL=true with a local wheel in dist/ instead." >&2; \
+            exit 1; \
+        fi; \
+        pip install --no-cache-dir --extra-index-url "https://${GEMFURY_TOKEN}@pypi.fury.io/osu-home-stri/" "scarlets==${VERSION}" && \
+        echo "Installed scarlets ${VERSION} from Gemfury"; \
     fi && \
     rm -rf /tmp/dist
 

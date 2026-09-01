@@ -92,6 +92,19 @@ class TestAgentRegistration:
         assert "anomaly_detection" in caps
         assert "forecasting" in caps
 
+    def test_report_status_preserves_scarlet_name(self, redis_client):
+        # Regression test: ReportStatus()'s record used to omit scarlet_name
+        # entirely (only Register()'s own record included it), and the
+        # heartbeat thread calls ReportStatus() on every tick starting
+        # immediately after construction - so scarlet_name was overwritten
+        # to missing within seconds of any real agent's startup, silently,
+        # for its entire runtime. Found via a downstream consumer
+        # (scarlet-agentic-harness) whose Agents API reads this field.
+        bus = Messenger(BUS, agentId="named_agent")
+        bus.ReportStatus({"status": "online", "capabilities": ["x"]})
+        status = bus.GatherStatus()
+        assert status["named_agent"]["scarlet_name"] == BUS
+
 
 # ── Task dispatch ─────────────────────────────────────────────────────────────
 
