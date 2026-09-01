@@ -11,6 +11,7 @@ from scarlets.formulations.Federator import Federator
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationToken
 from scarlet_agentic_harness.config import HarnessConfig
+from scarlet_agentic_harness.scarlet_minting import ChatClient, mint_scarlet_with_reasoning
 
 
 class _NoopCancellation:
@@ -32,10 +33,22 @@ class _NoopCancellation:
 
 
 class HarnessContext:
-    def __init__(self, config: HarnessConfig, buses: Buses, cancellation: "CancellationToken | None" = None):
+    def __init__(
+        self,
+        config: HarnessConfig,
+        buses: Buses,
+        cancellation: "CancellationToken | None" = None,
+        llm_client: "ChatClient | None" = None,
+    ):
         self.config = config
         self.buses = buses
         self._cancellation = cancellation if cancellation is not None else _NoopCancellation()
+        # None unless the process this context belongs to has an LLM
+        # backend configured (see worker.py/__main__.py) - mint_scarlet()
+        # raises clearly rather than silently no-op'ing when it's absent,
+        # same convention as everything else in this codebase that needs a
+        # real backend to do its job.
+        self.llm_client = llm_client
 
     @property
     def agent_id(self) -> str:
@@ -82,3 +95,32 @@ class HarnessContext:
         scarletName and op.
         """
         return Federator(name, op)
+
+    def mint_scarlet(self, motivation: str) -> str:
+        """
+        Real LLM reasoning over a scarlet's name/type/description, for the
+        case a skill's own contribute()/coordinate() decides mid-run that it
+        needs shared state nobody declared in advance via
+        Skill.scarlet_names() (see head.py) - see scarlet_minting.py's
+        module docstring for the full rationale and why this is narrower
+        than head.converse()'s tool-calling loop.
+
+        `motivation` is this call's entire situational context - why the
+        calling skill decided (in its own code) that a scarlet is needed
+        right now. Returns the registered name; pass it straight into
+        ctx.mapper()/ctx.federator() for the actual read/write - never
+        reconstruct or guess that name separately, since nothing else
+        forces the two to match (see scarlet_minting.py for why that's
+        still safe here specifically).
+
+        Raises ScarletMintingFailed if the model doesn't produce a usable
+        tool call. Raises RuntimeError immediately, before any LLM call, if
+        this context has no llm_client - the calling skill's own code
+        decided to mint one, so a silent no-op here would hide that
+        decision rather than surface it.
+        """
+        if self.llm_client is None:
+            raise RuntimeError(
+                f"{self.agent_id} has no LLM backend configured - cannot mint a scarlet via reasoning"
+            )
+        return mint_scarlet_with_reasoning(self.llm_client, self.agent_id, motivation)

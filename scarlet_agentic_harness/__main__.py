@@ -38,14 +38,20 @@ def main() -> None:
         registry = CancellationRegistry(
             activity_mapper=observability.activity_mapper(config.app_id), agent_id=config.agent_id,
         )
+        # One LLMClient, reused for both agent_message conversations
+        # (dialogue) and ctx.mint_scarlet() (see worker.start_dispatch) -
+        # same backend either way, no reason to construct two.
+        worker_llm_client = LLMClient(config) if config.llm_base_url else None
         dialogue = (
             AgentDialogue(
-                buses.global_bus, LLMClient(config),
+                buses.global_bus, worker_llm_client,
                 context_fn=lambda: {"in_flight_status": describe_in_flight(registry.snapshot())},
             )
-            if config.llm_base_url else None
+            if worker_llm_client else None
         )
-        worker_mod.start_dispatch(config, buses, skills, dialogue=dialogue, registry=registry)
+        worker_mod.start_dispatch(
+            config, buses, skills, dialogue=dialogue, registry=registry, llm_client=worker_llm_client,
+        )
         print(
             f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
             f"dialogue={'on' if dialogue else 'off'}",
