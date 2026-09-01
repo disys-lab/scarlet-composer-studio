@@ -33,26 +33,43 @@ When `NODE_ADDRESS` is set, steps 2 and 3 are skipped entirely.
 
 ## Step 2 — BackgroundServer / Nebula alias
 
-When `NODE_ADDRESS` is not set, the agent queries the local BackgroundServer:
+When `NODE_ADDRESS` is not set, and `MANAGER_HOST`/`MANAGER_PORT` are both
+set, the agent queries BackgroundServer at that address (this is
+`ScarletBase._resolveNodeAddress()` - see `scarlets/types/ScarletBase.py` -
+which is what this whole priority chain actually implements; the harness
+project mirrors this same logic in its own `HarnessConfig`):
 
 ```
-GET http://127.0.0.1:9099/api/v2/getNodeInfo
+GET http://{MANAGER_HOST}:{MANAGER_PORT}/api/v2/getNodeInfo?app_id={APP_ID}
 ```
 
-The BackgroundServer looks up the current hostname in the `node-aliases` Redis key:
+Not a fixed `127.0.0.1:9099` - the target is wherever `MANAGER_HOST`/
+`MANAGER_PORT` point, and the one query param the endpoint actually reads
+is `app_id`, not `node` (see [Environment Variables](../deployment/env-vars.md)
+for these two vars).
+
+The BackgroundServer side (`scarletcomposer/pages/config/BackgroundServer.py`'s
+`NodeInfoHandler`) does **not** do a hostname lookup. It resolves the
+*caller's own IP* (from `X-Forwarded-For` or the raw socket, same as
+`getNodeIp` below), reads the `node-aliases` Redis key as a single **JSON
+string** (`json.loads(r.get("node-aliases"))`, not a Hash), and matches
+by scanning for the entry whose `hostname` field equals that caller IP:
 
 ```python
-aliases = r.hgetall("node-aliases")   # {"my-hostname": "10.0.1.42"}
-node_ip = aliases.get(socket.gethostname())
+alias_data = json.loads(r.get("node-aliases"))
+for alias, info in alias_data.items():
+    if info.get("hostname") == host_ip:
+        node_address, device_group = alias, info.get("device_group")
 ```
 
 This is how Gustavo-managed deployments work. When Nebula enrolls a node, it writes its overlay IP to `node-aliases`. The agent then discovers its own Nebula IP without any static configuration.
 
-The BackgroundServer endpoint also accepts an alias name:
-
-```
-GET http://127.0.0.1:9099/api/v2/getNodeInfo?node=my-hostname
-```
+If `device_group` is still unresolved after that lookup, and
+`MANAGER_CONTAINER_HOST`/`MANAGER_CONTAINER_PORT`/`MANAGER_CONTAINER_AUTH_TOKEN`
+are set (a separate env-var trio from `MANAGER_HOST`/`MANAGER_PORT` above -
+this one configures BackgroundServer's *own* upstream call to the real
+Nebula manager, not how the agent reaches BackgroundServer), it queries
+Nebula directly for the app's `device_group`.
 
 ---
 
@@ -85,20 +102,27 @@ The `AGENT_ID` becomes:
 
 ## BackgroundServer Endpoints
 
-The `BackgroundServer` (Tornado, port 9099) exposes two endpoints:
+The `BackgroundServer` (Tornado, port 9099 by default - the actual bind
+port is a CLI flag to `scarlet-composer composer gui`, not an env var)
+exposes two endpoints:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/v2/getNodeInfo` | GET | Resolve node alias → IP. Query param `node=<hostname>` optional. |
-| `/api/v2/getNodeInfo` | POST | Same, body `{"node": "<hostname>"}` |
-
-The Composer UI calls `/api/v2/getNodeInfo` to resolve display names for each agent card.
+| `/api/v2/getNodeIp` | GET | Returns `{"host_ip": "<caller's resolved IP>"}` - no params. |
+| `/api/v2/getNodeInfo` | GET | Resolves the *caller's own IP* against the `node-aliases` map. Optional query param `app_id=<APP_ID>`, used only to also look up `device_group` from Nebula if the alias map doesn't already have one. Returns `{"host_ip", "node_address", "device_group"}`. There is no `node=` param - passing one has no effect. |
 
 ---
 
 ## Composer UI
 
-The Agents page calls `getNodeInfo` for each agent ID it discovers in the Messenger registry. If Nebula aliases are configured, agent cards show stable overlay IPs instead of ephemeral container IPs.
+The Agents page does **not** call `getNodeInfo` itself - agent cards just
+display whatever `agent_id` string is already in the Messenger registry
+record (`{APP_ID}_{NODE_ADDRESS}`, per "How Agent IDs Are Formed" above).
+`getNodeInfo` is resolved once, by each *agent process itself* at
+startup - if Nebula aliases are configured, that's what makes the
+resolved `NODE_ADDRESS` (and therefore the `agent_id` the UI displays) a
+stable overlay alias instead of an ephemeral container IP, not anything
+the UI does at render time.
 
 ---
 

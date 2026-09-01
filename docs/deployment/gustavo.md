@@ -191,12 +191,15 @@ gustavo manager down
 
 ## Node Identity and Alias Resolution
 
-When `NODE_ADDRESS` is not set, Scarlet agents query the local BackgroundServer which looks up the Nebula overlay IP from Redis:
+When `NODE_ADDRESS` is not set (and `MANAGER_HOST`/`MANAGER_PORT` point at
+this deployment's BackgroundServer), Scarlet agents query it, which
+resolves the *caller's own IP* against the `node-aliases` Redis key - a
+single JSON-encoded string, not a Hash (`json.loads(r.get("node-aliases"))`,
+matched by scanning for the entry whose `hostname` equals the caller's IP -
+not a direct `HGET` by hostname).
 
-```
-redis HGET node-aliases <hostname> → 10.0.1.42
-```
-
-Gustavo populates this during enrollment. As long as the BackgroundServer is running on port 9099, agents get the correct Nebula IP without any static configuration.
+Gustavo populates this during enrollment. As long as `MANAGER_HOST`/
+`MANAGER_PORT` correctly point at the BackgroundServer, agents get the
+correct Nebula IP without any static configuration.
 
 See [Node Identity](../concepts/identity.md) for the full resolution chain.

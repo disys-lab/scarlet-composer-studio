@@ -31,6 +31,10 @@ All configuration is passed via environment variables — no config files requir
 | `NODE_ADDRESS` | Auto-resolved (see [Node Identity](../concepts/identity.md)) | Stable node IP or alias used to form `AGENT_ID = {APP_ID}_{NODE_ADDRESS}` |
 | `DEVICE_GROUP` | `{APP_ID}_subagent` | Messenger bus name for the local / intra-group bus |
 | `HEAD_BUS` | `{APP_ID}_headagent` | Messenger bus name for the global / coordination bus. Set explicitly for Pattern B (shared head) |
+| `MANAGER_HOST` | _(empty)_ | Gustavo manager host, used by `ScarletBase._resolveNodeAddress()`'s step 2 (`getNodeInfo`) when `NODE_ADDRESS` isn't set directly. Required for real node-address auto-resolution in a Gustavo-managed deployment - without it, resolution falls straight through to the DNS fallback. |
+| `MANAGER_PORT` | `8080` | Paired with `MANAGER_HOST`, same purpose. |
+
+Note: **`MANAGER_HOST`/`MANAGER_PORT` are a different pair from `GUSTAVO_MANAGER_URL`** (below) and from `MANAGER_CONTAINER_HOST`/`MANAGER_CONTAINER_PORT`/`MANAGER_CONTAINER_AUTH_TOKEN` (used by `BackgroundServer._query_nebula_manager` specifically) - three separate "manager" naming schemes currently live in this codebase for related-but-distinct purposes. `MANAGER_HOST`/`MANAGER_PORT` is the one node-address resolution (`ScarletBase`, and scarlet-agentic-harness's own `HarnessConfig`) actually depends on.
 
 ---
 
@@ -80,6 +84,8 @@ REDIS_PORT=6379
 NODE_ADDRESS=local
 DEVICE_GROUP=quickstart_subagent
 # HEAD_BUS=shared_headagent   # uncomment for Pattern B
+# MANAGER_HOST=gustavo-manager-host   # only needed if NODE_ADDRESS is unset
+# MANAGER_PORT=8080
 
 # ── Composer UI (optional) ───────────────────────────
 # STREAMLIT_PORT=8501

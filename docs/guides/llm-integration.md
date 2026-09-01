@@ -63,15 +63,20 @@ reply = llm.invoke("Check which agents are online and send a ping to each of the
 
 ## Integration with Open WebUI (MCP)
 
-Open WebUI supports native MCP server connections. You can wrap a Messenger as a minimal FastMCP server:
+Open WebUI supports native MCP server connections. You can wrap a Messenger as a minimal MCP server.
+
+Note: this example targets `mcp>=2.0.0`, where `FastMCP` was renamed to
+`MCPServer` (`mcp.server.mcpserver`) - `mcp.server.fastmcp.FastMCP` no
+longer exists as of mcp 2.x. If you're pinned to `mcp<2`, use
+`from mcp.server.fastmcp import FastMCP` and `FastMCP(...)` instead.
 
 ```python
 # mcp_server.py
 import asyncio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from scarlets.messaging import Messenger
 
-mcp = FastMCP("scarlet-quickstart")
+mcp = MCPServer("scarlet-quickstart")
 bus = Messenger("quickstart_headagent", agentId="mcp_bridge")
 _, handlers = bus.AsTools()
 

@@ -43,14 +43,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy local wheels (only used when LOCAL=true)
 COPY dist/ /tmp/dist/
 
-RUN if [ "$LOCAL" = "true" ]; then \
+# LOCAL=false branch previously never actually installed scarlets/
+# scarletcomposer - see docker/agent-base/Dockerfile's identical fix for
+# the full explanation. Wires the --secret id=gemfury_token,env=GEMFURY_TOKEN
+# mechanism this file's own build example above already documented.
+RUN --mount=type=secret,id=gemfury_token \
+    if [ "$LOCAL" = "true" ]; then \
         pip install --no-cache-dir \
             /tmp/dist/scarlets-${VERSION}-*.whl \
             /tmp/dist/scarletcomposer-${VERSION}-*.whl && \
         echo "Installed scarlets + scarletcomposer ${VERSION} from local wheels"; \
     else \
-        echo "LOCAL build not requested — install from Gemfury in production CI"; \
-        pip install --no-cache-dir redis numpy requests click streamlit tornado GitPython python-dotenv PyYAML docker; \
+        GEMFURY_TOKEN="$(cat /run/secrets/gemfury_token 2>/dev/null || true)"; \
+        if [ -z "$GEMFURY_TOKEN" ]; then \
+            echo "ERROR: LOCAL=false (the default) requires --secret id=gemfury_token,env=GEMFURY_TOKEN - see this file's own build examples above, or pass --build-arg LOCAL=true with local wheels in dist/ instead." >&2; \
+            exit 1; \
+        fi; \
+        pip install --no-cache-dir --extra-index-url "https://${GEMFURY_TOKEN}@pypi.fury.io/osu-home-stri/" \
+            "scarlets==${VERSION}" "scarletcomposer==${VERSION}" && \
+        echo "Installed scarlets + scarletcomposer ${VERSION} from Gemfury"; \
     fi && \
     rm -rf /tmp/dist
 

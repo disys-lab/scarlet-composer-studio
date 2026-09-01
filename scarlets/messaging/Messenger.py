@@ -151,6 +151,7 @@ class Messenger:
         record = {
             "agent_id":    self.agentId,
             "instance_id": self._instanceId,
+            "scarlet_name": self.scarletName,
             "ts":          time.time(),
             **status,
         }
