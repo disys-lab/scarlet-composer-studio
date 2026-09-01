@@ -66,3 +66,18 @@ export interface InterpretedScarlet {
 }
 
 export type InterpretedScarlets = Record<string, InterpretedScarlet>;
+
+export interface LogEntry {
+  id: string;
+  time: number;
+  app: string;
+  node: string;
+  level: string;
+  msg: string;
+  filename: string;
+  line: string;
+}
+
+export interface LogsResponse {
+  logs: LogEntry[];
+}
