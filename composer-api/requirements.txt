@@ -9,3 +9,10 @@ pyyaml>=6.0
 #   pip install -e ..
 # In a real deployment, install from Gemfury/PyPI like any other consumer
 # of the scarlets package - not vendored or reimplemented here.
+#
+# scarletcomposer (routers/scarlets.py reuses ScarletInterpreter/
+# ScarletHandler's existing #scarlet-comment parsing rather than
+# reimplementing it) - a *second* package built from a non-default setup
+# file (../setup_composer.py), so `pip install -e ..` alone doesn't install
+# it. For local dev, from the repo root:
+#   python setup_composer.py develop

@@ -39,3 +39,30 @@ export interface LoginResponse {
 export interface ComposerConfig {
   gustavo_api_url: string;
 }
+
+export interface Scarlet {
+  name: string;
+  scarlet_type: string;
+  mode: string;
+  description: string;
+  attributes: Record<string, unknown>;
+  created_by: string | null;
+  created_at: number | null;
+}
+
+export interface ScarletsResponse {
+  scarlets: Scarlet[];
+}
+
+// Shape returned by POST /api/scarlets/interpret - keyed by scarlet name,
+// matching ScarletInterpreter.scarletContent's own shape exactly (so the
+// same object round-trips straight into POST /api/scarlets/deploy).
+export interface InterpretedScarlet {
+  scarlet_type: string;
+  scarlet_name: string;
+  scarlet_attributes: Record<string, unknown>;
+  content: string;
+  description: string;
+}
+
+export type InterpretedScarlets = Record<string, InterpretedScarlet>;
