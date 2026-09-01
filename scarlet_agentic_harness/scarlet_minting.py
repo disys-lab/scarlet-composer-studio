@@ -30,12 +30,69 @@ HarnessContext.mint_scarlet(). Nothing else in the system has a
 competing, independently-hardcoded expectation for this particular name,
 which is exactly the property that made LLM-invented names unsafe for
 head's dispatch-time registration.
+
+SCARLET_TUTORIAL (below) is sent as part of every mint_scarlet_with_reasoning()
+call - grounding in what a scarlet actually is (mapper vs. messenger,
+what Federator adds, why the description matters) rather than expecting
+the model to infer that from the tool schema's one-line field
+descriptions alone. One tutorial, one place, used by both entry points
+(HarnessContext.mint_scarlet() and CreateScarletSkill) rather than
+duplicated into each.
 """
 from typing import Protocol
 
 
 class ChatClient(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
+
+
+# Grounded in the real scarlets primitives (scarlets/core/Mapper.py,
+# scarlets/formulations/Federator.py, scarlets/messaging/Messenger.py,
+# ScarletUtils.register_scarlet_definition) - not a generic description of
+# "shared storage". This is sent to the model every time it's asked to
+# mint a scarlet, so its name/type/description choices are grounded in
+# what these things actually are and do, not guessed from the tool
+# schema's one-line field descriptions alone.
+SCARLET_TUTORIAL = """
+A scarlet is a named, Redis-backed primitive that lets independently-running
+agents - each its own process, sharing no memory - exchange or aggregate
+data with each other. Once you register one, its definition (name, type,
+attributes, and the description you write) is stored in Redis and fed
+directly into every other agent's context window - that's the only way
+another agent learns it exists and how to use it, so get the description
+right.
+
+Two scarlet types:
+  - "mapper": a shared key-value store. Any agent can Map(value, key) to
+    write its own contribution under its own key, and AllGather() to read
+    every agent's contribution back at once. Use this whenever agents each
+    hold a piece of data that needs to be collected or combined - a local
+    partition, a partial result, an intermediate artifact worth publishing.
+    A mapper-type scarlet can also back a Federator, a specialized mapper
+    for associative reductions (sum, and anything built from it): every
+    contributor Maps its local value once, then one coordinator Aggregates
+    all of them with an operation like SUM in a single round trip, instead
+    of every agent reading and manually combining every other agent's
+    value.
+  - "messenger": point-to-point/broadcast messaging (Send/Receive/
+    Broadcast) plus liveness and capability reporting (ReportStatus/
+    GatherStatus). Use this for coordination and signaling traffic, not
+    for storing or aggregating data itself.
+
+Choose "mapper" for anything that holds or aggregates actual data (a
+vector, a matrix, a tensor, a scalar, a partial result); choose "messenger"
+only when the point is passing messages or announcing status, not storing
+a value.
+
+Your description is the single most load-bearing field: it is the entire
+contract another agent gets before deciding to use this scarlet. State
+concretely - what the data represents, its shape (a scalar? a vector of
+what length? a matrix of what dimensions?), any key convention (e.g. "keyed
+by each contributing agent's own agent id"), and how it should be read or
+written. "Stores some values" tells another agent nothing useful; "holds
+each worker's local sorted partition, keyed by agent id, for a coordinator
+to AllGather and merge" tells them exactly what to expect.
+""".strip()
 
 
 MINT_SCARLET_TOOL = {
@@ -45,7 +102,8 @@ MINT_SCARLET_TOOL = {
         "description": (
             "Register a new scarlet - a shared, Redis-backed bucket other agents can "
             "discover and read the contract of. Choose the name, type, and description "
-            "yourself. The description is fed directly into other agents' context "
+            "yourself, grounded in what you were just taught about what scarlets are and "
+            "how they're used. The description is fed directly into other agents' context "
             "windows, so be concrete: what the data holds, its shape, how it should be "
             "read or written."
         ),
@@ -59,11 +117,21 @@ MINT_SCARLET_TOOL = {
                 "scarlet_type": {
                     "type": "string",
                     "enum": ["mapper", "messenger"],
-                    "description": "What kind of scarlet this is - 'mapper' for key-value shared storage, 'messenger' for a message bus.",
+                    "description": (
+                        "'mapper' for shared key-value storage or aggregation of actual data "
+                        "(a vector/matrix/tensor/scalar/partial result) - almost always the "
+                        "right choice for a mathematical artifact. 'messenger' only for "
+                        "message-passing/coordination traffic, not data storage."
+                    ),
                 },
                 "description": {
                     "type": "string",
-                    "description": "Natural-language contract: what this holds and how other agents should use it.",
+                    "description": (
+                        "Natural-language contract: what this holds, its shape, any key "
+                        "convention, and how other agents should read or write it. This is "
+                        "the only thing another agent sees before using it - be concrete, not "
+                        "generic."
+                    ),
                 },
             },
             "required": ["name", "scarlet_type", "description"],
@@ -101,6 +169,7 @@ def mint_scarlet_with_reasoning(llm_client: ChatClient, agent_id: str, motivatio
         [{
             "role": "user",
             "content": (
+                f"{SCARLET_TUTORIAL}\n\n"
                 f"You are agent {agent_id!r}, currently executing a task. {motivation}\n\n"
                 f"Call mint_scarlet with the name, type, and description for the scarlet "
                 f"you need."

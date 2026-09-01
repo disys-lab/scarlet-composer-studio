@@ -54,9 +54,12 @@ def test_mint_scarlet_with_reasoning_registers_the_llm_chosen_name(redis_conn_in
     name = mint_scarlet_with_reasoning(llm, config.agent_id, "I just computed an expensive feature vector worth caching.")
 
     assert name == "feature_cache_mint1"
-    # Prompted with the real motivation, not a generic template.
+    # Prompted with the real motivation, not a generic template - and
+    # grounded in what a scarlet actually is (SCARLET_TUTORIAL), not just
+    # the bare tool schema.
     prompt = llm.calls[0][0][0]["content"]
     assert "expensive feature vector" in prompt
+    assert "mapper" in prompt and "messenger" in prompt and "AllGather" in prompt
     assert llm.calls[0][1] == [MINT_SCARLET_TOOL]
 
     r = redisConnect(decode_responses=True)
