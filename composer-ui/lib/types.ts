@@ -38,6 +38,12 @@ export interface LoginResponse {
 
 export interface ComposerConfig {
   gustavo_api_url: string;
+  redis_host: string;
+  redis_port: string;
+  redis_auth_token_set: boolean;
+  // Present only on the PUT response (a live connection test runs on every save).
+  redis_ok?: boolean;
+  redis_error?: string | null;
 }
 
 export interface Scarlet {
