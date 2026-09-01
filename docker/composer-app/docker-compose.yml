@@ -19,6 +19,7 @@ services:
         # time. Inherits AUTH_ENABLED so one variable controls both sides -
         # same convention as Gustavo's own docker-compose.yml.
         - NEXT_PUBLIC_AUTH_ENABLED=${AUTH_ENABLED:-false}
+    image: scarlet-composer-app:local
     container_name: scarlet-composer-app
     restart: unless-stopped
     ports:
@@ -43,3 +44,43 @@ services:
       - PYTHONWARNINGS=ignore
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # Node identity resolution (getNodeIp/getNodeInfo) - required for any real
+  # multi-node deployment: without it, an agent that doesn't have NODE_ADDRESS
+  # set explicitly can't resolve its own identity, so AGENT_ID
+  # ({APP_ID}_{NODE_ADDRESS}) and every scarlet key an agent registers falls
+  # back to an unstable/wrong value instead of its real Nebula-managed
+  # address - this is why it's part of every composer deployment, not
+  # optional add-on tooling.
+  #
+  # Reuses the exact same image as scarlet-composer-app (background_server.py
+  # is already baked in) with a command override - no separate image to
+  # build or publish. network_mode: host is deliberate, not incidental: this
+  # only works correctly if agent containers connecting to it (potentially
+  # on the same host, not just remote machines) see their own real source
+  # IP rather than a NAT'd/masqueraded one - verified empirically against
+  # bridge+published-port, which collapses every same-host caller to the
+  # docker bridge gateway's IP. See background_server.py's own docstring for
+  # what it actually runs (scarletcomposer's existing, unmodified
+  # BackgroundServer.py - not a reimplementation).
+  background-server:
+    image: scarlet-composer-app:local
+    container_name: scarlet-composer-background-server
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "/app/docker/composer-app/background_server.py"]
+    environment:
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_AUTH_TOKEN=${REDIS_AUTH_TOKEN}
+      # A separate trio from MANAGER_HOST/PORT (which is how an *agent*
+      # reaches this service) - this is how *this service itself* reaches
+      # the real Nebula Manager to resolve device_group when the
+      # node-aliases Redis map doesn't already have one cached. Optional -
+      # device_group falls back to the DEVICE_GROUP env var / "default" if
+      # unset. See scarletcomposer/pages/config/BackgroundServer.py.
+      - MANAGER_CONTAINER_HOST=${MANAGER_CONTAINER_HOST:-}
+      - MANAGER_CONTAINER_PORT=${MANAGER_CONTAINER_PORT:-}
+      - MANAGER_CONTAINER_AUTH_TOKEN=${MANAGER_CONTAINER_AUTH_TOKEN:-}
+    depends_on:
+      - scarlet-composer-app
