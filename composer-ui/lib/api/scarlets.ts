@@ -24,6 +24,21 @@ export const interpretScarlets = (path: string) =>
     .post<ApiResponse<{ scarlets: InterpretedScarlets }>>("/scarlets/interpret", { path })
     .then((r) => r.data);
 
+export const interpretScarletsFile = (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiClient
+    .post<ApiResponse<{ scarlets: InterpretedScarlets }>>("/scarlets/interpret/upload", formData, {
+      // Must NOT set Content-Type explicitly here - the browser derives
+      // "multipart/form-data; boundary=..." itself from the FormData body,
+      // and a manually-set header (even the "right" string, missing the
+      // boundary) breaks server-side multipart parsing. `undefined`
+      // overrides the apiClient instance's default application/json.
+      headers: { "Content-Type": undefined },
+    })
+    .then((r) => r.data);
+};
+
 export const deployScarlets = (scarlets: InterpretedScarlets) =>
   apiClient
     .post<ApiResponse<{ deployed: string[] }>>("/scarlets/deploy", { scarlets })

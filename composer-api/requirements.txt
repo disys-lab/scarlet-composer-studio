@@ -3,6 +3,7 @@ uvicorn[standard]>=0.29.0
 pyjwt>=2.8.0
 requests>=2.28.0
 pyyaml>=6.0
+python-multipart>=0.0.9  # required for FastAPI's UploadFile/File (routers/scarlets.py's /interpret/upload)
 
 # scarlets (Messenger, redisConnect) - installed from the repo root this
 # directory lives alongside (../setup.py). For local dev:
