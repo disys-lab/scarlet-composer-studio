@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
 import { getDashboardStats } from "@/lib/api/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 // that actually exists for composer - no fabricated "platform services"
 // card (composer doesn't manage services the way Gustavo does).
 export default function DashboardPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: getDashboardStats,
     refetchInterval: 30_000,
@@ -18,6 +19,16 @@ export default function DashboardPage() {
   });
 
   const stats = data && !data.error ? data.response : undefined;
+  // A failed *request* (expired/invalid session -> 401) is not the same
+  // fact as "Redis is unreachable" (a successful request whose response
+  // says redis_ok: false) - conflating them previously showed a red
+  // "Redis: Down" pill for what was actually just a stale session, which
+  // is exactly what happens every time this container restarts without
+  // COMPOSER_SESSION_SECRET pinned (see docker-compose.yml). The 401 -> /login
+  // redirect in lib/api/client.ts's interceptor handles this in practice,
+  // but that redirect is an async navigation - this is the fallback for
+  // whatever renders in the moment before it completes.
+  const isSessionExpired = isError && axios.isAxiosError(error) && error.response?.status === 401;
 
   return (
     <div className="space-y-6">
@@ -28,7 +39,18 @@ export default function DashboardPage() {
           <CardTitle className="text-base">Redis Connection</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isSessionExpired ? (
+            <div>
+              <StatusPill status="Unknown" />
+              <p className="mt-2 text-sm text-amber-600">
+                Your session has expired -{" "}
+                <Link href="/login" className="underline">
+                  log in again
+                </Link>{" "}
+                to see the real status.
+              </p>
+            </div>
+          ) : isLoading ? (
             <Skeleton className="h-6 w-24" />
           ) : (
             <StatusPill status={stats?.redis_ok ? "Up" : "Down"} />

@@ -14,6 +14,11 @@ services:
     build:
       context: ../..
       dockerfile: docker/composer-app/Dockerfile
+      args:
+        # NEXT_PUBLIC_AUTH_ENABLED is baked into the Next.js bundle at build
+        # time. Inherits AUTH_ENABLED so one variable controls both sides -
+        # same convention as Gustavo's own docker-compose.yml.
+        - NEXT_PUBLIC_AUTH_ENABLED=${AUTH_ENABLED:-false}
     container_name: scarlet-composer-app
     restart: unless-stopped
     ports:

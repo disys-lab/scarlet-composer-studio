@@ -13,6 +13,13 @@ FROM ubuntu:24.04
 
 ARG py_version=python3.11
 ARG node_version=20
+# Baked into the composer-ui client bundle at build time (Next.js requirement
+# for NEXT_PUBLIC_* vars - unlike the runtime AUTH_ENABLED the container also
+# gets, this one has to be known before `npm run build` runs). Mirrors
+# Gustavo's own root Dockerfile's NEXT_PUBLIC_AUTH_ENABLED handling exactly -
+# without it, lib/api/client.ts's 401 -> /login redirect never fires, since
+# process.env.NEXT_PUBLIC_AUTH_ENABLED is undefined in the browser bundle.
+ARG NEXT_PUBLIC_AUTH_ENABLED=false
 
 LABEL maintainer="paritosh.ramanan@okstate.edu"
 
@@ -57,6 +64,7 @@ RUN pip install --no-cache-dir -r composer-api/requirements.txt
 
 # ── composer-ui (Next.js) build ──────────────────────────────────────────────
 WORKDIR /app/composer-ui
+ENV NEXT_PUBLIC_AUTH_ENABLED=${NEXT_PUBLIC_AUTH_ENABLED}
 RUN npm ci --prefer-offline --no-audit --no-fund && \
     npm run build && \
     cp -r .next/static .next/standalone/.next/static && \
