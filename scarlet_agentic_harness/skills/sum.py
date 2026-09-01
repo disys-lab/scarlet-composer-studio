@@ -57,6 +57,12 @@ class SumSkill(Skill):
     }
     coordinate_timeout = 15.0
 
+    def scarlet_names(self, mapper_name: str) -> list[str]:
+        # Must match what Federator.__init__ actually constructs (scarlets'
+        # formulations/Federator.py) - see Skill.scarlet_names()'s docstring
+        # for why this can't just be imported instead.
+        return [f"{mapper_name}_mapper_reducer", f"{mapper_name}_mapper_global"]
+
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         transform_name = request.get("params", {}).get("transform", "identity")
         transform = _TRANSFORMS.get(transform_name, _TRANSFORMS["identity"])

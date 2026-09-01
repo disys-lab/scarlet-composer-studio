@@ -68,6 +68,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 from scarlets.utils.RedisLogger import RedisLogger
+from scarlets.utils.ScarletUtils import register_scarlet_definition
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
@@ -181,6 +182,68 @@ def _deliberate_or_followup(
     return {"action": "retry"}
 
 
+def _default_scarlet_description(skill: Skill, params: dict, name: str) -> str:
+    return f"Scarlet {name!r} backing a {skill.name!r} computation (params={params!r})."
+
+
+def _compose_scarlet_description(llm_client: ChatClient, skill: Skill, params: dict, name: str) -> str:
+    """
+    Real LLM reasoning, not fixed text - same rationale as
+    _compose_checkin_question(). The scarlet's description is fed directly
+    into every agent's context window (see register_scarlet_definition()'s
+    docstring), so this is grounded in the skill's own description/params
+    rather than reused verbatim across every invocation, and asks for
+    something concrete about the data contract rather than a restatement of
+    what the skill does. Falls back to a plain, functional description if
+    the model returns nothing usable - same convention as every other LLM
+    call in this module.
+    """
+    prompt = (
+        f"You're about to dispatch a distributed {skill.name!r} computation "
+        f"(scarlet name {name!r}) across worker agents. The skill: "
+        f"{skill.description}\n\n"
+        f"Called this time with parameters: {params!r}.\n\n"
+        f"Write a short, natural-language description of this specific scarlet - "
+        f"what it holds and how contributing workers should use it. Be concrete "
+        f"about the data shape/contract, not just a restatement of what the skill "
+        f"does in general. Reply with just the description, nothing else."
+    )
+    turn = llm_client.chat([{"role": "user", "content": prompt}])
+    description = (turn.get("content") or "").strip()
+    return description or _default_scarlet_description(skill, params, name)
+
+
+def _register_scarlets(skill: Skill, params: dict, mapper_name: str, llm_client: "ChatClient | None") -> None:
+    """
+    Mints every scarlet this attempt's skill.contribute()/coordinate() will
+    construct - before dispatch, on the head, with a real description -
+    rather than leaving registration to happen lazily (and blankly) the
+    first time some worker constructs its own ctx.mapper()/ctx.federator().
+    A no-op for skills that don't declare any (scarlet_names() defaults to
+    []). See Skill.scarlet_names()'s docstring for why the *names* are
+    still assigned by run_skill() deterministically (mapper_name is
+    request_id-based, never LLM-authored) while only the description is
+    generated - an LLM-invented name would have nothing forcing it to match
+    the literal Redis key a worker's own code actually touches.
+    """
+    names = skill.scarlet_names(mapper_name)
+    if not names:
+        return
+    description = (
+        _compose_scarlet_description(llm_client, skill, params, mapper_name)
+        if llm_client is not None
+        else _default_scarlet_description(skill, params, mapper_name)
+    )
+    for name in names:
+        register_scarlet_definition(
+            scarlet_name=name,
+            scarlet_type="mapper",
+            description=description,
+            attributes={"mode": "redis-scarlet"},
+            overwrite=True,
+        )
+
+
 def run_skill(
     skill: Skill,
     params: dict,
@@ -269,6 +332,13 @@ def run_skill(
             "workers": workers,
             "params": params,
         }
+
+        # Register before dispatch, not after - see _register_scarlets()'s
+        # docstring. A blocking Redis write, so it's guaranteed to land
+        # before any worker can construct its own (blank-description,
+        # no-op-against-an-existing-key) Mapper()/Federator() in response
+        # to the Send below.
+        _register_scarlets(skill, params, request["mapper_name"], llm_client)
 
         # Defined here (not shared across attempts) so it closes over this
         # attempt's own request_id/workers - needed to broadcast

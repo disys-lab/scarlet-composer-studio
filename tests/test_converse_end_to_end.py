@@ -44,11 +44,18 @@ def test_converse_drives_a_real_median_computation(redis_conn_info):
         expected = statistics.median(all_numbers)
 
         # The model's decision to call "median" is scripted (no real LLM
-        # backend exists yet) - but its second turn's text has to reference
+        # backend exists yet) - but its final turn's text has to reference
         # the *actual* computed value, proving the real distributed result
         # made it all the way back into the conversation, not a canned one.
+        # Three scripted turns, not two: run_skill() now calls this same
+        # llm_client once more, mid-dispatch, to compose the median scarlet's
+        # description before any worker is contacted (see head.py's
+        # _register_scarlets/_compose_scarlet_description) - a real,
+        # one-off, non-conversational call that lands between the tool-call
+        # turn and the model's final answer.
         llm = ScriptedLLMClient([
             assistant_tool_call("call_1", "median"),
+            assistant_final("Holds each worker's sorted local partition for this median request."),
             assistant_final(f"The median is {expected}."),
         ])
 
@@ -58,10 +65,14 @@ def test_converse_drives_a_real_median_computation(redis_conn_info):
 
         assert result.answer == f"The median is {expected}."
 
-        # the tool result fed back to the model on turn 2 must be the real,
-        # correctly-computed distributed result - not a stub
-        second_call_messages, _ = llm.calls[1]
-        tool_result = [m for m in second_call_messages if m["role"] == "tool"][0]["content"]
+        # calls[1] is the scarlet-description call (a single, standalone
+        # user message - not part of the conversation transcript at all);
+        # the tool result fed back to the model on the conversation's real
+        # second turn (calls[2]) must be the real, correctly-computed
+        # distributed result - not a stub.
+        assert "content" in llm.calls[1][0][0]
+        third_call_messages, _ = llm.calls[2]
+        tool_result = [m for m in third_call_messages if m["role"] == "tool"][0]["content"]
         assert tool_result["status"] == "ok"
         assert tool_result["result"] == expected
         assert "n=9" in tool_result["detail"]
