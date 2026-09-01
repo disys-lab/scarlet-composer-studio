@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Users, Database, FileText, Container, Settings,
+  LayoutDashboard, Users, Database, FileText, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/context/AuthContext";
@@ -16,7 +16,11 @@ const NAV = [
   { href: "/scarlets",         label: "Scarlets",         icon: Database },
   { href: "/data-sources",     label: "Data Sources",     icon: Database },
   { href: "/logging",          label: "Logging",          icon: FileText },
-  { href: "/container-builds", label: "Container Builds", icon: Container },
+  // Container Builds: hidden for now, not ready - route still exists
+  // (ComingSoon placeholder), just not linked from the nav. Same
+  // preserved-for-later pattern as Gustavo's own VISIBLE_SERVICES
+  // convention for syncer.
+  // { href: "/container-builds", label: "Container Builds", icon: Container },
   { href: "/settings",         label: "Settings",         icon: Settings },
 ];
 
