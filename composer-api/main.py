@@ -17,11 +17,13 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import config_store
+import data_sources_store
 from auth_dep import verify_session
 from routers import agents as agents_router
 from routers import auth as auth_router
 from routers import config as config_router
 from routers import dashboard as dashboard_router
+from routers import data_sources as data_sources_router
 from routers import scarlets as scarlets_router
 
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +32,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config_store.load()
+    data_sources_store.load()
     yield
 
 
@@ -64,6 +67,10 @@ app.include_router(
 )
 app.include_router(
     scarlets_router.router, prefix="/api/scarlets", tags=["scarlets"],
+    dependencies=[Depends(verify_session)],
+)
+app.include_router(
+    data_sources_router.router, prefix="/api/data-sources", tags=["data-sources"],
     dependencies=[Depends(verify_session)],
 )
 
