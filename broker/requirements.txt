@@ -25,3 +25,14 @@ requests-kerberos>=0.15.0
 # client the reference apps (anomaly_detection/process_optimization) use.
 # Not the 2.x `influxdb-client` package - those apps never use Flux.
 influxdb>=5.3.0
+
+# postgres connector - psycopg2-binary bundles its own libpq, no system-
+# level Postgres client library needed in this image.
+psycopg2-binary>=2.9.0
+
+# mysql connector - PyMySQL is pure Python, no C extension/system
+# dependency (unlike mysqlclient's libmysqlclient-dev requirement).
+pymysql>=1.1.0
+
+# redis connector - redis-py, pure Python.
+redis>=5.0.0
