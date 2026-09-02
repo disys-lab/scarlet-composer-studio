@@ -68,6 +68,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
 from scarlets.utils.RedisLogger import RedisLogger
+from scarlets.utils.ScarletUtils import register_scarlet_definition
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
@@ -181,6 +182,68 @@ def _deliberate_or_followup(
     return {"action": "retry"}
 
 
+def _default_scarlet_description(skill: Skill, params: dict, name: str) -> str:
+    return f"Scarlet {name!r} backing a {skill.name!r} computation (params={params!r})."
+
+
+def _compose_scarlet_description(llm_client: ChatClient, skill: Skill, params: dict, name: str) -> str:
+    """
+    Real LLM reasoning, not fixed text - same rationale as
+    _compose_checkin_question(). The scarlet's description is fed directly
+    into every agent's context window (see register_scarlet_definition()'s
+    docstring), so this is grounded in the skill's own description/params
+    rather than reused verbatim across every invocation, and asks for
+    something concrete about the data contract rather than a restatement of
+    what the skill does. Falls back to a plain, functional description if
+    the model returns nothing usable - same convention as every other LLM
+    call in this module.
+    """
+    prompt = (
+        f"You're about to dispatch a distributed {skill.name!r} computation "
+        f"(scarlet name {name!r}) across worker agents. The skill: "
+        f"{skill.description}\n\n"
+        f"Called this time with parameters: {params!r}.\n\n"
+        f"Write a short, natural-language description of this specific scarlet - "
+        f"what it holds and how contributing workers should use it. Be concrete "
+        f"about the data shape/contract, not just a restatement of what the skill "
+        f"does in general. Reply with just the description, nothing else."
+    )
+    turn = llm_client.chat([{"role": "user", "content": prompt}])
+    description = (turn.get("content") or "").strip()
+    return description or _default_scarlet_description(skill, params, name)
+
+
+def _register_scarlets(skill: Skill, params: dict, mapper_name: str, llm_client: "ChatClient | None") -> None:
+    """
+    Mints every scarlet this attempt's skill.contribute()/coordinate() will
+    construct - before dispatch, on the head, with a real description -
+    rather than leaving registration to happen lazily (and blankly) the
+    first time some worker constructs its own ctx.mapper()/ctx.federator().
+    A no-op for skills that don't declare any (scarlet_names() defaults to
+    []). See Skill.scarlet_names()'s docstring for why the *names* are
+    still assigned by run_skill() deterministically (mapper_name is
+    request_id-based, never LLM-authored) while only the description is
+    generated - an LLM-invented name would have nothing forcing it to match
+    the literal Redis key a worker's own code actually touches.
+    """
+    names = skill.scarlet_names(mapper_name)
+    if not names:
+        return
+    description = (
+        _compose_scarlet_description(llm_client, skill, params, mapper_name)
+        if llm_client is not None
+        else _default_scarlet_description(skill, params, mapper_name)
+    )
+    for name in names:
+        register_scarlet_definition(
+            scarlet_name=name,
+            scarlet_type="mapper",
+            description=description,
+            attributes={"mode": "redis-scarlet"},
+            overwrite=True,
+        )
+
+
 def run_skill(
     skill: Skill,
     params: dict,
@@ -200,11 +263,16 @@ def run_skill(
     Does not block and does not return the result - `on_result` fires
     exactly once, on some later thread, with the final result dict (shape:
     {"status": "ok"/"error", ...}), whether that's success, a
-    non-retryable failure, or exhausting every retry attempt. Runs on the
-    head. Workers are discovered fresh via GatherStatus() on every attempt,
-    per DESIGN_v3.md section 8.5 - never a hardcoded topology, which is
-    exactly what lets a retry naturally exclude a worker that went offline
-    mid-computation without any special-cased "remove this worker" logic.
+    non-retryable failure, or exhausting every retry attempt. Despite the
+    module name, nothing here is actually head-specific - it only ever
+    touches the `config`/`buses` it's handed, which is exactly what lets a
+    worker call this too (see HarnessContext.invoke_skill()) to dispatch a
+    skill across its own peers on its own initiative, with no head
+    involvement at all. Workers are discovered fresh via GatherStatus() on
+    every attempt, per DESIGN_v3.md section 8.5 - never a hardcoded
+    topology, which is exactly what lets a retry naturally exclude a worker
+    that went offline mid-computation without any special-cased "remove
+    this worker" logic.
 
     A failed attempt is retried (fresh request_id, fresh worker survey,
     possibly a new coordinator) only if the result carries `"retryable":
@@ -270,6 +338,13 @@ def run_skill(
             "params": params,
         }
 
+        # Register before dispatch, not after - see _register_scarlets()'s
+        # docstring. A blocking Redis write, so it's guaranteed to land
+        # before any worker can construct its own (blank-description,
+        # no-op-against-an-existing-key) Mapper()/Federator() in response
+        # to the Send below.
+        _register_scarlets(skill, params, request["mapper_name"], llm_client)
+
         # Defined here (not shared across attempts) so it closes over this
         # attempt's own request_id/workers - needed to broadcast
         # skill_cancel to exactly this attempt's workers if it's the one
@@ -304,9 +379,12 @@ def run_skill(
 
         if coordinator == config.agent_id:
             # Only reached if a skill explicitly overrides coordinator_for()
-            # to return the head - not the default. Still dispatched onto a
-            # new thread rather than run inline, so run_skill() never blocks
-            # its own caller even in this rare case.
+            # to return the invoking agent's own id - not the default,
+            # regardless of whether that invoker is the head or a worker
+            # calling this via HarnessContext.invoke_skill(). Still
+            # dispatched onto a new thread rather than run inline, so
+            # run_skill() never blocks its own caller even in this rare
+            # case.
             def run_in_process():
                 handle(skill.coordinate(ctx, request, workers))
             threading.Thread(target=run_in_process, daemon=True).start()

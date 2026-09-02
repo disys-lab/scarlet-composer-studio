@@ -65,6 +65,35 @@ class Skill(ABC):
         """
         return random.choice(workers)
 
+    def scarlet_names(self, mapper_name: str) -> list[str]:
+        """
+        Concrete scarlet_definition_* Redis keys this skill's contribute()/
+        coordinate() will end up constructing via ctx.mapper()/ctx.federator(),
+        given the per-request mapper_name run_skill() assigns. Empty list
+        (the default) means this skill doesn't use a Mapper/Federator-backed
+        scarlet at all (e.g. combine, which computes purely locally).
+
+        run_skill() calls this before dispatch to pre-register each name
+        with a real, request-specific description (LLM-composed when a
+        ChatClient is available - see head.py's _compose_scarlet_description)
+        so it's already visible on the Scarlets tracker the moment work
+        starts, not only once some worker happens to construct one.
+        register_scarlet_definition's own overwrite=False default (see
+        scarlets' ScarletUtils.py) means a worker's later ctx.mapper()/
+        ctx.federator() call - which always passes an empty description -
+        is a no-op against a name already registered here, so head's richer
+        description is never clobbered.
+
+        A skill backed by Mapper directly returns [mapper_name] (see
+        median.py). A skill backed by Federator must return the two derived
+        names Federator's own __init__ actually constructs - scarletName +
+        "_mapper_reducer"/"_mapper_global" (see sum.py) - duplicated here
+        rather than imported, since scarlets' Federator doesn't expose that
+        naming scheme as a constant; if Federator's internal suffixes ever
+        change, this needs updating too.
+        """
+        return []
+
     @abstractmethod
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         ...

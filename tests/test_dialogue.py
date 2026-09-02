@@ -8,6 +8,7 @@ AgentDialogue.handle(), the same shape a real Messenger send would produce.
 """
 import threading
 
+from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness.dialogue import AgentDialogue
 
 
@@ -85,6 +86,49 @@ def test_responder_grounds_reply_in_context_fn():
     assert len(system_messages) == 1
     assert "req-1" in system_messages[0]["content"]
     assert "ready_count" in system_messages[0]["content"]
+
+
+def test_responder_grounds_reply_in_real_local_data_sources(tmp_path, monkeypatch):
+    # Real local_config.describe_sources() (real YAML file, not a scripted
+    # dict) wired through context_fn exactly as __main__.py does it - the
+    # actual seam Component 5 (on-request semantic tag discovery) closed:
+    # a peer's responder LLM sees this worker's own real, redacted local
+    # sources (see local_config.py's module docstring) and can reason
+    # about whether one of them answers "does anyone have roll_speed for
+    # equipment 1234", including a differently-named match like
+    # RollSpeed_1234 here - proving the plumbing that reasoning depends on
+    # actually delivers the right content, not just that the mechanism
+    # works in the abstract (see test_responder_grounds_reply_in_context_fn
+    # above for that).
+    monkeypatch.setattr(local_config, "CONFIG_PATH", tmp_path / "config.yaml")
+    (tmp_path / "config.yaml").write_text("""
+sources:
+  - name: RollSpeed_1234
+    type: postgres
+    mode: local
+    description: "Roll speed for equipment 1234, sampled every 5s."
+    host: 127.0.0.1
+    port: 5432
+    database: plant
+    user: reader
+    password: super-secret-should-never-appear-in-a-prompt
+""")
+
+    llm_a = FakeDialogueLLM([])
+    llm_b = FakeDialogueLLM(["I have RollSpeed_1234 for that equipment"])
+    dialogue_a, dialogue_b = _linked_pair(
+        llm_a, llm_b,
+        context_fn_b=lambda: {"local_data_sources": local_config.describe_sources()},
+    )
+
+    done = threading.Event()
+    dialogue_a.start("agent_b", "does anyone have roll_speed for equipment 1234?", lambda content, sender: done.set())
+
+    assert done.wait(timeout=2)
+    system_prompt = [m for m in llm_b.calls[0] if m["role"] == "system"][0]["content"]
+    assert "RollSpeed_1234" in system_prompt
+    assert "Roll speed for equipment 1234" in system_prompt
+    assert "super-secret-should-never-appear-in-a-prompt" not in system_prompt
 
 
 def test_no_context_fn_still_establishes_identity_but_no_grounding_claim():

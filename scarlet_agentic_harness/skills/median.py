@@ -39,6 +39,9 @@ class MedianSkill(Skill):
     # randomly-chosen worker) is exactly right for median too, and is now
     # the default for every skill, not a median-specific choice.
 
+    def scarlet_names(self, mapper_name: str) -> list[str]:
+        return [mapper_name]
+
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         sorted_local = sorted(local_numbers())
 

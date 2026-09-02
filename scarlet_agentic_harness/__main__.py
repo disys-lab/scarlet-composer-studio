@@ -8,12 +8,16 @@ against a real Redis while building.
 import json
 import sys
 import threading
+import time
+
+from scarlets.utils.RedisLogger import RedisLogger
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
+from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
@@ -26,7 +30,43 @@ def main() -> None:
     skills = discover_skills()
 
     if config.role == "worker":
+        # Built synchronously, before this worker ever reports itself
+        # online or answers a dialogue message - a boot or a post-crash
+        # reboot must not leave tag grounding empty for a whole refresh
+        # interval (default 300s) just because the periodic loop below
+        # hasn't ticked yet. Per-source failures are already caught inside
+        # build_tag_cache() itself - one bad source never blocks this.
+        tag_cache: dict[str, list] = local_config.build_tag_cache()
         buses.report_status(capabilities=list(skills.keys()))
+
+        # report_status() above (and the tag cache build before it) only
+        # ever run once, at startup - data_sources/tags would otherwise
+        # never reflect a site engineer hand-editing ~/.scarlet/config.yaml
+        # (or a source's schema actually changing) after this process
+        # started, short of a restart. capabilities don't change at
+        # runtime (skills are still static/bundled-in-the-image), so
+        # re-running this is purely about picking up local config/schema
+        # changes.
+        #
+        # The whole body is wrapped so one bad cycle - report_status()
+        # itself hitting a transient Redis error, say, not just a single
+        # source's list_tags() failing (already handled inside
+        # build_tag_cache()) - logs and moves on to the next cycle instead
+        # of killing this thread and silently ending every future refresh,
+        # tags and the data_sources report alike, for the rest of this
+        # process's life.
+        def _refresh_data_sources_loop():
+            nonlocal tag_cache
+            while True:
+                time.sleep(config.data_source_refresh_interval)
+                try:
+                    tag_cache = local_config.build_tag_cache()
+                    buses.report_status(capabilities=list(skills.keys()))
+                except Exception as exc:
+                    RedisLogger.warning(f"[{config.agent_id}] data source refresh cycle failed: {exc}")
+
+        threading.Thread(target=_refresh_data_sources_loop, daemon=True).start()
+
         # Activity publishing (observability.py) is unconditional - it's
         # useful for a dashboard/human regardless of whether this worker
         # has LLM access. AgentDialogue is only constructed if an LLM
@@ -38,14 +78,33 @@ def main() -> None:
         registry = CancellationRegistry(
             activity_mapper=observability.activity_mapper(config.app_id), agent_id=config.agent_id,
         )
+        # One LLMClient, reused for both agent_message conversations
+        # (dialogue) and ctx.mint_scarlet() (see worker.start_dispatch) -
+        # same backend either way, no reason to construct two.
+        worker_llm_client = LLMClient(config) if config.llm_base_url else None
         dialogue = (
             AgentDialogue(
-                buses.global_bus, LLMClient(config),
-                context_fn=lambda: {"in_flight_status": describe_in_flight(registry.snapshot())},
+                buses.global_bus, worker_llm_client,
+                context_fn=lambda: {
+                    "in_flight_status": describe_in_flight(registry.snapshot()),
+                    # Grounds a reply like "does anyone have roll_speed for
+                    # equipment 1234" in this worker's own real local
+                    # sources - redacted (name/type/mode/description only,
+                    # see local_config.describe_sources()) plus each
+                    # source's real, live tags/columns from tag_cache
+                    # (Option 4+2: computed ahead of time on the periodic
+                    # refresh above, not looked up live per reply - see
+                    # that loop's own comment for why). describe_sources()
+                    # itself still re-reads the config file fresh on every
+                    # call; only the tags are cached.
+                    "local_data_sources": local_config.describe_sources(tag_cache=tag_cache),
+                },
             )
-            if config.llm_base_url else None
+            if worker_llm_client else None
         )
-        worker_mod.start_dispatch(config, buses, skills, dialogue=dialogue, registry=registry)
+        worker_mod.start_dispatch(
+            config, buses, skills, dialogue=dialogue, registry=registry, llm_client=worker_llm_client,
+        )
         print(
             f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
             f"dialogue={'on' if dialogue else 'off'}",

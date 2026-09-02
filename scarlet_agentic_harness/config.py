@@ -11,6 +11,18 @@ ROLE and the LLM_* vars are new - they don't exist in scarlet-composer-studio
 itself, since "head vs. worker LLM loop" and "which OpenAI-compatible backend
 to call" are concerns specific to this harness, not the underlying scarlets
 primitives.
+
+NEBULA_USERNAME/NEBULA_SECRET/COMPOSER_API_URL are also new: this agent's own
+Nebula identity, used only by ctx.query_data_source() (context.py) to
+authenticate to composer-api the same way a human operator logs into
+composer-ui - reusing composer-api's existing Gustavo-delegated login rather
+than inventing a second credential type for agents.
+
+DATA_SOURCE_REFRESH_INTERVAL is also new: how often this worker re-reads
+its own ~/.scarlet/config.yaml (see local_config.py) and re-reports its
+data_sources (see __main__.py's periodic loop, buses.py's report_status())
+- without it, a hand-edited local config file would only ever be reflected
+on the Agents page after a process restart.
 """
 import os
 import socket
@@ -113,6 +125,28 @@ class HarnessConfig:
     check_in_timeout: float = 10.0  # run_skill() - bound on one check-in conversation itself
     check_in_max_turns: int = 3  # run_skill() - max question/answer rounds within one check-in conversation
 
+    # This agent's own Nebula identity + where to find composer-api - only
+    # needed by a worker that calls ctx.query_data_source() (see context.py).
+    # Not auto-populated for a plain Gustavo "app" deployment (Gustavo
+    # deliberately doesn't inject Nebula credentials into app env_vars, to
+    # avoid credential sprawl - see gustavo/api/routers/apps.py), so this is
+    # a required manual env var for any worker that needs data-source
+    # access, same operational step as setting REDIS_HOST etc. today. None
+    # (the default) means "this worker never calls query_data_source()" -
+    # that call raises clearly rather than silently no-op'ing, same
+    # convention as mint_scarlet() and its llm_client check.
+    nebula_username: str | None = None
+    nebula_secret: str | None = None
+    composer_api_url: str | None = None
+
+    # How often a worker re-reads ~/.scarlet/config.yaml and re-reports
+    # its data_sources (see __main__.py's periodic loop, buses.py's
+    # report_status()) - report_status() itself is only ever called once
+    # at startup by this harness's own code (see __main__.py:29), so
+    # without this loop a hand-edited local config file would never be
+    # reflected on the Agents page until the process restarts.
+    data_source_refresh_interval: float = 300.0
+
     @property
     def agent_id(self) -> str:
         return f"{self.app_id}_{self.node_address}"
@@ -166,4 +200,8 @@ class HarnessConfig:
             max_check_ins=int(os.environ.get("MAX_CHECK_INS", "2")),
             check_in_timeout=float(os.environ.get("CHECK_IN_TIMEOUT", "10.0")),
             check_in_max_turns=int(os.environ.get("CHECK_IN_MAX_TURNS", "3")),
+            nebula_username=_env("NEBULA_USERNAME"),
+            nebula_secret=_env("NEBULA_SECRET"),
+            composer_api_url=_env("COMPOSER_API_URL"),
+            data_source_refresh_interval=float(os.environ.get("DATA_SOURCE_REFRESH_INTERVAL", "300.0")),
         )

@@ -1,12 +1,26 @@
 """
 Worker-side dispatch.
 
-For any well-defined, already-invoked skill, the worker does not run its own
-LLM call at all - the head's LLM already decided which skill applies and
-sent a fully structured instruction, so re-interpreting it with another LLM
-call would just reintroduce the ambiguity-compounding problem one hop later.
-handle_message() is a thin, deterministic lookup from message type -> Skill
-handler.
+Which skill runs is never re-decided here: the head's LLM already decided
+that and sent a fully structured instruction, so re-interpreting *that*
+choice with another LLM call would just reintroduce the ambiguity-
+compounding problem one hop later. handle_message() is a thin, deterministic
+lookup from message type -> Skill handler for that part.
+
+What a worker's own LLM *can* now do, once handle_message() has already
+made that deterministic choice and is running the resulting
+contribute()/coordinate(): mint an ad hoc scarlet mid-task, via
+HarnessContext.mint_scarlet() (scarlet_minting.py), for shared state a
+skill's own code decides it needs but couldn't have declared in advance
+via Skill.scarlet_names() (contrast head.py's dispatch-time
+_register_scarlets, which only ever generates a *description* for names
+the skill author already fixed in code). This is a bounded decision inside
+an already-selected skill, not a re-decision of which skill to run, so it
+doesn't reopen the problem above - see scarlet_minting.py's docstring for
+the full argument. llm_client is None unless this worker process has
+LLM_BASE_URL configured (see __main__.py); a skill that calls
+ctx.mint_scarlet() without one gets a clear, immediate error, not a silent
+no-op.
 
 start_dispatch() is what actually drives handle_message() now: it wires
 this worker's global-bus MessageRouter (buses.py) to spawn a new daemon
@@ -46,11 +60,17 @@ from scarlet_agentic_harness.cancellation import CancellationRegistry, Cancellat
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.dialogue import AgentDialogue
+from scarlet_agentic_harness.scarlet_minting import ChatClient
 from scarlet_agentic_harness.skills.base import Skill
 
 
 def handle_message(
-    msg: dict, config: HarnessConfig, buses: Buses, skills: dict[str, Skill], token: CancellationToken,
+    msg: dict,
+    config: HarnessConfig,
+    buses: Buses,
+    skills: dict[str, Skill],
+    token: CancellationToken,
+    llm_client: "ChatClient | None" = None,
 ) -> None:
     body = msg.get("body", {})
     msg_type = body.get("type")
@@ -67,7 +87,7 @@ def handle_message(
         })
         return
 
-    ctx = HarnessContext(config, buses, cancellation=token)
+    ctx = HarnessContext(config, buses, cancellation=token, llm_client=llm_client)
     skill.contribute(ctx, body)
 
     if msg_type == "skill_coordinate":
@@ -89,6 +109,7 @@ def start_dispatch(
     skills: dict[str, Skill],
     dialogue: AgentDialogue | None = None,
     registry: CancellationRegistry | None = None,
+    llm_client: "ChatClient | None" = None,
 ) -> CancellationRegistry:
     """
     Start servicing this worker's incoming dispatch messages concurrently.
@@ -102,6 +123,14 @@ def start_dispatch(
     instead of being silently dropped. AgentDialogue.handle() manages its
     own threading internally, so it's safe to call directly here rather
     than wrapping it in another spawned thread.
+
+    llm_client: same "is an LLM backend configured" condition as dialogue
+    (in practice __main__.py constructs one LLMClient and passes it to
+    both) - threaded through to every HarnessContext this worker builds, so
+    a skill's contribute()/coordinate() can call ctx.mint_scarlet(). None
+    (the default) means skills running on this worker that try to mint a
+    scarlet get a clear, immediate error rather than a silent no-op - see
+    HarnessContext.mint_scarlet().
 
     registry: this worker's CancellationRegistry - constructed here if not
     given (existing callers that don't need one, e.g. most tests, are
@@ -134,7 +163,7 @@ def start_dispatch(
 
             def run():
                 try:
-                    handle_message(msg, config, buses, skills, token)
+                    handle_message(msg, config, buses, skills, token, llm_client=llm_client)
                 finally:
                     registry.forget(request_id)
 
