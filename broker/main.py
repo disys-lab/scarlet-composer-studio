@@ -51,7 +51,7 @@ BROKER_POOL_SIZE = int(os.environ.get("BROKER_POOL_SIZE", "4"))
 # needs another type's system dependencies importable at all (e.g. a
 # non-mssql broker shouldn't need pyodbc/unixODBC installed just to start,
 # and a non-pi broker shouldn't need the pitalk package importable).
-_KNOWN_CONNECTOR_TYPES = ("mssql", "pi", "influx", "postgres", "mysql", "redis")
+_KNOWN_CONNECTOR_TYPES = ("mssql", "pi", "influx", "postgres", "mysql", "redis", "csv", "excel")
 
 
 def _load_connector() -> Connector:
@@ -74,6 +74,12 @@ def _load_connector() -> Connector:
     if connector_type == "redis":
         from data_connectors.redis_connector import RedisConnector
         return RedisConnector()
+    if connector_type == "csv":
+        from data_connectors.csv_connector import CsvConnector
+        return CsvConnector()
+    if connector_type == "excel":
+        from data_connectors.excel_connector import ExcelConnector
+        return ExcelConnector()
     raise ValueError(
         f"BROKER_CONNECTOR_TYPE={connector_type!r} is not a known connector "
         f"(known: {_KNOWN_CONNECTOR_TYPES})"

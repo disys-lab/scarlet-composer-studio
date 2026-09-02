@@ -16,6 +16,7 @@ dict, one per ~/.scarlet/config.yaml entry, needed since a single worker
 process can hold more than one local source of the same type - env vars
 alone can't disambiguate two local Postgres entries on one worker).
 """
+import math
 import os
 from abc import ABC, abstractmethod
 
@@ -43,3 +44,22 @@ def config_value(config: dict | None, key: str, env_var: str, default=None, requ
     if required and value is None:
         raise ValueError(f"{key!r} is required - set it in the config dict, or the {env_var} env var")
     return value
+
+
+def json_safe(v):
+    """
+    Coerce one query-result value to something JSON-serializable - shared
+    by every connector that hands back a pandas/numpy-derived value
+    (csv_connector.py, excel_connector.py; the others' own driver types
+    are narrow enough to coerce inline). NaN (pandas' own representation
+    for a missing cell) becomes None, same as every connector's existing
+    None-for-missing convention - confirmed via a real duckdb/pandas
+    round-trip that this needs to be explicit, not already JSON-safe.
+    """
+    if v is None:
+        return None
+    if hasattr(v, "item"):  # numpy scalar
+        v = v.item()
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    return v if isinstance(v, (str, int, float, bool)) else str(v)

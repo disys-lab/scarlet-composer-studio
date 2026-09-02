@@ -6,7 +6,7 @@ setup(
     setup_requires=["setuptools-scm"],
     author="Paritosh Ramanan",
     author_email="paritosh.ramanan@gmail.com",
-    description="Pluggable data-source connectors (mssql, postgres, mysql, pi, influx, redis) - shared by the broker and any in-process caller (e.g. scarlet-agentic-harness's local-mode data sources).",
+    description="Pluggable data-source connectors (mssql, postgres, mysql, pi, influx, redis, csv, excel) - shared by the broker and any in-process caller (e.g. scarlet-agentic-harness's local-mode data sources).",
     long_description=open("README.md").read() if __import__("os").path.exists("README.md") else "",
     long_description_content_type="text/markdown",
     url="https://github.com/disys-lab/scarlet-composer-studio",
@@ -37,6 +37,12 @@ setup(
         "pymysql>=1.1.0",
         # redis
         "redis>=5.0.0",
+        # csv/excel - duckdb runs the caller's raw SQL against the pandas
+        # DataFrame just read from disk (see csv_connector.py's own
+        # docstring); openpyxl is pandas' own default .xlsx read engine,
+        # pure Python, no system dependency.
+        "duckdb>=1.0.0",
+        "openpyxl>=3.1.0",
         # shared by every connector's query()
         "requests>=2.28.0",
     ],
