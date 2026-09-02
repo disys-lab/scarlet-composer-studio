@@ -56,6 +56,7 @@ import os
 from pathlib import Path
 
 import yaml
+from scarlets.utils.RedisLogger import RedisLogger
 
 CONFIG_PATH = Path(
     os.environ.get("SCARLET_LOCAL_CONFIG", str(Path.home() / ".scarlet" / "config.yaml"))
@@ -168,21 +169,71 @@ def canonical_identity(entry: dict) -> tuple:
     return (connector_type,) + tuple(entry.get(f) for f in fields)
 
 
-def describe_sources() -> list[dict]:
+def describe_sources(tag_cache: dict[str, list] | None = None) -> list[dict]:
     """
     Redacted view of every locally-configured source - name/type/mode/
     description only, never a credential field. This is the one function
     safe to expose off this worker process: report_status()'s
-    `data_sources` field (Component 4, admin-facing directory) and
-    AgentDialogue's context_fn (Component 5, on-request tag discovery)
-    both use this directly.
+    `data_sources` field (Component 4, admin-facing directory - calls
+    this with no tag_cache, unchanged) and AgentDialogue's context_fn
+    (on-request tag discovery grounding - calls this with the worker's
+    live tag cache, see __main__.py's periodic refresh loop) both use
+    this directly.
+
+    tag_cache: an optional {name: list_tags() result} mapping - when a
+    source's name is present, its entry in the returned list gains a
+    "tags" key with that real, live schema. Absent (the default) or
+    missing for a given source, no "tags" key is added at all - keeps
+    describe_sources() itself the single place the credential-redaction
+    guarantee lives, rather than duplicating that logic wherever tags get
+    merged in.
     """
-    return [
-        {
-            "name": entry.get("name"),
+    tag_cache = tag_cache or {}
+    entries = []
+    for entry in load_local_config():
+        name = entry.get("name")
+        described = {
+            "name": name,
             "type": entry.get("type"),
             "mode": entry.get("mode"),
             "description": entry.get("description", ""),
         }
-        for entry in load_local_config()
-    ]
+        if name in tag_cache:
+            described["tags"] = tag_cache[name]
+        entries.append(described)
+    return entries
+
+
+def build_tag_cache() -> dict[str, list]:
+    """
+    One fresh pass over every mode: local entry, calling its connector's
+    list_tags() - the actual introspection work behind the cache
+    __main__.py's periodic refresh loop maintains. Returns a plain dict,
+    doesn't mutate anything - the caller decides how/when to swap it in
+    (see __main__.py: a fresh dict is built each cycle and the reference
+    reassigned, not mutated in place, so a concurrent reader never sees a
+    half-updated cache).
+
+    mode: broker entries are skipped entirely, not attempted-and-failed -
+    list_tags has no broker-relay path yet (see skills/list_tags.py), so
+    calling it for one of these would just log a known, expected failure
+    on every single refresh cycle forever, not a real problem to surface.
+
+    A failure introspecting one source is caught and logged here, not
+    raised - the whole point of this being a per-cycle pass over
+    potentially several sources is that one bad source (a briefly-down
+    DB, say) must not stop the others' tags from refreshing, and must not
+    raise out of whatever loop is calling this repeatedly (an uncaught
+    exception there would kill that loop's thread permanently, taking
+    every future refresh down with it - not just this one source's).
+    """
+    cache: dict[str, list] = {}
+    for entry in load_local_config():
+        if entry.get("mode") != "local":
+            continue
+        name = entry.get("name")
+        try:
+            cache[name] = build_connector(entry).list_tags()
+        except Exception as exc:
+            RedisLogger.warning(f"local_config.build_tag_cache: {name!r} failed: {exc}")
+    return cache

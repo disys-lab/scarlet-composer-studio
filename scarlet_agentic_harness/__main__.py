@@ -10,6 +10,8 @@ import sys
 import threading
 import time
 
+from scarlets.utils.RedisLogger import RedisLogger
+
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
 from scarlet_agentic_harness.config import HarnessConfig
@@ -28,20 +30,40 @@ def main() -> None:
     skills = discover_skills()
 
     if config.role == "worker":
+        # Built synchronously, before this worker ever reports itself
+        # online or answers a dialogue message - a boot or a post-crash
+        # reboot must not leave tag grounding empty for a whole refresh
+        # interval (default 300s) just because the periodic loop below
+        # hasn't ticked yet. Per-source failures are already caught inside
+        # build_tag_cache() itself - one bad source never blocks this.
+        tag_cache: dict[str, list] = local_config.build_tag_cache()
         buses.report_status(capabilities=list(skills.keys()))
 
-        # report_status() above only ever runs once, at startup -
-        # data_sources (read fresh from local_config.py inside it, see
-        # buses.py) would otherwise never reflect a site engineer
-        # hand-editing ~/.scarlet/config.yaml after this process started,
-        # short of a restart. This loop is the only thing that changes
-        # between calls: capabilities don't change at runtime (skills are
-        # still static/bundled-in-the-image), so re-reporting is purely
-        # about picking up local config edits.
+        # report_status() above (and the tag cache build before it) only
+        # ever run once, at startup - data_sources/tags would otherwise
+        # never reflect a site engineer hand-editing ~/.scarlet/config.yaml
+        # (or a source's schema actually changing) after this process
+        # started, short of a restart. capabilities don't change at
+        # runtime (skills are still static/bundled-in-the-image), so
+        # re-running this is purely about picking up local config/schema
+        # changes.
+        #
+        # The whole body is wrapped so one bad cycle - report_status()
+        # itself hitting a transient Redis error, say, not just a single
+        # source's list_tags() failing (already handled inside
+        # build_tag_cache()) - logs and moves on to the next cycle instead
+        # of killing this thread and silently ending every future refresh,
+        # tags and the data_sources report alike, for the rest of this
+        # process's life.
         def _refresh_data_sources_loop():
+            nonlocal tag_cache
             while True:
                 time.sleep(config.data_source_refresh_interval)
-                buses.report_status(capabilities=list(skills.keys()))
+                try:
+                    tag_cache = local_config.build_tag_cache()
+                    buses.report_status(capabilities=list(skills.keys()))
+                except Exception as exc:
+                    RedisLogger.warning(f"[{config.agent_id}] data source refresh cycle failed: {exc}")
 
         threading.Thread(target=_refresh_data_sources_loop, daemon=True).start()
 
@@ -68,11 +90,14 @@ def main() -> None:
                     # Grounds a reply like "does anyone have roll_speed for
                     # equipment 1234" in this worker's own real local
                     # sources - redacted (name/type/mode/description only,
-                    # see local_config.describe_sources()), read fresh on
-                    # every reply so a live config edit is reflected
-                    # immediately, not just after the next periodic
-                    # directory report (see buses.report_status()).
-                    "local_data_sources": local_config.describe_sources(),
+                    # see local_config.describe_sources()) plus each
+                    # source's real, live tags/columns from tag_cache
+                    # (Option 4+2: computed ahead of time on the periodic
+                    # refresh above, not looked up live per reply - see
+                    # that loop's own comment for why). describe_sources()
+                    # itself still re-reads the config file fresh on every
+                    # call; only the tags are cached.
+                    "local_data_sources": local_config.describe_sources(tag_cache=tag_cache),
                 },
             )
             if worker_llm_client else None
