@@ -15,6 +15,7 @@ from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
+from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
@@ -62,7 +63,17 @@ def main() -> None:
         dialogue = (
             AgentDialogue(
                 buses.global_bus, worker_llm_client,
-                context_fn=lambda: {"in_flight_status": describe_in_flight(registry.snapshot())},
+                context_fn=lambda: {
+                    "in_flight_status": describe_in_flight(registry.snapshot()),
+                    # Grounds a reply like "does anyone have roll_speed for
+                    # equipment 1234" in this worker's own real local
+                    # sources - redacted (name/type/mode/description only,
+                    # see local_config.describe_sources()), read fresh on
+                    # every reply so a live config edit is reflected
+                    # immediately, not just after the next periodic
+                    # directory report (see buses.report_status()).
+                    "local_data_sources": local_config.describe_sources(),
+                },
             )
             if worker_llm_client else None
         )
