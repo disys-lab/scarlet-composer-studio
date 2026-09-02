@@ -36,7 +36,7 @@ lets broker/requirements.txt supply modern, compatible versions instead -
 verified (this session) that PIAttribute/PIServer/PITalk import and run
 unchanged against pandas 3.x/pyyaml 6.x/requests-kerberos 0.15.x.
 """
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 
 def _json_safe(v):

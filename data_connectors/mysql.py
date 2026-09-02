@@ -22,7 +22,7 @@ import os
 
 import pymysql
 
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 
 class MysqlConnector(Connector):

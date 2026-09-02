@@ -2,37 +2,17 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 requests>=2.28.0
 
-# mssql connector - pyodbc needs the system-level ODBC Driver 18 for SQL
-# Server + Kerberos client tooling installed too (see Dockerfile), not
-# just this Python package.
-pyodbc>=5.1.0
+# data_connectors (../data_connectors, setup_connectors.py) - the six
+# connector classes (mssql/postgres/mysql/pi/influx/redis) and their own
+# drivers, extracted into their own package so both this broker and
+# scarlet-agentic-harness's local-config mode can import the same classes
+# without the harness picking up FastAPI/uvicorn as a transitive
+# dependency. Installed separately (see Dockerfile), same non-standard-
+# setup-file convention as this repo's own scarlets/scarletcomposer
+# packages (setup.py / setup_composer.py) - not a name pip can resolve
+# via a plain requirements.txt line.
 
-# pi connector's runtime deps - the `pitalk` package itself (github.com/
-# blockalytics/PITalk) is installed separately, with --no-deps, in the
-# Dockerfile (mirrors that repo's own Dockerfile) rather than listed here:
-# its setup.py pins old versions with no installable wheel for a modern
-# Python (confirmed this session: pandas==1.3.2 fails to build against
-# Python 3.11+/3.14). These modern pins cover its actual runtime deps
-# instead - verified this session that PIAttribute/PIServer/PITalk import
-# and run unchanged against them. requests-kerberos/gssapi are needed even
-# for a basic-auth-only deployment: PIServer.py imports HTTPKerberosAuth
-# unconditionally at module level.
-pandas>=2.0.0
-pyyaml>=6.0
-requests-kerberos>=0.15.0
-
-# influx connector - InfluxDB 1.x's DataFrameClient (InfluxQL), same
-# client the reference apps (anomaly_detection/process_optimization) use.
-# Not the 2.x `influxdb-client` package - those apps never use Flux.
-influxdb>=5.3.0
-
-# postgres connector - psycopg2-binary bundles its own libpq, no system-
-# level Postgres client library needed in this image.
-psycopg2-binary>=2.9.0
-
-# mysql connector - PyMySQL is pure Python, no C extension/system
-# dependency (unlike mysqlclient's libmysqlclient-dev requirement).
-pymysql>=1.1.0
-
-# redis connector - redis-py, pure Python.
-redis>=5.0.0
+# pi connector's `pitalk` package (github.com/blockalytics/PITalk) is
+# also installed separately, with --no-deps, in the Dockerfile - see
+# data_connectors' own setup_connectors.py for why (its setup.py pins
+# versions with no installable wheel for a modern Python).

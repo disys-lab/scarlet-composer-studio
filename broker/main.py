@@ -28,7 +28,7 @@ import os
 import requests
 from fastapi import FastAPI, Header, HTTPException
 
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 logging.basicConfig(level=logging.INFO)
 
@@ -46,22 +46,22 @@ _KNOWN_CONNECTOR_TYPES = ("mssql", "pi", "influx", "postgres", "mysql", "redis")
 def _load_connector() -> Connector:
     connector_type = os.environ.get("BROKER_CONNECTOR_TYPE", "")
     if connector_type == "mssql":
-        from connectors.mssql import MssqlConnector
+        from data_connectors.mssql import MssqlConnector
         return MssqlConnector()
     if connector_type == "pi":
-        from connectors.pi import PiConnector
+        from data_connectors.pi import PiConnector
         return PiConnector()
     if connector_type == "influx":
-        from connectors.influx import InfluxConnector
+        from data_connectors.influx import InfluxConnector
         return InfluxConnector()
     if connector_type == "postgres":
-        from connectors.postgres import PostgresConnector
+        from data_connectors.postgres import PostgresConnector
         return PostgresConnector()
     if connector_type == "mysql":
-        from connectors.mysql import MysqlConnector
+        from data_connectors.mysql import MysqlConnector
         return MysqlConnector()
     if connector_type == "redis":
-        from connectors.redis_connector import RedisConnector
+        from data_connectors.redis_connector import RedisConnector
         return RedisConnector()
     raise ValueError(
         f"BROKER_CONNECTOR_TYPE={connector_type!r} is not a known connector "

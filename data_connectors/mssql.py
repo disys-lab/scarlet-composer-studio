@@ -24,7 +24,7 @@ import os
 
 import pyodbc
 
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 
 class MssqlConnector(Connector):

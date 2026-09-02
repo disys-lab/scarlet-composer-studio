@@ -24,7 +24,7 @@ import os
 
 import psycopg2
 
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 
 class PostgresConnector(Connector):

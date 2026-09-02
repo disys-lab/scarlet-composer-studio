@@ -24,7 +24,7 @@ some list contexts).
 """
 import os
 
-from connectors.base import Connector
+from data_connectors.base import Connector
 
 
 def _json_safe(v):

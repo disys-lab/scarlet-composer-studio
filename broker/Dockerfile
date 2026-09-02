@@ -6,6 +6,12 @@
 # whatever network_mode this broker needs (network_mode: host, for the
 # same real, empirically-verified reason docker/composer-app/
 # background_server.py needs it - see that file).
+#
+# Build context is the REPO ROOT, not broker/ itself:
+#   docker build -f broker/Dockerfile .
+# broker/ depends on the sibling data_connectors/ package (the six
+# connector classes), which needs to be reachable from the build context -
+# see the data_connectors install step below.
 FROM ubuntu:24.04
 
 ARG py_version=python3.11
@@ -43,8 +49,21 @@ RUN ${py_version} -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
-COPY requirements.txt .
+COPY broker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# data_connectors (../data_connectors, setup_connectors.py) - the six
+# connector classes, built from this same repo checkout. Non-standard
+# setup filename (mirrors scarletcomposer's own setup_composer.py in this
+# repo), so pip can't resolve it as a plain requirements.txt line - build
+# a wheel and install that, same discipline used elsewhere in this
+# project to avoid stale .eggs/build-cache issues with `setup.py develop`.
+COPY data_connectors/ /tmp/data_connectors/data_connectors/
+COPY setup_connectors.py /tmp/data_connectors/setup_connectors.py
+RUN pip install --no-cache-dir setuptools wheel setuptools-scm && \
+    cd /tmp/data_connectors && python setup_connectors.py bdist_wheel && \
+    pip install --no-cache-dir dist/*.whl && \
+    cd / && rm -rf /tmp/data_connectors
 
 # The real pitalk package (github.com/blockalytics/PITalk), --no-deps -
 # see requirements.txt's own comment for why its setup.py's own pins
@@ -55,7 +74,7 @@ RUN apt-get -y purge build-essential && \
     apt-get -y autoremove && \
     rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY broker/ .
 
 # Kerberos keytab + krb5.conf are mounted in at deploy time (matching how
 # `config` volumes already work elsewhere in this platform) and kinit'd
@@ -64,7 +83,7 @@ COPY . .
 # KRB5_PRINCIPAL are set per-deployment; this entrypoint is a no-op (skips
 # kinit) if they're unset, so a future non-Kerberos connector isn't forced
 # through this step.
-COPY entrypoint.sh /usr/local/bin/broker-entrypoint
+COPY broker/entrypoint.sh /usr/local/bin/broker-entrypoint
 RUN chmod +x /usr/local/bin/broker-entrypoint
 
 EXPOSE 8090
