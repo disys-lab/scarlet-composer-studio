@@ -72,6 +72,8 @@ _IDENTITY_FIELDS = {
     "pi": ("af_server_name", "url"),
     "influx": ("host", "port", "dbname"),
     "redis": ("host", "port", "db"),
+    "csv": ("path",),
+    "excel": ("path", "sheet"),
 }
 
 
@@ -124,6 +126,12 @@ def _connector_class(connector_type: str):
     if connector_type == "redis":
         from data_connectors.redis_connector import RedisConnector
         return RedisConnector
+    if connector_type == "csv":
+        from data_connectors.csv_connector import CsvConnector
+        return CsvConnector
+    if connector_type == "excel":
+        from data_connectors.excel_connector import ExcelConnector
+        return ExcelConnector
     raise ValueError(f"unknown data source type {connector_type!r}")
 
 
