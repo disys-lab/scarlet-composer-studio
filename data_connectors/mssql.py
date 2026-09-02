@@ -20,17 +20,15 @@ JSON pyodbc types (datetime, Decimal, etc.) are coerced to str - same
 defensive conversion QueryExecutionEngine.execute_query_to_csv already
 does, just producing JSON values instead of CSV cells.
 """
-import os
-
 import pyodbc
 
-from data_connectors.base import Connector
+from data_connectors.base import Connector, config_value
 
 
 class MssqlConnector(Connector):
-    def __init__(self):
-        self.server = os.environ["MSSQL_SERVER"]
-        self.database = os.environ["MSSQL_DATABASE"]
+    def __init__(self, config: dict | None = None):
+        self.server = config_value(config, "server", "MSSQL_SERVER", required=True)
+        self.database = config_value(config, "database", "MSSQL_DATABASE", required=True)
         self.conn_string = (
             f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={self.server};"

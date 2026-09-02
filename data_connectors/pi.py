@@ -36,6 +36,8 @@ lets broker/requirements.txt supply modern, compatible versions instead -
 verified (this session) that PIAttribute/PIServer/PITalk import and run
 unchanged against pandas 3.x/pyyaml 6.x/requests-kerberos 0.15.x.
 """
+import os
+
 from data_connectors.base import Connector
 
 
@@ -48,13 +50,33 @@ def _json_safe(v):
 
 
 class PiConnector(Connector):
-    def __init__(self):
-        # PITalk() itself reads PITALK_CONFIG_FILE (set at this broker's
-        # own deployment time, pointing at a mounted YAML) and builds
-        # self.attribute_list keyed by tag_name - see PITalk.py's
-        # readConfig()/initServer().
+    def __init__(self, config: dict | None = None):
+        # PITalk() itself only ever reads PITALK_CONFIG_FILE from
+        # os.environ - it has no constructor argument for this at all
+        # (real, external code, not something to modify here). When a
+        # config dict is given (local_config.build_connector()), its
+        # `pitalk_config_file` value is set as that env var just for the
+        # duration of this one construction, then the previous value (if
+        # any) is restored - not left clobbered, since a single worker
+        # could hold more than one local PI entry. No config dict (the
+        # broker's own construction, unchanged) just uses whatever
+        # PITALK_CONFIG_FILE is already set process-wide, exactly as
+        # before.
         from pitalk.PITalk import PITalk
-        self._pitalk = PITalk()
+
+        pitalk_config_file = (config or {}).get("pitalk_config_file")
+        if pitalk_config_file:
+            previous = os.environ.get("PITALK_CONFIG_FILE")
+            os.environ["PITALK_CONFIG_FILE"] = pitalk_config_file
+            try:
+                self._pitalk = PITalk()
+            finally:
+                if previous is None:
+                    os.environ.pop("PITALK_CONFIG_FILE", None)
+                else:
+                    os.environ["PITALK_CONFIG_FILE"] = previous
+        else:
+            self._pitalk = PITalk()
 
     def query(self, payload: dict) -> dict:
         tag_name = payload.get("tag_name")

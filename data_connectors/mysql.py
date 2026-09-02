@@ -18,21 +18,19 @@ system dependency) - simplest possible choice for a broker image that
 otherwise has no MySQL-specific system packages to install (see
 requirements.txt).
 """
-import os
-
 import pymysql
 
-from data_connectors.base import Connector
+from data_connectors.base import Connector, config_value
 
 
 class MysqlConnector(Connector):
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
         self.conn_kwargs = {
-            "host": os.environ["MYSQL_HOST"],
-            "port": int(os.environ.get("MYSQL_PORT", "3306")),
-            "database": os.environ["MYSQL_DATABASE"],
-            "user": os.environ["MYSQL_USER"],
-            "password": os.environ["MYSQL_PASSWORD"],
+            "host": config_value(config, "host", "MYSQL_HOST", required=True),
+            "port": int(config_value(config, "port", "MYSQL_PORT", default="3306")),
+            "database": config_value(config, "database", "MYSQL_DATABASE", required=True),
+            "user": config_value(config, "user", "MYSQL_USER", required=True),
+            "password": config_value(config, "password", "MYSQL_PASSWORD", required=True),
         }
 
     def query(self, payload: dict) -> dict:

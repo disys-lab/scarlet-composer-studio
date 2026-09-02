@@ -22,9 +22,7 @@ bytes; _json_safe() below still handles the handful of non-JSON-native
 shapes redis-py itself returns (set for SMEMBERS/SINTER/etc., tuple in
 some list contexts).
 """
-import os
-
-from data_connectors.base import Connector
+from data_connectors.base import Connector, config_value
 
 
 def _json_safe(v):
@@ -40,13 +38,13 @@ def _json_safe(v):
 
 
 class RedisConnector(Connector):
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
         import redis
         self.client = redis.Redis(
-            host=os.environ["REDIS_HOST"],
-            port=int(os.environ.get("REDIS_PORT", "6379")),
-            password=os.environ.get("REDIS_PASSWORD") or None,
-            db=int(os.environ.get("REDIS_DB", "0")),
+            host=config_value(config, "host", "REDIS_HOST", required=True),
+            port=int(config_value(config, "port", "REDIS_PORT", default="6379")),
+            password=config_value(config, "password", "REDIS_PASSWORD") or None,
+            db=int(config_value(config, "db", "REDIS_DB", default="0")),
             decode_responses=True,
         )
 

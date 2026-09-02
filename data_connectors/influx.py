@@ -20,11 +20,9 @@ with a synthetic InfluxDB JSON response standing in for a live server).
 query() picks payload['measurement'] if given, else the query's sole
 result key, else raises rather than guessing among several.
 """
-import os
-
 from influxdb import DataFrameClient
 
-from data_connectors.base import Connector
+from data_connectors.base import Connector, config_value
 
 
 def _json_safe(v):
@@ -37,16 +35,23 @@ def _json_safe(v):
     return v if isinstance(v, (str, int, float, bool)) else str(v)
 
 
+def _truthy(v) -> bool:
+    # config_value() may return a real bool (from a config dict a site
+    # engineer wrote as YAML `true`/`false`) or a string (from an env var,
+    # which has no native bool type) - handle both.
+    return v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes")
+
+
 class InfluxConnector(Connector):
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
         self.client = DataFrameClient(
-            os.environ["INFLUXDB_HOST"],
-            int(os.environ.get("INFLUXDB_PORT", "8086")),
-            os.environ.get("INFLUXDB_USER", "root"),
-            os.environ.get("INFLUXDB_PASSWORD", "root"),
-            os.environ["INFLUXDB_DBNAME"],
-            ssl=os.environ.get("INFLUXDB_SSL", "false").lower() in ("1", "true", "yes"),
-            verify_ssl=os.environ.get("INFLUXDB_VERIFY_SSL", "false").lower() in ("1", "true", "yes"),
+            config_value(config, "host", "INFLUXDB_HOST", required=True),
+            int(config_value(config, "port", "INFLUXDB_PORT", default="8086")),
+            config_value(config, "user", "INFLUXDB_USER", default="root"),
+            config_value(config, "password", "INFLUXDB_PASSWORD", default="root"),
+            config_value(config, "dbname", "INFLUXDB_DBNAME", required=True),
+            ssl=_truthy(config_value(config, "ssl", "INFLUXDB_SSL", default="false")),
+            verify_ssl=_truthy(config_value(config, "verify_ssl", "INFLUXDB_VERIFY_SSL", default="false")),
         )
 
     def query(self, payload: dict) -> dict:

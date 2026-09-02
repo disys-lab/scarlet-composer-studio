@@ -20,22 +20,20 @@ non-native-JSON coercion (Decimal, datetime, UUID, etc. -> str).
 psycopg2-binary bundles its own libpq, so no system-level Postgres client
 library is needed in the broker image (see requirements.txt).
 """
-import os
-
 import psycopg2
 
-from data_connectors.base import Connector
+from data_connectors.base import Connector, config_value
 
 
 class PostgresConnector(Connector):
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
         self.conn_kwargs = {
-            "host": os.environ["POSTGRES_HOST"],
-            "port": int(os.environ.get("POSTGRES_PORT", "5432")),
-            "dbname": os.environ["POSTGRES_DATABASE"],
-            "user": os.environ["POSTGRES_USER"],
-            "password": os.environ["POSTGRES_PASSWORD"],
-            "sslmode": os.environ.get("POSTGRES_SSLMODE", "prefer"),
+            "host": config_value(config, "host", "POSTGRES_HOST", required=True),
+            "port": int(config_value(config, "port", "POSTGRES_PORT", default="5432")),
+            "dbname": config_value(config, "database", "POSTGRES_DATABASE", required=True),
+            "user": config_value(config, "user", "POSTGRES_USER", required=True),
+            "password": config_value(config, "password", "POSTGRES_PASSWORD", required=True),
+            "sslmode": config_value(config, "sslmode", "POSTGRES_SSLMODE", default="prefer"),
         }
 
     def query(self, payload: dict) -> dict:

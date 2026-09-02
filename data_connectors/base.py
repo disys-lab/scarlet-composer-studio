@@ -7,10 +7,16 @@ see main.py's _load_connector()).
 
 query() takes a caller-supplied payload and returns a plain JSON-
 serializable dict - the *result*, not the credential, not the connection.
-The credential this connector uses lives entirely in its own __init__,
-read from this process's own env vars - never passed in from a caller,
-never returned to one.
+The credential this connector uses lives entirely in its own __init__ -
+never passed in from a caller, never returned to one. Two callers
+construct these: the broker (main.py's _load_connector(), no config dict -
+falls back to this process's own env vars, exactly as before) and
+scarlet-agentic-harness's local_config.build_connector() (a real config
+dict, one per ~/.scarlet/config.yaml entry, needed since a single worker
+process can hold more than one local source of the same type - env vars
+alone can't disambiguate two local Postgres entries on one worker).
 """
+import os
 from abc import ABC, abstractmethod
 
 
@@ -22,3 +28,18 @@ class Connector(ABC):
         main.py's /query handler turns that into a clean error response,
         never a raw stack trace."""
         ...
+
+
+def config_value(config: dict | None, key: str, env_var: str, default=None, required: bool = False):
+    """
+    Read `key` from a per-instance config dict if given, else fall back to
+    this process's own env var `env_var` - the one seam every connector's
+    __init__ uses to support both callers described above without
+    duplicating the same fallback logic six times.
+    """
+    value = (config or {}).get(key)
+    if value is None:
+        value = os.environ.get(env_var, default)
+    if required and value is None:
+        raise ValueError(f"{key!r} is required - set it in the config dict, or the {env_var} env var")
+    return value
