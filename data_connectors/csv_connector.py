@@ -51,3 +51,9 @@ class CsvConnector(Connector):
         columns = list(result_df.columns)
         rows = [[json_safe(v) for v in row] for row in result_df.values.tolist()]
         return {"columns": columns, "rows": rows}
+
+    def list_tags(self) -> list:
+        """Real, live column names - nrows=0 reads just the header, not
+        the file's actual data."""
+        columns = pd.read_csv(self.path, delimiter=self.delimiter, encoding=self.encoding, nrows=0).columns.tolist()
+        return [{"table": "data", "columns": columns}]

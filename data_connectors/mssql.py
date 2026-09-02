@@ -61,3 +61,23 @@ class MssqlConnector(Connector):
             return {"columns": columns, "rows": rows}
         finally:
             conn.close()
+
+    def list_tags(self) -> list:
+        """Real, live table/column names via SQL Server's own
+        INFORMATION_SCHEMA.COLUMNS (ANSI-standard, T-SQL implements it
+        too) - not the query() path, so this never touches actual row
+        data, only schema."""
+        conn = pyodbc.connect(self.conn_string)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION"
+            )
+            tables: dict[str, list[str]] = {}
+            for schema, table, column in cursor.fetchall():
+                key = f"{schema}.{table}"
+                tables.setdefault(key, []).append(column)
+            return [{"table": table, "columns": columns} for table, columns in tables.items()]
+        finally:
+            conn.close()

@@ -58,3 +58,21 @@ class MysqlConnector(Connector):
             return {"columns": columns, "rows": rows}
         finally:
             conn.close()
+
+    def list_tags(self) -> list:
+        """Real, live table/column names via information_schema, scoped to
+        this connection's own database (DATABASE()) - not the query()
+        path, so this never touches actual row data, only schema."""
+        conn = pymysql.connect(**self.conn_kwargs)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() ORDER BY table_name, ordinal_position"
+            )
+            tables: dict[str, list[str]] = {}
+            for table, column in cursor.fetchall():
+                tables.setdefault(table, []).append(column)
+            return [{"table": table, "columns": columns} for table, columns in tables.items()]
+        finally:
+            conn.close()

@@ -102,3 +102,9 @@ class PiConnector(Connector):
         columns = list(df.columns)
         rows = [[_json_safe(v) for v in row] for row in df.values.tolist()]
         return {"columns": columns, "rows": rows}
+
+    def list_tags(self) -> list:
+        """The declared tag list itself, already in memory from
+        __init__ - no query against PI Web API needed at all, unlike
+        every other connector's list_tags()."""
+        return sorted(self._pitalk.attribute_list.keys())

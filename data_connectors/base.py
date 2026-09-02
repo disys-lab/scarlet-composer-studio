@@ -30,6 +30,24 @@ class Connector(ABC):
         never a raw stack trace."""
         ...
 
+    def list_tags(self) -> list:
+        """
+        Real, live schema/tag introspection for this connector's data
+        source - e.g. table/column names for a SQL connector, the
+        declared tag list for PI. Not abstract: unlike query(), this
+        doesn't map cleanly onto every connector type (Redis has no fixed
+        schema), so the default here raises rather than forcing every
+        subclass to implement something meaningless for it. A subclass
+        that supports this overrides it; one that doesn't is left alone.
+
+        This is the "dynamic" half of tag discovery - see
+        scarlet_agentic_harness's skills/list_tags.py (any agent can ask
+        for this on demand, given a source_name) and __main__.py's
+        periodic tag-cache refresh (feeds AgentDialogue's context_fn, so
+        a responder's grounding reflects what's actually there, not just
+        a hand-written description)."""
+        raise NotImplementedError(f"{type(self).__name__} does not support list_tags()")
+
 
 def config_value(config: dict | None, key: str, env_var: str, default=None, required: bool = False):
     """

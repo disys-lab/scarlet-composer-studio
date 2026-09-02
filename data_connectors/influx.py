@@ -81,3 +81,21 @@ class InfluxConnector(Connector):
         columns = list(df.columns)
         rows = [[_json_safe(v) for v in row] for row in df.values.tolist()]
         return {"columns": columns, "rows": rows}
+
+    def list_tags(self) -> list:
+        """Real, live measurement/field names via InfluxQL's own SHOW
+        MEASUREMENTS + SHOW FIELD KEYS - neither starts with SELECT, so
+        DataFrameClient.query() hands back a raw ResultSet instead of a
+        DataFrame (see query()'s own module docstring for that branch) -
+        .get_points() is the real influxdb-python idiom for reading one
+        of those. Not the query() path, so this never touches actual
+        row data, only schema."""
+        measurements = [p["name"] for p in self.client.query("SHOW MEASUREMENTS").get_points()]
+        tags = []
+        for measurement in measurements:
+            # InfluxQL identifier quoting is double quotes, not a Python
+            # string literal - measurement names can contain spaces/
+            # special characters.
+            fields = [p["fieldKey"] for p in self.client.query(f'SHOW FIELD KEYS FROM "{measurement}"').get_points()]
+            tags.append({"table": measurement, "columns": fields})
+        return tags

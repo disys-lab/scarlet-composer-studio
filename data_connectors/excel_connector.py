@@ -44,3 +44,15 @@ class ExcelConnector(Connector):
         columns = list(result_df.columns)
         rows = [[json_safe(v) for v in row] for row in result_df.values.tolist()]
         return {"columns": columns, "rows": rows}
+
+    def list_tags(self) -> list:
+        """Real, live sheet + column names, across every sheet in the
+        workbook (not just this connector's configured default) - a
+        workbook commonly has more than one sheet worth surfacing.
+        nrows=0 per sheet reads just its header, not its actual data."""
+        workbook = pd.ExcelFile(self.path)
+        tags = []
+        for sheet_name in workbook.sheet_names:
+            columns = pd.read_excel(workbook, sheet_name=sheet_name, nrows=0).columns.tolist()
+            tags.append({"table": sheet_name, "columns": columns})
+        return tags

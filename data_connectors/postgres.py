@@ -61,3 +61,25 @@ class PostgresConnector(Connector):
             return {"columns": columns, "rows": rows}
         finally:
             conn.close()
+
+    def list_tags(self) -> list:
+        """Real, live table/column names via information_schema - not the
+        query() path, so this never touches actual row data, only schema.
+        Excludes Postgres's own system schemas (pg_catalog,
+        information_schema) - only user tables are "tags" worth
+        surfacing."""
+        conn = psycopg2.connect(**self.conn_kwargs)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT table_schema, table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+                "ORDER BY table_schema, table_name, ordinal_position"
+            )
+            tables: dict[str, list[str]] = {}
+            for schema, table, column in cursor.fetchall():
+                key = f"{schema}.{table}"
+                tables.setdefault(key, []).append(column)
+            return [{"table": table, "columns": columns} for table, columns in tables.items()]
+        finally:
+            conn.close()
