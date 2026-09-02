@@ -1,0 +1,8 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+requests>=2.28.0
+
+# mssql connector - pyodbc needs the system-level ODBC Driver 18 for SQL
+# Server + Kerberos client tooling installed too (see Dockerfile), not
+# just this Python package.
+pyodbc>=5.1.0
