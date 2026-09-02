@@ -5,6 +5,7 @@ so a skill never has to touch env vars or bus wiring directly.
 """
 import threading
 
+import requests
 from scarlets.core.Mapper import Mapper
 from scarlets.formulations.Federator import Federator
 
@@ -49,6 +50,15 @@ class HarnessContext:
         # same convention as everything else in this codebase that needs a
         # real backend to do its job.
         self.llm_client = llm_client
+        # Lazily populated by query_data_source() on its first call, then
+        # reused for the rest of this process's lifetime - same
+        # "authenticate once, cache, reuse" discipline as llm_client itself
+        # (constructed once in worker.py/__main__.py), except this one is
+        # built lazily here rather than passed in, since not every worker
+        # needs it and authenticating eagerly would mean every worker
+        # startup depends on composer-api being reachable even when it's
+        # never actually going to call query_data_source().
+        self._composer_token: str | None = None
 
     @property
     def agent_id(self) -> str:
@@ -124,6 +134,109 @@ class HarnessContext:
                 f"{self.agent_id} has no LLM backend configured - cannot mint a scarlet via reasoning"
             )
         return mint_scarlet_with_reasoning(self.llm_client, self.agent_id, motivation)
+
+    def _authenticate_to_composer(self) -> str:
+        resp = requests.post(
+            f"{self.config.composer_api_url.rstrip('/')}/api/auth/login",
+            json={"credential": f"{self.config.nebula_username}:{self.config.nebula_secret}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(
+                f"{self.agent_id}: composer-api login returned HTTP {resp.status_code}"
+            )
+        data = resp.json()
+        if data.get("error"):
+            raise RuntimeError(f"{self.agent_id}: composer-api login failed: {data.get('response')}")
+        return data["response"]["token"]
+
+    def query_data_source(self, name: str, query: dict) -> dict:
+        """
+        Query the data source registered as `name` in composer-api, via its
+        broker - see scarlet_composer_studio_open_source/broker/main.py and
+        composer-api/routers/data_sources.py for the full architecture.
+        `query` is passed straight through as the broker's own /query
+        request body (shape is connector-specific - e.g. {"query": "SELECT
+        ..."} for the mssql connector); the result is whatever the broker's
+        connector returns, unwrapped from its {error, response} envelope.
+
+        This agent authenticates to composer-api using its own real Nebula
+        identity (config.nebula_username/nebula_secret) - the same
+        Gustavo-delegated login composer-ui itself uses, reusing that
+        rather than a second credential type for agents - then presents
+        the resulting composer session token directly to the broker as
+        Bearer auth. Composer-api itself never sees the query or its
+        result: this call only ever touches composer-api to authenticate
+        once and to look up which broker fronts `name` - see broker/
+        main.py's docstring for why the actual query/result never transits
+        composer-api.
+
+        Raises RuntimeError immediately, before any network call, if this
+        config has no composer_api_url/nebula_username/nebula_secret set -
+        same "raise clearly rather than silently no-op" convention as
+        mint_scarlet()'s llm_client check. Raises RuntimeError if `name`
+        isn't registered or this agent's Nebula identity isn't authorized
+        for it (composer-api's own GET /api/data-sources already filters
+        out anything this caller isn't authorized to see - see
+        _is_authorized() there - so those two cases are indistinguishable
+        here, same as the broker's own /authorize endpoint not leaking
+        that distinction either). Raises RuntimeError if the broker itself
+        reports a query failure (its own {"error": true} response).
+        """
+        if not (self.config.composer_api_url and self.config.nebula_username and self.config.nebula_secret):
+            raise RuntimeError(
+                f"{self.agent_id} has no composer_api_url/nebula_username/nebula_secret configured "
+                "(set COMPOSER_API_URL/NEBULA_USERNAME/NEBULA_SECRET) - cannot query a data source"
+            )
+
+        if self._composer_token is None:
+            self._composer_token = self._authenticate_to_composer()
+
+        composer_api_url = self.config.composer_api_url.rstrip("/")
+
+        def _list_data_sources() -> requests.Response:
+            return requests.get(
+                f"{composer_api_url}/api/data-sources",
+                headers={"Authorization": f"Bearer {self._composer_token}"},
+                timeout=10,
+            )
+
+        resp = _list_data_sources()
+        if resp.status_code == 401:
+            # Cached token expired mid-process (composer's session TTL,
+            # default 12h) - re-authenticate once and retry, rather than
+            # failing a long-running worker for a stale cache alone.
+            self._composer_token = self._authenticate_to_composer()
+            resp = _list_data_sources()
+        if resp.status_code != 200:
+            raise RuntimeError(f"{self.agent_id}: GET /api/data-sources returned HTTP {resp.status_code}")
+
+        data = resp.json()
+        if data.get("error"):
+            raise RuntimeError(f"{self.agent_id}: GET /api/data-sources failed: {data.get('response')}")
+
+        entries = data["response"]["data_sources"]
+        entry = next((e for e in entries if e["name"] == name), None)
+        if entry is None:
+            raise RuntimeError(
+                f"{self.agent_id}: data source {name!r} is not registered, or this agent's Nebula "
+                "identity isn't authorized for it"
+            )
+
+        broker_resp = requests.post(
+            f"{entry['broker_url'].rstrip('/')}/query",
+            json=query,
+            headers={"Authorization": f"Bearer {self._composer_token}"},
+            timeout=30,
+        )
+        if broker_resp.status_code != 200:
+            raise RuntimeError(
+                f"{self.agent_id}: broker for {name!r} returned HTTP {broker_resp.status_code}: {broker_resp.text}"
+            )
+        broker_data = broker_resp.json()
+        if broker_data.get("error"):
+            raise RuntimeError(f"{self.agent_id}: query against {name!r} failed: {broker_data.get('response')}")
+        return broker_data["response"]
 
     def invoke_skill(self, skill: "Skill", params: dict, timeout: float = 60.0, **run_skill_kwargs) -> dict:
         """

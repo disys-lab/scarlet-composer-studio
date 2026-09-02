@@ -4,3 +4,8 @@ mcp>=2.0.0
 
 # test-only
 pytest>=7.0.0
+# tests/test_query_data_source.py runs real composer-api + broker instances
+# in-process (against their own real source, not reimplemented) to verify
+# HarnessContext.query_data_source() - needs their own runtime deps.
+fastapi>=0.110.0
+pyyaml>=6.0
