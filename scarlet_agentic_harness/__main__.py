@@ -8,6 +8,7 @@ against a real Redis while building.
 import json
 import sys
 import threading
+import time
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
@@ -27,6 +28,22 @@ def main() -> None:
 
     if config.role == "worker":
         buses.report_status(capabilities=list(skills.keys()))
+
+        # report_status() above only ever runs once, at startup -
+        # data_sources (read fresh from local_config.py inside it, see
+        # buses.py) would otherwise never reflect a site engineer
+        # hand-editing ~/.scarlet/config.yaml after this process started,
+        # short of a restart. This loop is the only thing that changes
+        # between calls: capabilities don't change at runtime (skills are
+        # still static/bundled-in-the-image), so re-reporting is purely
+        # about picking up local config edits.
+        def _refresh_data_sources_loop():
+            while True:
+                time.sleep(config.data_source_refresh_interval)
+                buses.report_status(capabilities=list(skills.keys()))
+
+        threading.Thread(target=_refresh_data_sources_loop, daemon=True).start()
+
         # Activity publishing (observability.py) is unconditional - it's
         # useful for a dashboard/human regardless of whether this worker
         # has LLM access. AgentDialogue is only constructed if an LLM

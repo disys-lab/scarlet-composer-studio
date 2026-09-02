@@ -19,6 +19,7 @@ import time
 
 from scarlets.messaging import Messenger
 
+from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.router import MessageRouter
 
@@ -96,12 +97,19 @@ class Buses:
         data_sources/mcp_tools/device_group/node_address/instance_id) so this
         harness's agents show up correctly in scarlet-composer-studio's own
         Agents dashboard (GatherStatus display), not just to each other.
+
+        data_sources is read fresh from local_config.describe_sources() on
+        every call (redacted - name/type/mode/description only, never a
+        credential field) rather than passed in by the caller - this way a
+        periodic re-report (see __main__.py) picks up a hand-edited
+        ~/.scarlet/config.yaml without either side needing to remember to
+        re-derive it each time.
         """
         status = {
             "status": "online",
             "role": self.config.role,
             "capabilities": list(capabilities),
-            "data_sources": [],
+            "data_sources": local_config.describe_sources(),
             "mcp_tools": [],
             "device_group": self.config.device_group,
             "node_address": self.config.node_address,

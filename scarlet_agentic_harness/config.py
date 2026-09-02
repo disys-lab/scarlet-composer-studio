@@ -17,6 +17,12 @@ Nebula identity, used only by ctx.query_data_source() (context.py) to
 authenticate to composer-api the same way a human operator logs into
 composer-ui - reusing composer-api's existing Gustavo-delegated login rather
 than inventing a second credential type for agents.
+
+DATA_SOURCE_REFRESH_INTERVAL is also new: how often this worker re-reads
+its own ~/.scarlet/config.yaml (see local_config.py) and re-reports its
+data_sources (see __main__.py's periodic loop, buses.py's report_status())
+- without it, a hand-edited local config file would only ever be reflected
+on the Agents page after a process restart.
 """
 import os
 import socket
@@ -133,6 +139,14 @@ class HarnessConfig:
     nebula_secret: str | None = None
     composer_api_url: str | None = None
 
+    # How often a worker re-reads ~/.scarlet/config.yaml and re-reports
+    # its data_sources (see __main__.py's periodic loop, buses.py's
+    # report_status()) - report_status() itself is only ever called once
+    # at startup by this harness's own code (see __main__.py:29), so
+    # without this loop a hand-edited local config file would never be
+    # reflected on the Agents page until the process restarts.
+    data_source_refresh_interval: float = 300.0
+
     @property
     def agent_id(self) -> str:
         return f"{self.app_id}_{self.node_address}"
@@ -189,4 +203,5 @@ class HarnessConfig:
             nebula_username=_env("NEBULA_USERNAME"),
             nebula_secret=_env("NEBULA_SECRET"),
             composer_api_url=_env("COMPOSER_API_URL"),
+            data_source_refresh_interval=float(os.environ.get("DATA_SOURCE_REFRESH_INTERVAL", "300.0")),
         )
