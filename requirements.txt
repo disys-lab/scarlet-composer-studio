@@ -1,6 +1,15 @@
 scarlets @ git+https://github.com/disys-lab/scarlet-composer-studio.git
 openai>=1.0.0
 mcp>=2.0.0
+pyyaml>=6.0
+
+# data_connectors (../scarlet_composer_studio_open_source/data_connectors,
+# setup_connectors.py) - local_config.py's build_connector() constructs
+# these same six connector classes in-process for mode: local data
+# sources. Non-standard setup filename (same reason scarlets/
+# scarletcomposer already use one), so this can't be a plain pip
+# dependency line - install from that repo's root:
+#   python setup_connectors.py bdist_wheel && pip install dist/*.whl
 
 # test-only
 pytest>=7.0.0
@@ -8,4 +17,3 @@ pytest>=7.0.0
 # in-process (against their own real source, not reimplemented) to verify
 # HarnessContext.query_data_source() - needs their own runtime deps.
 fastapi>=0.110.0
-pyyaml>=6.0
