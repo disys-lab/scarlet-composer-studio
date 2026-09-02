@@ -40,7 +40,7 @@ DATA_SOURCE_NAME = os.environ.get("DATA_SOURCE_NAME", "")
 # needs another type's system dependencies importable at all (e.g. a
 # non-mssql broker shouldn't need pyodbc/unixODBC installed just to start,
 # and a non-pi broker shouldn't need the pitalk package importable).
-_KNOWN_CONNECTOR_TYPES = ("mssql", "pi")
+_KNOWN_CONNECTOR_TYPES = ("mssql", "pi", "influx")
 
 
 def _load_connector() -> Connector:
@@ -51,6 +51,9 @@ def _load_connector() -> Connector:
     if connector_type == "pi":
         from connectors.pi import PiConnector
         return PiConnector()
+    if connector_type == "influx":
+        from connectors.influx import InfluxConnector
+        return InfluxConnector()
     raise ValueError(
         f"BROKER_CONNECTOR_TYPE={connector_type!r} is not a known connector "
         f"(known: {_KNOWN_CONNECTOR_TYPES})"
