@@ -6,3 +6,17 @@ requests>=2.28.0
 # Server + Kerberos client tooling installed too (see Dockerfile), not
 # just this Python package.
 pyodbc>=5.1.0
+
+# pi connector's runtime deps - the `pitalk` package itself (github.com/
+# blockalytics/PITalk) is installed separately, with --no-deps, in the
+# Dockerfile (mirrors that repo's own Dockerfile) rather than listed here:
+# its setup.py pins old versions with no installable wheel for a modern
+# Python (confirmed this session: pandas==1.3.2 fails to build against
+# Python 3.11+/3.14). These modern pins cover its actual runtime deps
+# instead - verified this session that PIAttribute/PIServer/PITalk import
+# and run unchanged against them. requests-kerberos/gssapi are needed even
+# for a basic-auth-only deployment: PIServer.py imports HTTPKerberosAuth
+# unconditionally at module level.
+pandas>=2.0.0
+pyyaml>=6.0
+requests-kerberos>=0.15.0

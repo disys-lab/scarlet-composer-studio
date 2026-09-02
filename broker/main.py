@@ -38,8 +38,9 @@ DATA_SOURCE_NAME = os.environ.get("DATA_SOURCE_NAME", "")
 # Each connector module is imported lazily, inside its own branch below -
 # not at module level - so a broker deployed for one connector type never
 # needs another type's system dependencies importable at all (e.g. a
-# non-mssql broker shouldn't need pyodbc/unixODBC installed just to start).
-_KNOWN_CONNECTOR_TYPES = ("mssql",)
+# non-mssql broker shouldn't need pyodbc/unixODBC installed just to start,
+# and a non-pi broker shouldn't need the pitalk package importable).
+_KNOWN_CONNECTOR_TYPES = ("mssql", "pi")
 
 
 def _load_connector() -> Connector:
@@ -47,6 +48,9 @@ def _load_connector() -> Connector:
     if connector_type == "mssql":
         from connectors.mssql import MssqlConnector
         return MssqlConnector()
+    if connector_type == "pi":
+        from connectors.pi import PiConnector
+        return PiConnector()
     raise ValueError(
         f"BROKER_CONNECTOR_TYPE={connector_type!r} is not a known connector "
         f"(known: {_KNOWN_CONNECTOR_TYPES})"

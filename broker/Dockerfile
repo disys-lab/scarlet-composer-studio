@@ -1,13 +1,11 @@
 # Data-source broker - one instance per data source, deployed co-located
 # with it (a plain Gustavo app - see main.py's own docstring for the full
 # architecture). This is intentionally its own small image, separate from
-# scarlet-composer-app: it needs its own Dockerfile/lifecycle (a different
-# connector type means different system dependencies entirely - MS SQL's
-# ODBC/Kerberos stack below has nothing to do with, say, a future PI
-# connector), and bundling it into the main app image would force
-# composer-api/composer-ui onto whatever network_mode this broker needs
-# (network_mode: host, for the same real, empirically-verified reason
-# docker/composer-app/background_server.py needs it - see that file).
+# scarlet-composer-app: it needs its own Dockerfile/lifecycle, and bundling
+# it into the main app image would force composer-api/composer-ui onto
+# whatever network_mode this broker needs (network_mode: host, for the
+# same real, empirically-verified reason docker/composer-app/
+# background_server.py needs it - see that file).
 FROM ubuntu:24.04
 
 ARG py_version=python3.11
@@ -16,22 +14,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# System dependencies for the mssql connector's Windows/AD Integrated auth -
-# mirrors assurant_decentralized_analytics/claim_analytics/Dockerfile's own
-# already-proven install exactly (msodbcsql18 + krb5-user/keyutils for a
-# real Kerberos ticket + unixodbc for pyodbc itself), not rediscovered.
-# A future connector type that doesn't need Kerberos/ODBC at all would not
-# need any of this - it's specific to this one connector, not a broker-wide
-# requirement.
+# System dependencies for both connector types' Kerberos needs - mssql's
+# Windows/AD Integrated auth (mirrors assurant_decentralized_analytics/
+# claim_analytics/Dockerfile's own already-proven install: msodbcsql18 +
+# krb5-user/keyutils for a real ticket + unixodbc for pyodbc itself) and
+# pi's gssapi build (libkrb5-dev - mirrors PITalk/Dockerfile's own install,
+# needed even where a deployment only ever uses PI's basic-auth security
+# method, since PIServer.py imports HTTPKerberosAuth unconditionally).
+# build-essential/*-dev headers are kept until after both pip install
+# steps below (not purged in this same layer) since gssapi may need to
+# compile from source if no prebuilt wheel matches this exact
+# Ubuntu/Python combination.
 RUN apt-get -y update && apt-get -y upgrade && \
     apt-get -y install build-essential curl gnupg2 apt-transport-https \
-        ca-certificates krb5-user keyutils unixodbc unixodbc-dev \
+        ca-certificates krb5-user keyutils libkrb5-dev unixodbc unixodbc-dev \
         software-properties-common && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get -y update && \
     apt-get -y install python3-pip ${py_version} ${py_version}-venv ${py_version}-dev && \
-    apt-get purge -y build-essential && \
-    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
@@ -45,6 +45,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# The real pitalk package (github.com/blockalytics/PITalk), --no-deps -
+# see requirements.txt's own comment for why its setup.py's own pins
+# aren't used instead (no installable wheel for a modern Python).
+RUN pip install --no-cache-dir --no-deps "git+https://github.com/blockalytics/PITalk.git"
+
+RUN apt-get -y purge build-essential && \
+    apt-get -y autoremove && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
