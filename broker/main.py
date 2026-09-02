@@ -22,8 +22,10 @@ rationale - a real requirement given a data source is often edge-co-
 located with the specific worker that needs it, not centralized where
 composer-api runs).
 """
+import asyncio
 import logging
 import os
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import requests
 from fastapi import FastAPI, Header, HTTPException
@@ -32,8 +34,17 @@ from data_connectors.base import Connector
 
 logging.basicConfig(level=logging.INFO)
 
+# TODO: BROKER_POOL_SIZE bounds how many queries this broker runs at once,
+# but every connector still opens (and closes) a fresh connection per
+# query - no pooling at the data-source level yet. Fine for queries in
+# the low seconds; a real production MS SQL query has taken 17 minutes,
+# which this pool alone doesn't fix - a submit/poll job-id model (query
+# returns immediately, caller polls for the result) is the real answer
+# for that case and is deliberately not built here. See the
+# "Local-First Data Access" plan (2026-09) for the full reasoning.
 COMPOSER_API_URL = os.environ.get("COMPOSER_API_URL", "").rstrip("/")
 DATA_SOURCE_NAME = os.environ.get("DATA_SOURCE_NAME", "")
+BROKER_POOL_SIZE = int(os.environ.get("BROKER_POOL_SIZE", "4"))
 
 # Each connector module is imported lazily, inside its own branch below -
 # not at module level - so a broker deployed for one connector type never
@@ -69,19 +80,44 @@ def _load_connector() -> Connector:
     )
 
 
+class Broker:
+    """
+    Owns one Connector and a bounded thread pool - every /query call runs
+    the connector's (blocking) .query() on that pool instead of directly
+    on the FastAPI request-handling path, so N concurrent callers actually
+    run in parallel (up to pool_size) instead of serializing on uvicorn's
+    single asyncio event loop. Found this the hard way: /query was
+    `async def` calling straight-through blocking code (pyodbc/psycopg2/
+    pymysql/requests/redis-py, no `await`, no thread offload) - an async
+    handler that blocks the event loop blocks it for every other request
+    too, not just the one in flight.
+    """
+
+    def __init__(self, connector: Connector, pool_size: int = 4):
+        self._connector = connector
+        self._executor = ThreadPoolExecutor(max_workers=pool_size)
+
+    def submit_query(self, payload: dict) -> Future:
+        return self._executor.submit(self._connector.query, payload)
+
+
 app = FastAPI(title="scarlet-composer data-source broker")
-_connector: Connector | None = None
+_broker: Broker | None = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _connector
+    global _broker
     if not COMPOSER_API_URL:
         logging.critical("COMPOSER_API_URL is not set - every /query call will fail authorization")
     if not DATA_SOURCE_NAME:
         logging.critical("DATA_SOURCE_NAME is not set - must match this broker's own registration in composer-api")
-    _connector = _load_connector()
-    logging.info(f"broker ready: data_source={DATA_SOURCE_NAME!r} connector={type(_connector).__name__}")
+    connector = _load_connector()
+    _broker = Broker(connector, pool_size=BROKER_POOL_SIZE)
+    logging.info(
+        f"broker ready: data_source={DATA_SOURCE_NAME!r} connector={type(connector).__name__} "
+        f"pool_size={BROKER_POOL_SIZE}"
+    )
 
 
 @app.get("/health")
@@ -116,7 +152,12 @@ async def query(body: dict, authorization: str = Header(default="")):
         raise HTTPException(status_code=403, detail=f"Not authorized for data source {DATA_SOURCE_NAME!r}")
 
     try:
-        result = _connector.query(body)
+        # Runs on the Broker's own thread pool, not this coroutine's
+        # thread - wrap_future() lets the event loop keep serving other
+        # requests (health checks, other callers' /query calls) while
+        # this one's connector.query() is in flight, instead of blocking
+        # everything until it returns.
+        result = await asyncio.wrap_future(_broker.submit_query(body))
         return {"error": False, "response": result}
     except Exception as exc:
         logging.error(f"query failed: {exc}")
