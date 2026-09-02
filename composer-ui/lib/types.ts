@@ -66,3 +66,21 @@ export interface InterpretedScarlet {
 }
 
 export type InterpretedScarlets = Record<string, InterpretedScarlet>;
+
+// Matches composer-api's routers/data_sources.py _public_shape() exactly -
+// no credential field exists on this entry anywhere (see
+// composer-api/data_sources_store.py's docstring): the broker at
+// broker_url holds its own data-source credential entirely on its own,
+// configured at that broker's own deployment time.
+export interface DataSource {
+  name: string;
+  type: string;
+  broker_url: string;
+  description: string;
+  allowed_users: string[];
+  allowed_groups: string[];
+}
+
+export interface DataSourcesResponse {
+  data_sources: DataSource[];
+}
