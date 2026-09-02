@@ -10,6 +10,18 @@ export interface DashboardStats {
   scarlet_count: number;
 }
 
+// Redacted view of a worker's own ~/.scarlet/config.yaml entries - no
+// credential fields, ever (see scarlet-agentic-harness's
+// local_config.describe_sources()). "broker" entries relay through a
+// centralized broker (see the Data Sources tab's own registry); "local"
+// entries are queried by this worker directly, in-process.
+export interface AgentDataSource {
+  name: string;
+  type: string;
+  mode: "local" | "broker";
+  description: string;
+}
+
 export interface Agent {
   agent_id: string;
   instance_id: string | null;
@@ -17,7 +29,7 @@ export interface Agent {
   ts: number | null;
   health: "online" | "stale" | "unknown";
   capabilities: string[];
-  data_sources: string[];
+  data_sources: AgentDataSource[];
   raw: Record<string, unknown>;
 }
 

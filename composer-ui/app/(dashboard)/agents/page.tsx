@@ -49,12 +49,20 @@ function AgentCard({ agent }: { agent: Agent }) {
           </p>
         )}
         {agent.data_sources.length > 0 && (
-          <p className="text-sm">
-            <span className="font-medium">Data sources:</span>{" "}
-            {agent.data_sources.map((d) => (
-              <code key={d} className="mr-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs">{d}</code>
-            ))}
-          </p>
+          <div className="text-sm">
+            <span className="font-medium">Data sources:</span>
+            <ul className="mt-1 space-y-1">
+              {agent.data_sources.map((d) => (
+                <li key={d.name} className="flex items-start gap-1.5">
+                  <code className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs">{d.name}</code>
+                  <span className="text-xs text-gray-400">
+                    {d.type} · {d.mode}
+                    {d.description && <> — {d.description}</>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {showRaw && (
           <pre className="mt-2 overflow-auto rounded bg-gray-50 p-2 text-xs">
