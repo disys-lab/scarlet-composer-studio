@@ -98,7 +98,7 @@ If you see `True` and the array, everything is wired up correctly.
 ## Launch the Composer UI
 
 The operator dashboard (`composer-api` + `composer-ui`) is a Docker image, not
-a pip-installed CLI command — see [Option D](#option-d---docker-images) above,
+a pip-installed CLI command — see [Option D](#option-d-docker-images) above,
 or [Docker Images](deployment/docker.md) for building it locally. The
 `scarlet-composer` CLI installed by `pip install scarletcomposer` covers a
 different job: parsing `#scarlet` declarations from source files

@@ -14,6 +14,21 @@ edit_uri: edit/main/docs/
 
 plugins:
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [".", "harness"]
+          options:
+            docstring_style: numpy
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            merge_init_into_class: true
+            docstring_section_style: table
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
 
 nav:
   - Home: index.md
@@ -45,7 +60,10 @@ nav:
     - Getting Started: harness/getting-started.md
     - Deployment: harness/deployment.md
   - Reference:
-    - Full API Reference: reference/api.md
+    - Overview: reference/api.md
+    - Scarlets API: reference/scarlets-api.md
+    - Harness API: reference/harness-api.md
+    - Data Connectors API: reference/data-connectors-api.md
     - CLI Reference: reference/cli.md
     - Redis Key Schema: reference/redis-schema.md
   - Contributing: contributing.md
