@@ -11,9 +11,12 @@ Distributed shared memory and agent communication for multi-agent systems — Re
 | Package | Install | Contents |
 |---|---|---|
 | `scarlets` | `pip install scarlets` | `Mapper`, `Federator`, `Messenger`, `RedisScarlet`, `ScarletBase`, `RedisLogger` |
-| `scarletcomposer` | `pip install scarletcomposer` | Streamlit UI, Tornado server, `ScarletInterpreter`, `scarlet-composer` CLI |
+| `scarletcomposer` | `pip install scarletcomposer` | `composer-api` (FastAPI) + `composer-ui` (Next.js) operator dashboard, `ScarletInterpreter`, `scarlet-composer` CLI |
+| `data-connectors` | `pip install data-connectors` | Pluggable data-source connectors (mssql, postgres, mysql, pi, influx, redis, csv, excel) - shared by the broker and any in-process caller (e.g. the harness's local-mode data sources) |
 
-Agent containers only need `scarlets`. The operator dashboard needs `scarletcomposer`.
+Also in this monorepo: [`harness/`](harness/) - the agentic Skill harness (`ghcr.io/disys-lab/scarlet-agents`), see [Harness docs](https://disys-lab.github.io/scarlet-composer-studio/harness/).
+
+Agent containers only need `scarlets`. The operator dashboard needs `scarletcomposer`. Agents built with the harness also need `data-connectors` for local-mode data sources.
 
 ---
 

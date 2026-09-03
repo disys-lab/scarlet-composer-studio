@@ -39,6 +39,11 @@ nav:
     - Agents: composer/agents.md
     - Data Sources: composer/data-sources.md
     - Logging: composer/logging.md
+  - Harness:
+    - Overview: harness/index.md
+    - Design Decisions: harness/design.md
+    - Status / Build History: harness/status.md
+    - Deployment: harness/deployment.md
   - Reference:
     - Full API Reference: reference/api.md
     - CLI Reference: reference/cli.md
