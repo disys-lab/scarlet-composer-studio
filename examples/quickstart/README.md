@@ -4,7 +4,7 @@ Stand up a complete Scarlet deployment on a single machine using Docker Compose.
 
 | Container | Role |
 |---|---|
-| `scarlet-composer` | Operator dashboard — Streamlit UI on port 8501, Tornado identity server on port 9099 |
+| `scarlet-composer` | Operator dashboard — Next.js UI + FastAPI backend, port 8501 |
 | `hello-agent` | Sample Scarlet agent — registers on two Messenger buses, echoes messages, broadcasts a heartbeat every 60 s |
 
 The `hello-agent` demonstrates the two-channel architecture:

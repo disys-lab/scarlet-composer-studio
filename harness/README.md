@@ -5,7 +5,7 @@ repo's `scarlets` primitives (`Mapper`, `Federator`, `Messenger`) — deployed
 alongside [Gustavo](https://github.com/disys-lab/gustavo) as
 `ghcr.io/disys-lab/scarlet-agents`.
 
-Full docs, including build history, design decisions, and deployment
+Full docs, including core concepts, getting started, and deployment
 instructions, now live in this repo's MkDocs site:
 [docs/harness/](../docs/harness/index.md) (or the hosted site's **Harness**
 nav section).

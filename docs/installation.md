@@ -49,18 +49,19 @@ scarlet-composer --version
 
 Pre-built images are published to `ghcr.io/disys-lab/`:
 
-| Image | Tag | Contents |
-|---|---|---|
-| `ghcr.io/disys-lab/scarlet-agent-base` | `0.5.0` | `scarlets` + supervisor |
-| `ghcr.io/disys-lab/scarlet-composer` | `0.5.0` | `scarletcomposer` + Streamlit |
+| Image | Contents |
+|---|---|
+| `ghcr.io/disys-lab/scarlet-agent-base` | `scarlets` + supervisor — the base every agent container extends |
+| `ghcr.io/disys-lab/scarlet-composer` | `composer-api` (FastAPI) + `composer-ui` (Next.js) operator dashboard |
+| `ghcr.io/disys-lab/scarlet-agents` | The [harness](harness/index.md) — decentralized agentic `Skill` runtime |
 
 ```bash
 # Run the Composer UI
 docker run -d \
-  -p 8501:8501 -p 9099:9099 \
+  -p 8501:3000 \
   -e REDIS_HOST=your-redis-host \
   -e REDIS_AUTH_TOKEN=your-redis-password \
-  ghcr.io/disys-lab/scarlet-composer:0.5.0
+  ghcr.io/disys-lab/scarlet-composer:latest
 ```
 
 See [Docker Images](deployment/docker.md) for build instructions and how to extend the agent base.
@@ -96,12 +97,9 @@ If you see `True` and the array, everything is wired up correctly.
 
 ## Launch the Composer UI
 
-```bash
-scarlet-composer composer gui
-```
-
-Opens Streamlit on **port 8501** and starts the Tornado identity server on **port 9099**.
-
-```bash
-scarlet-composer composer gui --port 8502 --lport 9100   # custom ports
-```
+The operator dashboard (`composer-api` + `composer-ui`) is a Docker image, not
+a pip-installed CLI command — see [Option D](#option-d---docker-images) above,
+or [Docker Images](deployment/docker.md) for building it locally. The
+`scarlet-composer` CLI installed by `pip install scarletcomposer` covers a
+different job: parsing `#scarlet` declarations from source files
+(`scarlet-composer composer compose <dir>`) — see [CLI Reference](reference/cli.md).

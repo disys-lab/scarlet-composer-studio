@@ -1,5 +1,9 @@
 # Scarlet Composer Studio
 
+[![CI](https://github.com/disys-lab/scarlet-composer-studio/actions/workflows/python-app.yml/badge.svg)](https://github.com/disys-lab/scarlet-composer-studio/actions/workflows/python-app.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](docs/installation.md)
+
 Distributed shared memory and agent communication for multi-agent systems — Redis backend, Apache 2.0, built for the edge.
 
 **[Full documentation →](https://disys-lab.github.io/scarlet-composer-studio/)**
@@ -24,7 +28,10 @@ Agent containers only need `scarlets`. The operator dashboard needs `scarletcomp
 
 ```bash
 git clone https://github.com/disys-lab/scarlet-composer-studio
-cd scarlet-composer-studio/examples/quickstart
+cd scarlet-composer-studio
+python3 setup.py bdist_wheel && python3 setup_composer.py bdist_wheel   # composer-app's Dockerfile needs these in dist/
+
+cd examples/quickstart
 cp .env.example .env   # set REDIS_HOST and REDIS_AUTH_TOKEN
 docker compose up --build -d
 ```
@@ -66,6 +73,7 @@ reply = bus.Receive(timeout=5)
 - **[Deployment](https://disys-lab.github.io/scarlet-composer-studio/deployment/gustavo/)** — Gustavo integration, multi-node edge
 - **[LLM / MCP Integration](https://disys-lab.github.io/scarlet-composer-studio/guides/llm-integration/)** — `Messenger.AsTools()`, LangChain, Open WebUI
 - **[Full API Reference](https://disys-lab.github.io/scarlet-composer-studio/reference/api/)** — every class, method, parameter, Redis key
+- **[Changelog](CHANGELOG.md)** — what changed release to release
 
 ---
 
