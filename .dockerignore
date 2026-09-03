@@ -1,0 +1,35 @@
+# Applies to every image built from this repo's root (docker/agent-base,
+# docker/composer-app, harness/Dockerfile) - Docker only reads .dockerignore
+# from the build context root, not from subdirectories, so this replaces
+# harness/.dockerignore for any build that uses repo-root context (which all
+# three now do, since composer-app and harness both need sibling access to
+# dist/ for the shared wheel artifact - see multi-build.yml's build-wheels
+# job). harness/.dockerignore is kept as-is for anyone building harness/
+# standalone with harness/ itself as context.
+#
+# NOTE: does not exclude dist/ - unlike .gitignore, every image build here
+# actually needs the pre-built wheels that land there.
+
+.git
+.github
+.idea
+.pytest_cache
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+*.egg-info
+**/*.egg-info
+.eggs
+.DS_Store
+.env
+.env.example
+site
+docs
+tests
+transcripts
+harness/tests
+harness/transcripts
+composer-ui/node_modules
+composer-ui/.next

@@ -11,3 +11,5 @@
 **/*.egg-info
 /.eggs
 .env
+.venv
+venv

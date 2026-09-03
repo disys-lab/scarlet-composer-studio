@@ -9,9 +9,12 @@
 # under supervisord for autorestart. Not deployed anywhere yet - see
 # README.md's Status section.
 #
-# Build:
+# Build (context must be the monorepo root, not harness/ itself - this
+# Dockerfile needs sibling access to dist/ for the pre-built data_connectors
+# wheel, same convention docker/agent-base and docker/composer-app use):
 #   docker build \
 #     --build-arg BASE_VERSION=0.5.0 \
+#     -f harness/Dockerfile \
 #     -t scarlet-agents:latest .
 #
 # Run standalone (for local testing without compose - see docker-compose.yml
@@ -33,20 +36,33 @@ WORKDIR /app
 # (scarlet_agentic_harness/llm/client.py, mcp_server.py).
 RUN pip install --no-cache-dir openai>=1.0.0 mcp>=2.0.0
 
+# data_connectors (setup_connectors.py, monorepo root) - local_config.py's
+# build_connector() constructs these same connector classes in-process for
+# mode: local data sources. Built once by CI's build-wheels job alongside
+# scarlets/scarletcomposer (see .github/workflows/multi-build.yml) and
+# handed to every image that needs it via this same dist/ artifact - not
+# re-derived here. --no-deps for the same reason as the harness package
+# install below: data-connectors' own dependency resolution shouldn't
+# clobber what's already pinned in this image.
+COPY dist/data_connectors-*.whl /tmp/dist/
+RUN pip install --no-cache-dir --no-deps /tmp/dist/data_connectors-*.whl && \
+    rm -rf /tmp/dist
+
 # Only what's needed to install and run the package - tests/, transcripts/,
 # and dev tooling are excluded via .dockerignore, keeping this a runtime
 # image, not a dev checkout.
-COPY setup.py README.md /app/
-COPY scarlet_agentic_harness/ /app/scarlet_agentic_harness/
+COPY harness/setup.py harness/README.md /app/
+COPY harness/scarlet_agentic_harness/ /app/scarlet_agentic_harness/
 
 # --no-deps: scarlet-agent-base already provides `scarlets` (installed from
-# Gemfury or a local wheel, per its own build-arg) - letting pip re-resolve
-# setup.py's `scarlets @ git+https://...` requirement here would silently
-# reinstall a different (git HEAD) version on top of whatever the base image
-# intentionally pinned. openai is already installed explicitly above.
+# Gemfury or a local wheel, per its own build-arg), and data-connectors was
+# just installed above - letting pip re-resolve setup.py's own
+# install_requires here would attempt to re-derive both from PyPI/Gemfury
+# and could clobber the exact wheels this build already pinned. openai/mcp
+# are already installed explicitly above.
 RUN pip install --no-cache-dir --no-deps .
 
-COPY supervisord.conf /etc/supervisor/conf.d/scarlet_agents.conf
+COPY harness/supervisord.conf /etc/supervisor/conf.d/scarlet_agents.conf
 
 # ROLE selects head vs. worker inside __main__.py - same image either way.
 # HEAD_BUS/LLM_MODEL aren't declared in scarlet-agent-base's own ENV list

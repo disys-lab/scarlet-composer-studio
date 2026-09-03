@@ -1,9 +1,9 @@
 # Adapted from disys-lab/gustavo's .github/workflows/multi-build.yml -
-# same staged-job structure (bumpversion -> linuxbuild/macbuild ->
-# dockerbuild, each gated on a commit-message catchphrase) applied to this
-# repo's two published artifacts (the scarlets/scarletcomposer wheels, and
-# the two Docker images built from them: ghcr.io/disys-lab/scarlet-agent-base
-# and ghcr.io/disys-lab/scarlet-composer).
+# same staged-job structure (bumpversion -> build -> dockerbuild, each
+# gated on a commit-message catchphrase) applied to this repo's three
+# published Docker images: ghcr.io/disys-lab/scarlet-agent-base,
+# ghcr.io/disys-lab/scarlet-composer, and ghcr.io/disys-lab/scarlet-agents
+# (the scarlet-agentic-harness monorepo merge - see harness/).
 #
 # Two real differences from gustavo's version, not just a straight copy:
 #   1. gustavo's own dockerbuild only ever built --platform linux/amd64,
@@ -11,26 +11,56 @@
 #      pushes a linux/amd64,linux/arm64 multi-arch manifest, via
 #      docker/build-push-action's native multi-platform support (buildx),
 #      not a hand-rolled per-arch script.
-#   2. Catchphrases are scoped per image (agent-* / composer-*) rather than
-#      gustavo's single global set, since this repo builds two independent
-#      images from two independent Dockerfiles - see the README section
-#      this change's PR/commit links back to for the full trigger list.
+#   2. Catchphrases are scoped per image (agent-* / composer-* / harness-*)
+#      rather than gustavo's single global set, since this repo builds
+#      three independent images from three independent Dockerfiles - see
+#      the README section this change's PR/commit links back to for the
+#      full trigger list.
 #
-# Version bump (#agent-bump / #composer-bump) is shared across both images
-# on purpose: both packages already share one version line via
-# setuptools-scm (git-tag-derived - see setup.py/setup_composer.py), so
-# there's only one counter to bump regardless of which image asked for it.
+# Version bump (#agent-bump / #composer-bump) is shared across all three
+# images on purpose: scarlets, scarletcomposer, AND data-connectors all
+# derive their version from the same setuptools-scm git-tag counter (see
+# setup.py / setup_composer.py / setup_connectors.py) - there's only one
+# counter to bump regardless of which image asked for it. harness/'s own
+# package version is a separate, hardcoded literal (harness/setup.py) and
+# doesn't participate in this counter.
+#
+# scarlets/scarletcomposer/data-connectors wheels are built exactly ONCE
+# per run, by build-wheels, and shared via one artifact with every
+# downstream image that needs them - not rebuilt independently per image.
+# Before this, agent-linuxbuild and composer-linuxbuild each independently
+# rebuilt scarlets a second time in the same run; adding a third image
+# (harness) consuming the same wheel would have made that worse, not
+# better, if left as-is. harness-dockerbuild additionally needs
+# agent-dockerbuild to have already pushed a fresh scarlet-agent-base image
+# in this same run - it's a real Docker FROM dependency (harness/Dockerfile
+# extends scarlet-agent-base), not just a wheel dependency, so it inherits
+# scarlets transitively rather than re-deriving it.
 #
 # Docker build args use LOCAL=true with a wheel built earlier in the same
 # run (via actions/upload-artifact / download-artifact) - NOT LOCAL=false's
 # "install from Gemfury in production" path. That path is currently a gap
-# in both docker/agent-base/Dockerfile and docker/composer/Dockerfile: the
-# else-branch's own comment says it installs scarlets from Gemfury, but the
-# actual command only installs scarlets' *dependencies* (redis numpy
-# requests), never scarlets itself - a pre-existing issue, not something
-# this workflow works around by accident. LOCAL=true sidesteps it entirely
-# and is also more hermetic (doesn't depend on Gemfury's own availability/
-# propagation delay at build time).
+# in docker/agent-base/Dockerfile: the else-branch's own comment says it
+# installs scarlets from Gemfury, but the actual command only installs
+# scarlets' *dependencies* (redis numpy requests), never scarlets itself -
+# a pre-existing issue, not something this workflow works around by
+# accident. LOCAL=true sidesteps it entirely and is also more hermetic
+# (doesn't depend on Gemfury's own availability/propagation delay at build
+# time). docker/composer-app/Dockerfile and harness/Dockerfile don't have a
+# LOCAL=true/false branch at all - they're only ever built by this repo's
+# own CI, so they always assume pre-built wheels are handed to them.
+#
+# Residual risk, not solved here: composer-dockerbuild and
+# {agent,harness}-dockerbuild are still gated by independent catchphrases
+# and can still run in separate pushes on different commits - this only
+# guarantees no divergence *within one triggered run*. A real release still
+# needs all relevant catchphrases in one commit message. Separately,
+# .github/workflows/publish.yml independently bumps the same shared version
+# tag via its own #buildpackage catchphrase on the same push trigger - a
+# commit with both #buildpackage and #agent-bump/#composer-bump races two
+# tag-bump jobs across two workflow files. Both pre-existing, unrelated to
+# this change, just adjacent to the "one version counter" assumption this
+# workflow leans on.
 
 name: Multi-Arch Build
 
@@ -67,18 +97,15 @@ jobs:
           # WITH_V is true - the action adds that separately.
           INITIAL_VERSION: "0.5.0"
 
-  # ── scarlet-agent-base ───────────────────────────────────────────────────
+  # ── shared wheel build (scarlets, scarletcomposer, data-connectors) ──────
 
-  agent-linuxbuild:
+  build-wheels:
     needs: bumpversion
-    # always() + explicit needs.bumpversion.result check, not a plain
-    # contains(...) - confirmed by a real run that GitHub Actions skips a
-    # downstream job by default whenever a needed job was skipped (bump
-    # only runs on #agent-bump/#composer-bump, so a commit with only
-    # #agent-linuxbuild would otherwise skip this too, cascading through
-    # every job below it). success() alone doesn't cover a *skipped*
-    # bumpversion, only a *succeeded* one.
-    if: always() && contains(github.event.head_commit.message, '#agent-linuxbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
+    # Runs whenever ANY of the three dockerbuild catchphrases are present -
+    # this gate is independent of each *-dockerbuild job's own catchphrase
+    # check below; both remain necessary. This job succeeding just means
+    # the shared artifact exists, not that any particular image gets built.
+    if: always() && (contains(github.event.head_commit.message, '#agent-dockerbuild') || contains(github.event.head_commit.message, '#composer-dockerbuild') || contains(github.event.head_commit.message, '#harness-dockerbuild')) && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -92,24 +119,31 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Build scarlets wheel
+      # All three wheels built back-to-back in one job - builder.py already
+      # cleans build/ and *.egg-info between calls (added specifically to
+      # prevent one call's staged files contaminating the next), so this is
+      # safe. Every matrix leg validates a clean install across OS/Python
+      # combos; only one leg's wheels feed the docker builds below.
+      - name: Build scarlets + scarletcomposer + data-connectors wheels
         env:
           GEMFURY_TOKEN: ${{ secrets.GEMFURY_TOKEN }}
         run: |
           pip install setuptools wheel setuptools-scm
           pip install -r requirements.txt
           python3 builder.py setup.py "$GEMFURY_TOKEN"
-      # scarlets/scarletcomposer are pure-Python (no compiled extensions -
-      # see requirements.txt), so every matrix leg produces an identical
-      # py3-none-any wheel; running the full OS x Python matrix validates
-      # clean installs across all of them, but only one leg's wheel needs
-      # to feed the docker build below.
-      - name: Upload wheel artifact
+          python3 builder.py setup_composer.py "$GEMFURY_TOKEN"
+          python3 builder.py setup_connectors.py "$GEMFURY_TOKEN"
+      - name: Upload wheel artifacts
         if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.11'
         uses: actions/upload-artifact@v4
         with:
-          name: scarlets-wheel
-          path: dist/scarlets-*.whl
+          name: wheels
+          path: |
+            dist/scarlets-*.whl
+            dist/scarletcomposer-*.whl
+            dist/data_connectors-*.whl
+
+  # ── scarlet-agent-base ───────────────────────────────────────────────────
 
   agent-macbuild:
     needs: bumpversion
@@ -136,46 +170,37 @@ jobs:
           python3 builder.py setup.py "$GEMFURY_TOKEN"
 
   agent-dockerbuild:
-    needs: agent-linuxbuild
-    # Deliberately requires needs.agent-linuxbuild.result == 'success'
-    # specifically here (not also 'skipped', unlike the *build jobs above) -
-    # this job needs the wheel artifact agent-linuxbuild uploads, so it must
-    # not run if that job didn't actually run and succeed.
-    if: always() && contains(github.event.head_commit.message, '#agent-dockerbuild') && needs.agent-linuxbuild.result == 'success'
+    needs: build-wheels
+    # Deliberately requires needs.build-wheels.result == 'success'
+    # specifically here (not also 'skipped') - this job needs the wheel
+    # artifact build-wheels uploads, so it must not run if that job didn't
+    # actually run and succeed.
+    if: always() && contains(github.event.head_commit.message, '#agent-dockerbuild') && needs.build-wheels.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       packages: write
+    outputs:
+      docker_tag: ${{ steps.version.outputs.docker_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Download scarlets wheel
+      - name: Download wheels
         uses: actions/download-artifact@v4
         with:
-          name: scarlets-wheel
+          name: wheels
           path: dist
       # Parsed from the actual downloaded wheel's filename, not recomputed
       # separately (was `git describe --tags --abbrev=0`, stripped of its
       # "v" prefix) - found by a real run to diverge from what
       # setuptools-scm actually named the wheel whenever this commit isn't
-      # *exactly* the tagged commit (e.g. a docker-only retry with no
-      # #agent-bump in the same commit): git describe --abbrev=0 just names
-      # the nearest tag regardless of commit distance, while
-      # setuptools-scm bumps to a dev-suffixed next version the moment
-      # HEAD is even one commit past the tag - VERSION=0.5.1 was passed to
-      # a wheel actually named scarlets-0.5.2.dev3+g<hash>-py3-none-any.whl,
-      # and the Dockerfile's own pip install glob matched nothing. A bare
-      # `python -m setuptools_scm` isn't a fix either - it doesn't read
-      # setup.py's own use_scm_version config without a pyproject.toml,
-      # so it computes yet another, still-different, still-wrong version.
-      # docker_tag is a *separate* output from version - a setuptools-scm
-      # dev version contains a literal "+" (e.g. 0.5.2.dev3+gc6174a400),
-      # which Docker's own tag reference format rejects outright
-      # ("invalid reference format", confirmed against a real `docker
-      # tag`). The build-arg below needs the raw version verbatim (the
-      # Dockerfile's pip install glob must match the wheel's real
-      # filename); the image tag needs the sanitized form.
+      # *exactly* the tagged commit. docker_tag is a *separate* output from
+      # version - a setuptools-scm dev version contains a literal "+"
+      # (e.g. 0.5.2.dev3+gc6174a400), which Docker's own tag reference
+      # format rejects outright. The build-arg below needs the raw version
+      # verbatim (the Dockerfile's pip install glob must match the wheel's
+      # real filename); the image tag needs the sanitized form.
       - name: Determine version
         id: version
         run: |
@@ -215,42 +240,6 @@ jobs:
 
   # ── scarlet-composer ─────────────────────────────────────────────────────
 
-  composer-linuxbuild:
-    needs: bumpversion
-    if: always() && contains(github.event.head_commit.message, '#composer-linuxbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-24.04, ubuntu-22.04]
-        python-version: ["3.9", "3.10", "3.11"]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      # scarlet-composer's image needs both wheels (it depends on scarlets -
-      # see setup_composer.py's install_requires and docker/composer/Dockerfile's
-      # LOCAL=true step) - build both here so a single artifact covers it.
-      - name: Build scarlets + scarletcomposer wheels
-        env:
-          GEMFURY_TOKEN: ${{ secrets.GEMFURY_TOKEN }}
-        run: |
-          pip install setuptools wheel setuptools-scm
-          pip install -r requirements.txt
-          python3 builder.py setup.py "$GEMFURY_TOKEN"
-          python3 builder.py setup_composer.py "$GEMFURY_TOKEN"
-      - name: Upload wheel artifacts
-        if: matrix.os == 'ubuntu-24.04' && matrix.python-version == '3.11'
-        uses: actions/upload-artifact@v4
-        with:
-          name: composer-wheels
-          path: |
-            dist/scarlets-*.whl
-            dist/scarletcomposer-*.whl
-
   composer-macbuild:
     needs: bumpversion
     if: always() && contains(github.event.head_commit.message, '#composer-macbuild') && (needs.bumpversion.result == 'success' || needs.bumpversion.result == 'skipped')
@@ -277,8 +266,8 @@ jobs:
           python3 builder.py setup_composer.py "$GEMFURY_TOKEN"
 
   composer-dockerbuild:
-    needs: composer-linuxbuild
-    if: always() && contains(github.event.head_commit.message, '#composer-dockerbuild') && needs.composer-linuxbuild.result == 'success'
+    needs: build-wheels
+    if: always() && contains(github.event.head_commit.message, '#composer-dockerbuild') && needs.build-wheels.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       packages: write
@@ -290,11 +279,8 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v4
         with:
-          name: composer-wheels
+          name: wheels
           path: dist
-      # Parsed from the actual downloaded wheel - see agent-dockerbuild's
-      # Determine version step for why (git describe --abbrev=0 can name a
-      # different version than what setuptools-scm actually gave the wheel).
       - name: Determine version
         id: version
         run: |
@@ -306,28 +292,76 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      # GITHUB_TOKEN (even with default_workflow_permissions: write) was
-      # confirmed by a real run to still be denied write_package when
-      # creating a brand-new ghcr.io package for the first time - a
-      # separate org-level restriction from the workflow-permission
-      # setting. A personal access token sidesteps it, same as gustavo's
-      # own multi-build.yml already does for this exact step.
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ secrets.GH_USERNAME }}
           password: ${{ secrets.GH_TOKEN }}
+      # docker/composer-app/Dockerfile (the currently-deployed combined
+      # composer-api + composer-ui image - docker/composer/Dockerfile is
+      # the old, dead Streamlit-era file this used to point at). No
+      # VERSION/LOCAL build-args - composer-app's Dockerfile always expects
+      # pre-built wheels in dist/, no branching needed.
       - name: Build and push (linux/amd64, linux/arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/composer/Dockerfile
+          file: docker/composer-app/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            LOCAL=true
           tags: |
             ghcr.io/disys-lab/scarlet-composer:${{ steps.version.outputs.docker_tag }}
             ghcr.io/disys-lab/scarlet-composer:latest
+
+  # ── scarlet-agents (harness) ─────────────────────────────────────────────
+
+  harness-dockerbuild:
+    # Needs agent-dockerbuild specifically (not just build-wheels) - a real
+    # Docker FROM dependency, since harness/Dockerfile extends
+    # scarlet-agent-base and must wait for the fresh image this same run
+    # just pushed. Also needs build-wheels directly for its own
+    # data-connectors wheel, which isn't part of the agent-base image.
+    needs: [agent-dockerbuild, build-wheels]
+    if: always() && contains(github.event.head_commit.message, '#harness-dockerbuild') && needs.agent-dockerbuild.result == 'success' && needs.build-wheels.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: dist
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GH_USERNAME }}
+          password: ${{ secrets.GH_TOKEN }}
+      # BASE_VERSION pins this build to the exact scarlet-agent-base image
+      # agent-dockerbuild just pushed in this same run - harness never
+      # re-derives scarlets itself, it inherits it transitively from that
+      # image. Reuses the same docker_tag for its own image tag too, so a
+      # single run's agent-base and scarlet-agents images carry matching
+      # version tags.
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: harness/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_VERSION=${{ needs.agent-dockerbuild.outputs.docker_tag }}
+          tags: |
+            ghcr.io/disys-lab/scarlet-agents:${{ needs.agent-dockerbuild.outputs.docker_tag }}
+            ghcr.io/disys-lab/scarlet-agents:latest

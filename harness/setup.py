@@ -16,7 +16,8 @@ setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "scarlets @ git+https://github.com/disys-lab/scarlet-composer-studio.git",
+        "scarlets",
+        "data-connectors",
         "openai>=1.0.0",
         "mcp>=2.0.0",
     ],

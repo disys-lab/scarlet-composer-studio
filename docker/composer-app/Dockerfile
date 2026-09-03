@@ -3,12 +3,16 @@
 # combines gustavo-api + gustavo-ui - a single supervisord process manager,
 # only the Next.js port exposed externally, FastAPI bound to 127.0.0.1 only.
 #
-# Builds scarlets/scarletcomposer as wheels from THIS repo's own source
-# (setup.py / setup_composer.py) rather than installing from Gemfury/PyPI -
-# this image IS the scarlets/scarletcomposer source tree's own deployment,
-# so there's no separate "published version" to pin against here the way
-# docker/agent-base and docker/composer (which install scarlets as an
-# external dependency) do.
+# Consumes pre-built scarlets/scarletcomposer wheels from dist/ (built once
+# by CI's build-wheels job from THIS commit's own source - see
+# .github/workflows/multi-build.yml) rather than building them inline in
+# this image's own build step. This used to build both wheels itself
+# directly from source (needing .git present in the build context for
+# setuptools-scm) - moved out so scarlets/scarletcomposer are built exactly
+# once per CI run and shared with docker/agent-base and harness/Dockerfile,
+# instead of three images each independently re-deriving the same wheel.
+# Build context must be the monorepo root (needs sibling access to
+# composer-api/, composer-ui/, and dist/).
 FROM ubuntu:24.04
 
 ARG py_version=python3.11
@@ -28,8 +32,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # ── Python base ────────────────────────────────────────────────────────────
+# git dropped from this list - it was only ever needed for setuptools-scm's
+# git-describe during the inline wheel build this Dockerfile no longer does.
 RUN apt-get -y update && apt-get -y upgrade && \
-    apt-get -y install build-essential supervisor software-properties-common curl git && \
+    apt-get -y install build-essential supervisor software-properties-common curl && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get -y update && \
     apt-get -y install python3-pip ${py_version} ${py_version}-venv ${py_version}-dev && \
@@ -46,23 +52,22 @@ RUN ${py_version} -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
-COPY . .
 
-# ── Build scarlets + scarletcomposer wheels from this checkout, install them ──
-# git history is what setuptools-scm derives a version from - .git is
-# present in a real checkout/archive but excluded from a shallow context,
-# so this needs the real repo, not just a tarball of the working tree.
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel setuptools-scm build && \
-    rm -rf build *.egg-info .eggs && \
-    python setup.py bdist_wheel && \
-    rm -rf build *.egg-info && \
-    python setup_composer.py bdist_wheel && \
-    pip install --no-cache-dir dist/scarlets-*.whl dist/scarletcomposer-*.whl
+# ── Install pre-built scarlets + scarletcomposer wheels ─────────────────────
+# Built once by CI's build-wheels job (see .github/workflows/multi-build.yml)
+# from this exact commit, shared with docker/agent-base and harness/Dockerfile
+# - not re-derived here.
+COPY dist/scarlets-*.whl dist/scarletcomposer-*.whl /tmp/dist/
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir /tmp/dist/scarlets-*.whl /tmp/dist/scarletcomposer-*.whl && \
+    rm -rf /tmp/dist
 
-# ── composer-api requirements ────────────────────────────────────────────────
+# ── composer-api ──────────────────────────────────────────────────────────────
+COPY composer-api/ /app/composer-api/
 RUN pip install --no-cache-dir -r composer-api/requirements.txt
 
 # ── composer-ui (Next.js) build ──────────────────────────────────────────────
+COPY composer-ui/ /app/composer-ui/
 WORKDIR /app/composer-ui
 ENV NEXT_PUBLIC_AUTH_ENABLED=${NEXT_PUBLIC_AUTH_ENABLED}
 RUN npm ci --prefer-offline --no-audit --no-fund && \
