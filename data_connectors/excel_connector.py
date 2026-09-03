@@ -20,6 +20,33 @@ from data_connectors.base import Connector, config_value, json_safe
 
 
 class ExcelConnector(Connector):
+    """
+    `Connector` for a local Excel workbook, queried via `duckdb` SQL over `pandas`.
+
+    Same shape as `data_connectors.csv_connector.CsvConnector` (re-reads
+    the file fresh per `query`, raw SQL against the loaded sheet via
+    `duckdb`'s replacement scan against a local variable named ``data``)
+    - the one real difference is a workbook can have multiple sheets, so
+    which one to read is a second, optional axis.
+
+    Parameters
+    ----------
+    config : dict or None, optional
+        Per-instance config dict (`local_config.py`, `mode: local`
+        entries) with keys ``path``, ``sheet``. When `None` (the
+        broker's own usage), each falls back to the matching
+        ``EXCEL_*`` env var - see `data_connectors.base.config_value`.
+
+    Attributes
+    ----------
+    path : str
+        Filesystem path to the workbook.
+    default_sheet : int or str
+        Sheet used when a query's `payload` doesn't specify one -
+        pandas' own `sheet_name` convention: an int index (``0`` = first
+        sheet) or a sheet name string.
+    """
+
     def __init__(self, config: dict | None = None):
         self.path = config_value(config, "path", "EXCEL_PATH", required=True)
         # pandas' own sheet_name convention: an int index (0 = first sheet)
@@ -30,6 +57,29 @@ class ExcelConnector(Connector):
         self.default_sheet = int(default_sheet) if str(default_sheet).lstrip("-").isdigit() else default_sheet
 
     def query(self, payload: dict) -> dict:
+        """
+        Run a SQL query against one sheet of the workbook.
+
+        Parameters
+        ----------
+        payload : dict
+            Must include a ``query`` key holding a SQL string that
+            references the loaded sheet as ``data`` (e.g.
+            ``"SELECT * FROM data WHERE value > 100"``). Optional
+            ``sheet`` key (int index or sheet name) overrides
+            `default_sheet` for this one query.
+
+        Returns
+        -------
+        dict
+            ``{"columns": [...], "rows": [[...], ...]}``. NaN is coerced
+            to `None` via `data_connectors.base.json_safe`.
+
+        Raises
+        ------
+        ValueError
+            If `payload` has no ``query`` key.
+        """
         sql = payload.get("query")
         if not sql:
             raise ValueError(
@@ -46,10 +96,19 @@ class ExcelConnector(Connector):
         return {"columns": columns, "rows": rows}
 
     def list_tags(self) -> list:
-        """Real, live sheet + column names, across every sheet in the
-        workbook (not just this connector's configured default) - a
-        workbook commonly has more than one sheet worth surfacing.
-        nrows=0 per sheet reads just its header, not its actual data."""
+        """
+        List every sheet's name and column names.
+
+        Real, live schema introspection, across every sheet in the
+        workbook (not just `default_sheet`) - a workbook commonly has
+        more than one sheet worth surfacing. ``nrows=0`` per sheet reads
+        just its header, not its actual data.
+
+        Returns
+        -------
+        list of dict
+            One entry per sheet: ``{"table": "<sheet name>", "columns": [...]}``.
+        """
         workbook = pd.ExcelFile(self.path)
         tags = []
         for sheet_name in workbook.sheet_names:

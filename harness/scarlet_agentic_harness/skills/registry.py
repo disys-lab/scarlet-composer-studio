@@ -14,6 +14,24 @@ from scarlet_agentic_harness.skills.base import Skill
 
 
 def discover_skills() -> dict[str, Skill]:
+    """
+    Find and instantiate every `Skill` subclass under `scarlet_agentic_harness.skills`.
+
+    Adding a new skill means adding a new module here defining a `Skill`
+    subclass - this finds it automatically, so `head`/`worker` never
+    import a specific skill by name.
+
+    Returns
+    -------
+    dict of str to Skill
+        Skill instances keyed by `Skill.name`.
+
+    Raises
+    ------
+    ValueError
+        If a discovered `Skill` subclass has no `name` set, or two
+        subclasses declare the same `name`.
+    """
     import scarlet_agentic_harness.skills as skills_pkg
 
     found: dict[str, Skill] = {}

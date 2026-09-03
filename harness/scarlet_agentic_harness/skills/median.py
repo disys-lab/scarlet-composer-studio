@@ -26,6 +26,22 @@ _READY_MSG_TYPE = "median_contribution_ready"
 
 
 class MedianSkill(Skill):
+    """
+    Reference `Skill`: the median of numbers held privately across workers.
+
+    Median is not an associative reduction (you cannot combine two
+    workers' local medians into the global median the way you can
+    combine two local sums), so it can't be built on `Federator` the way
+    `SumSkill` is. Instead: every worker sorts its local partition and
+    `Map`s it under its own agent id; the randomly-assigned coordinator
+    waits for the other workers to signal readiness on the local bus,
+    then `AllGather`s every partition and does a real k-way merge.
+
+    Where each worker's numbers come from: `skills.local_data.local_numbers`
+    (a `LOCAL_NUMBERS` env var, comma-separated floats) - a deliberate
+    placeholder, not a permanent design choice.
+    """
+
     name = "median"
     description = (
         "Compute the median of the real numbers held privately across all "
@@ -40,9 +56,11 @@ class MedianSkill(Skill):
     # the default for every skill, not a median-specific choice.
 
     def scarlet_names(self, mapper_name: str) -> list[str]:
+        """Backed by a single `Mapper`. Returns `[mapper_name]`."""
         return [mapper_name]
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """Sort this worker's local numbers, `Map` them, and signal readiness to the coordinator."""
         sorted_local = sorted(local_numbers())
 
         mapper = ctx.mapper(
@@ -73,6 +91,7 @@ class MedianSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """Run `_coordinate`, then release the router queue for this `request_id` regardless of outcome."""
         try:
             return self._coordinate(ctx, request, workers)
         finally:
@@ -82,6 +101,17 @@ class MedianSkill(Skill):
             ctx.buses.local_router.forget(request["request_id"])
 
     def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Wait for every worker's readiness signal, then `AllGather` and k-way-merge their sorted partitions.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <median>, "detail": ...}`` on
+            success; ``{"status": "error", "detail": ..., "retryable": ...}``
+            on a Map failure, missing workers, cancellation, or an
+            AllGather failure.
+        """
         ready_from: set[str] = set()
         # Reported before anything has checked in, not just after the
         # first one - a check-in arriving in that early window should

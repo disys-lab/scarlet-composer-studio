@@ -5,10 +5,54 @@ import numpy as np
 
 class ScarletBase:
     """
-    Base class for all Scarlets. Handles env var validation, Redis config,
-    and node identity resolution. License activation is not required in the
-    open source release — set KEYGEN_PUBLIC_KEY only if running against the
+    Base class for all Scarlets.
+
+    Handles env var validation, Redis config, and node identity
+    resolution. License activation is not required in the open source
+    release — set ``KEYGEN_PUBLIC_KEY`` only if running against the
     commercial license server.
+
+    Parameters
+    ----------
+    name : str, optional
+        Scarlet name (Redis namespace). Default ``"ScarletBase"``.
+    composer : bool, optional
+        `True` for the Composer UI's own usage (skips agent-specific
+        setup: `app_id`, node address resolution, `RedisLogger`
+        identity). Default `False`.
+
+    Attributes
+    ----------
+    SUM, MUL, MAX, MIN : callable
+        Reduction operations usable with `Mapper.Reduce`/`Federator`'s
+        `op` parameter.
+    scarletName : str
+        This instance's Redis namespace, as passed to `name`.
+    config : configparser.ConfigParser or dict
+        Parsed contents of ``SCARLET_CONFIG_FILE`` if set, else `{}`.
+    debug : bool
+        When `True`, skips Redis connection requirements entirely (no
+        `REDIS_HOST`/`REDIS_PORT`/`REDIS_AUTH_TOKEN` validation).
+    CHUNK_SIZE : int
+        Byte size used when chunking large values for Redis storage.
+        Default `16384`.
+    address : str
+        This node's resolved address — see `_resolveNodeAddress`.
+    redisDBHost, redisDBPort, redisDBPwd : str
+        Redis connection details, read from `REDIS_HOST`/`REDIS_PORT`/
+        `REDIS_AUTH_TOKEN` (or their `REDIS_DB_*` aliases). Only
+        populated when `debug` is `False`.
+    scarletDataExpiry : int
+        TTL in seconds for values this scarlet writes to Redis. Default
+        `3600`, overridable via `SCARLET_DATA_EXPIRY`.
+    app_id : str
+        Campaign identifier, from `APP_ID` env var. Only set when
+        `composer` is `False`.
+    managerHost, managerPort : str
+        Gustavo manager address, from `MANAGER_HOST`/`MANAGER_PORT` -
+        used by `_resolveNodeAddress`'s step 2.
+    start_time : float or None
+        `time.time()` at construction, when `composer` is `False`.
     """
 
     SUM = operator.add
@@ -46,6 +90,17 @@ class ScarletBase:
         self._initScarlet()
 
     def _initScarlet(self):
+        """
+        Populate config/Redis/identity attributes from `config` and the environment.
+
+        Called once, from `__init__`.
+
+        Raises
+        ------
+        Exception
+            If `debug` is `False` and `REDIS_HOST`/`REDIS_PORT`/
+            `REDIS_AUTH_TOKEN` (or their `REDIS_DB_*` aliases) aren't set.
+        """
         self.debug = False
 
         if "APP" in self.config:
@@ -96,10 +151,22 @@ class ScarletBase:
 
     def _resolveNodeAddress(self):
         """
-        Resolve stable node address in priority order:
-          1. NODE_ADDRESS env var (set explicitly by Gustavo app config)
-          2. /api/v2/getNodeInfo endpoint on the Scarlet Composer Tornado server
-          3. Local hostname IP (fallback)
+        Resolve this node's stable address.
+
+        Priority order:
+          1. `NODE_ADDRESS` env var (set explicitly by Gustavo app config)
+          2. ``/api/v2/getNodeInfo`` endpoint on the Composer UI's
+             background-server (queried via `managerHost`/`managerPort`)
+          3. Local hostname IP (fallback; ``"127.0.0.1"`` if even that fails)
+
+        A successful step-2 resolution also sets `NODE_ADDRESS` and
+        (if unset) `DEVICE_GROUP` in `os.environ`, so later constructs in
+        the same process skip a redundant call.
+
+        Returns
+        -------
+        str
+            The resolved node address.
         """
         node_address = os.environ.get("NODE_ADDRESS")
         if node_address:
@@ -130,18 +197,42 @@ class ScarletBase:
 
     def acquireMode(self):
         """
-        Returns the backend mode for this scarlet.
-        Open source release supports Redis only ('pure-hybrid').
-        IPFS and blockchain backends are not included in this release.
+        Return the storage backend mode for this scarlet.
+
+        Open source release supports Redis only. IPFS and blockchain
+        backends are not included in this release.
+
+        Returns
+        -------
+        str
+            Always ``"pure-hybrid"`` in this release.
         """
         return "pure-hybrid"
 
     def performOperation(self, modelLocal, globalModel, operation):
+        """
+        Apply a reduction `operation` to `modelLocal` and `globalModel`.
+
+        Parameters
+        ----------
+        modelLocal : numpy.ndarray
+        globalModel : numpy.ndarray
+        operation : callable
+            Must be one of `SUM`, `MUL`, `MAX`, `MIN` (i.e. a member of
+            `opArray`); anything else is rejected.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            `operation(modelLocal, globalModel)`, or `None` if
+            `operation` isn't a recognized reduction.
+        """
         if operation not in self.opArray:
             return None
         return operation(modelLocal, globalModel)
 
     def printLog(self):
+        """Log this instance's config file, debug/chunking settings, and (if `debug` is `False`) Redis host/port."""
         logging.info(f"SCARLET_CONFIG_FILE={self.configFile}")
         logging.info(f"DEBUG={self.debug}, CHUNK_SIZE={self.CHUNK_SIZE}, MULT={self.MULT}")
         if not self.debug:

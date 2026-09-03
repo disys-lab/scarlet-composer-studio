@@ -102,6 +102,13 @@ class Messenger:
         Messages are stored under sequence-numbered keys:
             <msg_ns>:{targetAgentId}:{seqNum}
         The tail pointer (<msg_ns>:tail:{targetAgentId}) is atomically incremented.
+
+        Parameters
+        ----------
+        targetAgentId : str
+            `agentId` of the recipient.
+        message : dict
+            JSON-serializable message body.
         """
         seq = self._nextSeq(targetAgentId)
         key = f"{self._msg_ns}:{targetAgentId}:{seq}"
@@ -124,14 +131,33 @@ class Messenger:
         """
         Check inbox for messages addressed to this agent.
 
-        Non-blocking by default (timeout=0). Returns the next unread message
-        as a dict, or None if the inbox is empty. Automatically acks on return.
-        Inbox continuity is preserved across restarts via the head pointer in Redis.
+        Non-blocking by default. Automatically acks on return. Inbox
+        continuity is preserved across restarts via the head pointer in
+        Redis.
+
+        Parameters
+        ----------
+        timeout : float, optional
+            Seconds to poll for a message before giving up. `0` (the
+            default) checks once and returns immediately.
+
+        Returns
+        -------
+        dict or None
+            The next unread message, or `None` if the inbox is empty
+            after `timeout`.
         """
         return self._pollInbox(timeout)
 
     def Broadcast(self, message):
-        """Send a message to all currently registered agents."""
+        """
+        Send a message to every currently registered agent (except self).
+
+        Parameters
+        ----------
+        message : dict
+            JSON-serializable message body.
+        """
         status = self.GatherStatus()
         if not status:
             return
@@ -142,10 +168,14 @@ class Messenger:
     def ReportStatus(self, status):
         """
         Write this agent's status and capabilities to the registry.
+
         Called at startup and periodically by the heartbeat thread.
 
+        Parameters
+        ----------
         status : dict
-            Should include at minimum: {"status": "online", "capabilities": [...]}
+            Should include at minimum
+            ``{"status": "online", "capabilities": [...]}``.
         """
         self._last_status = status   # preserve so heartbeat can re-publish
         record = {
@@ -163,8 +193,12 @@ class Messenger:
 
     def GatherStatus(self):
         """
-        Collect registration records from all agents on this bus.
-        Returns a dict keyed by agentId.
+        Collect registration records from every agent on this bus.
+
+        Returns
+        -------
+        dict
+            Registration records keyed by `agentId`.
         """
         try:
             r = redisConnect()
@@ -187,7 +221,8 @@ class Messenger:
     def Register(self):
         """
         Write a liveness record to the registry.
-        Called on init and by the heartbeat thread every 30 seconds.
+
+        Called on `__init__` and by the heartbeat thread every 30 seconds.
         """
         record = {
             "agent_id":     self.agentId,
@@ -223,9 +258,12 @@ class Messenger:
 
         Returns
         -------
-        dict with keys:
-            "tools"    : list of tool definition dicts (name, description, parameters)
-            "handlers" : dict of {tool_name: callable}
+        dict
+            ``{"tools": [...], "handlers": {...}}`` - `tools` is a list of
+            tool-definition dicts (`name`, `description`, `parameters`);
+            `handlers` maps each tool `name` to the callable that
+            implements it (`Send`/`Receive`/`Broadcast`/`ReportStatus`/
+            `GatherStatus`).
         """
         tools = [
             {
@@ -289,7 +327,19 @@ class Messenger:
     # ------------------------------------------------------------------ #
 
     def _nextSeq(self, targetAgentId):
-        """Atomically increment and return the tail sequence number for targetAgentId."""
+        """
+        Atomically increment and return the tail sequence number for `targetAgentId`.
+
+        Parameters
+        ----------
+        targetAgentId : str
+
+        Returns
+        -------
+        int
+            The new sequence number, or a millisecond timestamp as a
+            fallback if Redis is unreachable.
+        """
         try:
             r = redisConnect()
             return r.incr(f"{self._msg_ns}:tail:{targetAgentId}")
@@ -298,7 +348,18 @@ class Messenger:
             return int(time.time() * 1000)
 
     def _pollInbox(self, timeout=0):
-        """Read the next message from this agent's inbox. Returns dict or None."""
+        """
+        Read the next message from this agent's inbox.
+
+        Parameters
+        ----------
+        timeout : float, optional
+            Seconds to poll before giving up. Default `0`.
+
+        Returns
+        -------
+        dict or None
+        """
         try:
             r = redisConnect()
             head_key = f"{self._msg_ns}:head:{self.agentId}"
@@ -336,17 +397,32 @@ class Messenger:
             return None
 
     def _ack(self, r, seqNum):
-        """Advance the head pointer to mark seqNum as consumed."""
+        """
+        Advance the head pointer to mark `seqNum` as consumed.
+
+        Parameters
+        ----------
+        r : redis.Redis
+            Open Redis connection.
+        seqNum : int
+        """
         try:
             r.set(f"{self._msg_ns}:head:{self.agentId}", seqNum)
         except Exception as e:
             RedisLogger.error(f"[{self.scarletName}] _ack failed: {e}")
 
     def _startHeartbeat(self, interval=30):
-        """Start a background daemon thread that refreshes the registry every interval seconds.
+        """
+        Start a background daemon thread that refreshes the registry every `interval` seconds.
 
-        Uses ReportStatus with the last-known status dict when available so that
-        capabilities set by the application are not silently erased by the liveness tick.
+        Uses `ReportStatus` with the last-known status dict when
+        available, so capabilities set by the application aren't
+        silently erased by the liveness tick.
+
+        Parameters
+        ----------
+        interval : float, optional
+            Seconds between heartbeats. Default `30`.
         """
         def _beat():
             while True:

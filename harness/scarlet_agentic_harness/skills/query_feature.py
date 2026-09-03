@@ -37,6 +37,25 @@ _RESULT_MSG_TYPE = "query_feature_result"
 
 
 class QueryFeatureSkill(Skill):
+    """
+    One skill, not one per connector type, for reading a data source a worker knows about locally.
+
+    Answers "does *this* worker have the source named `source_name`",
+    not an open tag search across the fleet - that's a separate,
+    semantic problem solved by `AgentDialogue` instead. A caller that
+    already knows which name it wants invokes this skill with that name.
+
+    Shaped like `skills.combine.CombineSkill` (no Mapper/Federator, no
+    readiness handshake) but with `SumSkill`/`MedianSkill`'s
+    contribute/coordinate split *inverted*: `contribute` only runs real
+    work on the one worker (if any) whose local config actually has
+    `source_name` - every other dispatched worker self-filters and
+    sends nothing at all. `coordinate` therefore waits for the *first*
+    real response and returns it immediately; silence until timeout
+    means no worker in the dispatched group holds that source, a real
+    "not found", not a transient failure.
+    """
+
     name = "query_feature"
     description = (
         "Query a data source this agent already knows the name of - either "
@@ -68,6 +87,14 @@ class QueryFeatureSkill(Skill):
     coordinate_timeout = 15.0
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """
+        Self-filter on ``params["source_name"]``; if this worker has it locally, run the query and reply.
+
+        Sends nothing if this worker doesn't have `source_name` in its
+        own local config - not even a "not applicable" message. For a
+        `mode: broker` entry, relays via `HarnessContext.query_data_source`
+        instead of querying in-process.
+        """
         params = request.get("params", {})
         source_name = params["source_name"]
         query_payload = params.get("query_payload", {})
@@ -95,12 +122,26 @@ class QueryFeatureSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """Run `_coordinate`, then release the router queue for this `request_id` regardless of outcome."""
         try:
             return self._coordinate(ctx, request)
         finally:
             ctx.buses.local_router.forget(request["request_id"])
 
     def _coordinate(self, ctx: HarnessContext, request: dict) -> dict:
+        """
+        Wait for the first worker holding ``source_name`` to reply, and return its answer.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <query result>, "detail": ...}``
+            from the first responder; ``{"status": "error", "detail": ..., "retryable": ...}``
+            if the responder's query failed, or if nothing responds
+            within `coordinate_timeout` (treated as a real "not found",
+            not retryable - not a timeout waiting on stragglers, since
+              nobody in the dispatched group has this source locally).
+        """
         source_name = request.get("params", {}).get("source_name", "<unknown>")
         deadline = time.time() + self.coordinate_timeout
         while time.time() < deadline:

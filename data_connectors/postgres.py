@@ -26,6 +26,33 @@ from data_connectors.base import Connector, config_value
 
 
 class PostgresConnector(Connector):
+    """
+    `Connector` for PostgreSQL via `psycopg2`, raw SQL passthrough.
+
+    Plain username/password auth over TLS (Postgres's own standard
+    `sslmode`) - unlike MS SQL, there's no Windows-specific integrated-auth
+    convention to mirror here. The credential lives entirely in this
+    connector's own configuration, never passed in from a caller, never
+    returned to one - same property as every other `Connector`.
+
+    `psycopg2-binary` bundles its own `libpq`, so no system-level Postgres
+    client library is needed in the broker image.
+
+    Parameters
+    ----------
+    config : dict or None, optional
+        Per-instance config dict (`local_config.py`, `mode: local`
+        entries) with keys ``host``, ``port``, ``database``, ``user``,
+        ``password``, ``sslmode``. When `None` (the broker's own usage),
+        each falls back to the matching ``POSTGRES_*`` env var - see
+        `data_connectors.base.config_value`.
+
+    Attributes
+    ----------
+    conn_kwargs : dict
+        Keyword arguments passed to `psycopg2.connect` on every query.
+    """
+
     def __init__(self, config: dict | None = None):
         self.conn_kwargs = {
             "host": config_value(config, "host", "POSTGRES_HOST", required=True),
@@ -37,6 +64,31 @@ class PostgresConnector(Connector):
         }
 
     def query(self, payload: dict) -> dict:
+        """
+        Run a raw SQL statement and return its result set.
+
+        Parameters
+        ----------
+        payload : dict
+            Must include a ``query`` key holding the raw SQL string. No
+            query-type restriction is enforced here - composer-api's
+            ``/authorize`` check bounds who can reach this broker at all,
+            not what they can run once authorized.
+
+        Returns
+        -------
+        dict
+            ``{"columns": [...], "rows": [[...], ...]}``, built from
+            ``cursor.description``/``fetchall()``. Non-native-JSON types
+            (`Decimal`, `datetime`, `UUID`, etc.) are coerced to `str`.
+            A statement with no result set (e.g. non-`SELECT`) returns
+            empty `columns`/`rows` rather than raising.
+
+        Raises
+        ------
+        ValueError
+            If `payload` has no ``query`` key.
+        """
         sql = payload.get("query")
         if not sql:
             raise ValueError("payload must include a 'query' string")
@@ -63,11 +115,19 @@ class PostgresConnector(Connector):
             conn.close()
 
     def list_tags(self) -> list:
-        """Real, live table/column names via information_schema - not the
-        query() path, so this never touches actual row data, only schema.
-        Excludes Postgres's own system schemas (pg_catalog,
-        information_schema) - only user tables are "tags" worth
-        surfacing."""
+        """
+        List tables and their columns via `information_schema`.
+
+        Real, live schema introspection - not the `query` path, so this
+        never touches actual row data, only schema. Excludes Postgres's
+        own system schemas (``pg_catalog``, ``information_schema``) -
+        only user tables are "tags" worth surfacing.
+
+        Returns
+        -------
+        list of dict
+            One entry per table: ``{"table": "<schema>.<name>", "columns": [...]}``.
+        """
         conn = psycopg2.connect(**self.conn_kwargs)
         try:
             cursor = conn.cursor()

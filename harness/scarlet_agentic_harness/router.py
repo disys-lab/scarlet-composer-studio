@@ -64,6 +64,55 @@ from scarlet_agentic_harness.timeout_watcher import TimeoutWatcher
 
 
 class MessageRouter:
+    """
+    The single owner of `Receive` for one `Messenger` bus.
+
+    scarlets' `Messenger` is a strict per-agent FIFO with an
+    unconditional ack on read - no peek, no filtering, no "put it back
+    if it's not mine". That's fine as long as exactly one logical waiter
+    calls `Receive` for the whole lifetime of a request - it stops being
+    safe the moment two skill invocations are in flight on the same
+    agent/bus concurrently: whichever call happens to run at the right
+    moment dequeues, and irreversibly consumes, a message meant for the
+    other.
+
+    `MessageRouter` fixes this by making exactly one background thread
+    the sole caller of a bus's `Receive`, demultiplexing each message
+    in-process to per-key queues (key is normally a `request_id`) that
+    callers poll instead of touching the bus directly. Keys are
+    auto-vivified on first sight from either side (a waiter calling
+    `receive_for` before the message arrives, or the poller seeing the
+    message before anyone asks for it), so no message carrying a
+    recognized key is ever dropped for arriving "too early". Messages
+    `key_fn` decides aren't request-scoped go to `default_handler`
+    instead.
+
+    Parameters
+    ----------
+    bus : scarlets.messaging.Messenger
+        Becomes the *only* thing calling `bus.Receive` from this point
+        on - nothing else may call it directly without racing this
+        router's poller.
+    key_fn : callable
+        ``msg -> key or None``. `None` means "not request-scoped",
+        always routed to `default_handler` regardless of whether any
+        queue exists.
+    default_handler : callable or None, optional
+        Mutable - may be set/replaced after construction (`worker`'s
+        entrypoint sets this once it knows how to dispatch skill
+        invocations; `Buses` itself has no opinion on dispatch).
+    poll_timeout : float, optional
+        Seconds per `bus.Receive` poll. Default `1.0`.
+    timeout_scan_interval : float, optional
+        Passed straight to `TimeoutWatcher`. A deadline shorter than
+        this doesn't fire any sooner - it just waits for the next scan.
+        Default `0.5`.
+
+    Attributes
+    ----------
+    default_handler : callable or None
+    """
+
     def __init__(
         self,
         bus,
@@ -72,24 +121,6 @@ class MessageRouter:
         poll_timeout: float = 1.0,
         timeout_scan_interval: float = 0.5,
     ):
-        """
-        bus: a Messenger instance - becomes the *only* thing calling
-          bus.Receive() from this point on. Nothing else may call
-          bus.Receive() directly without racing this router's poller.
-        key_fn: msg -> key or None. None means "not request-scoped", always
-          routed to default_handler regardless of whether any queue exists.
-        default_handler: mutable, may be set/replaced after construction
-          (worker.py's entrypoint sets this once it knows how to dispatch
-          skill invocations - Buses itself has no opinion on dispatch).
-        timeout_scan_interval: passed straight to TimeoutWatcher - see its
-          docstring. Previously hardcoded (TimeoutWatcher's own 0.5s
-          default, unreachable from here at all) - found to matter in
-          practice while forcing a real end-to-end deliberation test: a
-          deadline shorter than this scan interval doesn't fire any
-          sooner, it just waits for the next scan. Exposed here, and
-          threaded from Buses/HarnessConfig, instead of only reachable by
-          poking a router's private _watcher attribute.
-        """
         self._bus = bus
         self._key_fn = key_fn
         self.default_handler = default_handler
@@ -104,10 +135,21 @@ class MessageRouter:
 
     def receive_for(self, key, timeout: float) -> dict | None:
         """
-        One-shot poll for the next message matching `key`, mirroring
-        Messenger.Receive(timeout=...)'s contract exactly (None on timeout)
-        so call sites keep their existing polling-loop shape - only the
-        object they call it on changes.
+        Block for the next message matching `key`.
+
+        Mirrors `Messenger.Receive`'s ``timeout=...`` contract exactly
+        (`None` on timeout) so call sites keep their existing
+        polling-loop shape - only the object they call it on changes.
+
+        Parameters
+        ----------
+        key : object
+        timeout : float
+            Seconds to wait before giving up.
+
+        Returns
+        -------
+        dict or None
         """
         q = self._queue_for(key)
         try:
@@ -123,20 +165,29 @@ class MessageRouter:
         on_timeout: Callable[[], None] | None = None,
     ) -> None:
         """
-        Register callback to fire, on a new thread, the next time a message
-        matching key arrives. Non-blocking - registers and returns.
+        Register `callback` to fire, on a new thread, the next time a message matching `key` arrives.
 
-        If a message matching key already arrived and is sitting unclaimed
-        in key's queue (e.g. from before this registration - the same
-        "doesn't matter which came first" guarantee receive_for() gets),
-        the oldest one is drained and the callback fires with it right
-        away, still on a new thread rather than the caller's - and no
-        timeout is scheduled in that case, since the wait is already over.
+        Non-blocking - registers and returns. If a message matching
+        `key` already arrived and is sitting unclaimed in its queue
+        (from before this registration - same "doesn't matter which
+        came first" guarantee `receive_for` gets), the oldest one is
+        drained and `callback` fires with it right away, still on a new
+        thread rather than the caller's - no timeout is scheduled in
+        that case, since the wait is already over.
 
-        timeout/on_timeout: if given, on_timeout fires (on a new thread) if
-        no matching message arrives within `timeout` seconds. Mutually
-        exclusive with callback ever firing for this registration - see
-        the module docstring's double-fire prevention.
+        Parameters
+        ----------
+        key : object
+        callback : callable
+            Called with the matching message dict, on a new thread.
+        timeout : float or None, optional
+            If given, `on_timeout` fires (on a new thread) if no
+            matching message arrives within this many seconds. Mutually
+            exclusive with `callback` ever firing for this registration
+            - whichever happens first wins, the other never fires (see
+            class summary's double-fire prevention).
+        on_timeout : callable or None, optional
+            Called with no arguments if `timeout` elapses first.
         """
         pending = None
         with self._lock:
@@ -153,11 +204,16 @@ class MessageRouter:
 
     def forget(self, key) -> None:
         """
-        Drop the queue and any pending callback for `key`, and cancel any
-        scheduled timeout for it. Call once a request is fully done
-        (success or error) - keys are UUIDs minted per request, so without
-        this the router leaks one queue (and possibly one never-fired
-        callback or timeout) per request for the lifetime of the process.
+        Drop the queue and any pending callback for `key`, and cancel any scheduled timeout for it.
+
+        Call once a request is fully done (success or error) - keys are
+        UUIDs minted per request, so without this the router leaks one
+        queue (and possibly one never-fired callback or timeout) per
+        request for the lifetime of the process.
+
+        Parameters
+        ----------
+        key : object
         """
         with self._lock:
             self._queues.pop(key, None)
@@ -165,11 +221,25 @@ class MessageRouter:
         self._watcher.cancel(key)
 
     def stop(self) -> None:
+        """Stop the polling thread and the underlying `TimeoutWatcher`, joining the poll thread (up to 2s)."""
         self._stop.set()
         self._thread.join(timeout=2)
         self._watcher.stop()
 
     def _make_timeout_handler(self, key, on_timeout: Callable[[], None] | None) -> Callable[[], None]:
+        """
+        Build the callback `TimeoutWatcher` invokes when `key`'s timeout fires.
+
+        Parameters
+        ----------
+        key : object
+        on_timeout : callable or None
+
+        Returns
+        -------
+        callable
+            A zero-argument handler safe to pass to `TimeoutWatcher.schedule`.
+        """
         def _handler():
             # Whoever successfully pops the callback under the lock is the
             # one that actually happened - the real message and a
@@ -184,17 +254,19 @@ class MessageRouter:
         return _handler
 
     def _queue_for(self, key) -> queue.Queue:
+        """Get (creating if needed) the queue for `key`. Acquires `_lock` itself."""
         with self._lock:
             return self._queue_for_locked(key)
 
     def _queue_for_locked(self, key) -> queue.Queue:
-        # Caller must already hold self._lock.
+        """Get (creating if needed) the queue for `key`. Caller must already hold `_lock`."""
         q = self._queues.get(key)
         if q is None:
             q = self._queues[key] = queue.Queue()
         return q
 
     def _run(self) -> None:
+        """Poll `_bus.Receive` in a loop until `stop` is called, routing each message by `key_fn`."""
         while not self._stop.is_set():
             msg = self._bus.Receive(timeout=self._poll_timeout)
             if not msg:

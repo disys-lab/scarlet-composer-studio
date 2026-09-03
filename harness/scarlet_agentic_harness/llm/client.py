@@ -34,6 +34,31 @@ from scarlet_agentic_harness.config import HarnessConfig
 
 
 class LLMClient:
+    """
+    Thin OpenAI-compatible LLM client, implementing the `scarlet_minting.ChatClient` protocol.
+
+    Deliberately not vLLM-specific or litellm-specific - both (and
+    everything else in this ecosystem) speak the same
+    ``/v1/chat/completions`` shape, so a plain `openai` SDK client
+    pointed at a configurable `base_url` works for either.
+
+    Parameters
+    ----------
+    config : HarnessConfig
+        Must have `llm_base_url` set.
+
+    Attributes
+    ----------
+    model : str
+        `config.llm_model`, or ``"default"`` if unset.
+
+    Raises
+    ------
+    ValueError
+        If `config.llm_base_url` is unset - raised clearly rather than
+        constructing a client that would silently do nothing.
+    """
+
     def __init__(self, config: HarnessConfig):
         if not config.llm_base_url:
             raise ValueError(
@@ -47,6 +72,30 @@ class LLMClient:
         )
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """
+        Send one chat turn to the configured model.
+
+        Normalizes both directions to/from a plain canonical dict shape
+        (`_to_wire`/`_from_wire`) rather than exposing the OpenAI SDK's
+        raw Pydantic response objects - this is what makes
+        `head.converse`'s loop testable with a scripted fake client that
+        has never seen the `openai` package at all.
+
+        Parameters
+        ----------
+        messages : list of dict
+            Canonical-shape message history: ``{"role": "user", "content": "<text>"}``,
+            ``{"role": "assistant", "content": <str|None>, "tool_calls": [...]}``,
+            or ``{"role": "tool", "tool_call_id": str, "content": <dict>}``.
+        tools : list of dict or None, optional
+            Tool definitions the model may call.
+
+        Returns
+        -------
+        dict
+            The model's turn in canonical assistant-message shape:
+            ``{"role": "assistant", "content": ..., "tool_calls": [...]}``.
+        """
         wire_messages = [_to_wire(m) for m in messages]
         kwargs = {"model": self.model, "messages": wire_messages}
         if tools:
@@ -56,6 +105,19 @@ class LLMClient:
 
 
 def _to_wire(m: dict) -> dict:
+    """
+    Convert one canonical-shape message to the OpenAI wire format.
+
+    Parameters
+    ----------
+    m : dict
+        A canonical-shape message (see `LLMClient.chat`).
+
+    Returns
+    -------
+    dict
+        The OpenAI SDK's wire-format message dict.
+    """
     role = m["role"]
     if role == "assistant" and m.get("tool_calls"):
         return {
@@ -76,6 +138,19 @@ def _to_wire(m: dict) -> dict:
 
 
 def _from_wire(message) -> dict:
+    """
+    Convert one OpenAI SDK response message to the canonical shape.
+
+    Parameters
+    ----------
+    message : openai.types.chat.ChatCompletionMessage
+        The raw SDK response message object.
+
+    Returns
+    -------
+    dict
+        Canonical-shape assistant message (see `LLMClient.chat`).
+    """
     tool_calls = []
     if getattr(message, "tool_calls", None):
         for tc in message.tool_calls:

@@ -44,30 +44,48 @@ from typing import Callable, Protocol
 
 
 class ChatClient(Protocol):
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
+    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """
+        Parameters
+        ----------
+        messages : list of dict
+        tools : list of dict or None, optional
+
+        Returns
+        -------
+        dict
+        """
+        ...
 
 
 def _system_prompt(agent_id: str, context: dict) -> str:
     """
-    Establishes identity before the responder's LLM call, not just context.
-    Found via a real-LLM test (tests/test_real_llm_dialogue.py): without
-    this, a real model given only a bare "Local context: {...}" system
-    message answered like a third party asked to interpret someone else's
-    report handed to it ("I don't actually have visibility into this
-    distributed system... I'm reading the context you provided in the
-    prompt") - accurate as a description of the API call, but exactly
-    backwards for what any grounded reply needs to sound like: the injected
-    context IS this agent's own real state, and it should answer as
-    itself, directly, not hedge about lacking visibility into data that
-    was in fact just handed to it as its own.
+    Build the system prompt for a responder's grounded reply.
 
-    Deliberately says nothing about *what kind* of message this is (status,
-    a question, a negotiation, anything else) - head.py's check-in is the
-    only caller today, but this module's own generic message envelope (see
-    the module docstring) exists so AgentDialogue isn't locked to that one
-    use case, and this prompt shouldn't be either. Whatever the incoming
-    content actually is/asks is in `history` already (see _respond()) -
-    the model reasons about that directly, same as any other turn.
+    Establishes identity before the responder's LLM call, not just
+    context. Found via a real-LLM test: without this, a real model given
+    only a bare "Local context: {...}" system message answered like a
+    third party asked to interpret someone else's report handed to it,
+    instead of speaking as itself, directly, about its own real state.
+
+    Deliberately says nothing about *what kind* of message this is
+    (status, a question, a negotiation, anything else) - `head`'s
+    check-in is the only caller today, but `AgentDialogue`'s own generic
+    message envelope exists so it isn't locked to that one use case, and
+    this prompt shouldn't be either.
+
+    Parameters
+    ----------
+    agent_id : str
+    context : dict
+        This agent's own real, current state, as returned by
+        `AgentDialogue`'s ``context_fn``.
+
+    Returns
+    -------
+    str
     """
     lines = [
         f"You are agent {agent_id!r}. Another agent has sent you a message as part of a "
@@ -87,25 +105,40 @@ def _system_prompt(agent_id: str, context: dict) -> str:
 
 
 class AgentDialogue:
+    """
+    Generalized agent-to-agent natural-language conversation.
+
+    The same LLM-mediated "narrate, decide, respond" loop
+    `head.converse` already runs between a human and the head,
+    generalized so any two agents can have it, riding the same buses
+    everything else uses. One generic message envelope (type
+    ``"agent_message"``, carrying only `conversation_id` + free-form
+    `content`) rather than a new fixed-schema message type per use case.
+
+    Grounding: a responder's reply is not free-floating narration -
+    `context_fn` (if given) is called fresh on every incoming message
+    and its result is injected as real local context before the LLM
+    reasons about what to say.
+
+    Parameters
+    ----------
+    bus : scarlets.messaging.Messenger
+        A single bus (e.g. `Buses.global_bus` or `Buses.local_bus`) -
+        one `AgentDialogue` per bus. Replies go out on this same bus.
+    llm_client : ChatClient
+    context_fn : callable or None, optional
+        Called fresh before every reply this agent formulates (not
+        before messages it merely relays); its return value grounds
+        that reply in real local state. Omitting it means replies are
+        ungrounded narration only.
+    """
+
     def __init__(
         self,
         bus,
         llm_client: ChatClient,
         context_fn: Callable[[], dict] | None = None,
     ):
-        """
-        bus: a single Messenger instance (buses.global_bus or
-          buses.local_bus) - one AgentDialogue per bus, matching how
-          MessageRouter is one-per-bus too. Replies go out on this same bus.
-        llm_client: anything with .chat(messages, tools=None) -> dict (see
-          llm/client.py's canonical message shape) - typed structurally, not
-          as the concrete LLMClient class, for the same testability reason
-          head.converse()'s llm_client argument is.
-        context_fn: called fresh before every reply this agent formulates,
-          not before messages it merely relays - its return value (a plain
-          dict) is what grounds that reply in real local state. Optional;
-          omitting it means replies are ungrounded narration only.
-        """
         self._bus = bus
         self._llm_client = llm_client
         self._context_fn = context_fn or (lambda: {})
@@ -116,9 +149,21 @@ class AgentDialogue:
     def start(self, target_agent_id: str, opening_message: str, on_reply: Callable[[str, str], None]) -> str:
         """
         Send the first message of a new conversation. Non-blocking.
-        on_reply(content, sender) fires once, on a new thread, when the
-        other side answers - call start()/reply() again from inside it to
-        continue, or don't, to let the conversation end there.
+
+        Parameters
+        ----------
+        target_agent_id : str
+        opening_message : str
+        on_reply : callable
+            ``(content, sender) -> None``, fired once, on a new thread,
+            when the other side answers. Call `start`/`reply` again from
+            inside it to continue, or don't, to let the conversation end
+            there.
+
+        Returns
+        -------
+        str
+            The new `conversation_id`.
         """
         conv_id = str(uuid.uuid4())
         with self._lock:
@@ -129,8 +174,20 @@ class AgentDialogue:
         return conv_id
 
     def reply(self, target_agent_id: str, conv_id: str, message: str, on_reply: Callable[[str, str], None]) -> None:
-        """Continue a conversation you started, after hearing back - same
-        registration discipline as start(), same conv_id."""
+        """
+        Continue a conversation you started, after hearing back.
+
+        Same registration discipline as `start`, same `conv_id`.
+
+        Parameters
+        ----------
+        target_agent_id : str
+        conv_id : str
+            The `conversation_id` returned by the original `start` call.
+        message : str
+        on_reply : callable
+            ``(content, sender) -> None``.
+        """
         with self._lock:
             self._waiting[conv_id] = on_reply
         self._bus.Send(target_agent_id, {
@@ -139,10 +196,19 @@ class AgentDialogue:
 
     def handle(self, msg: dict) -> None:
         """
-        Wire this into a bus's default_handler (see worker.start_dispatch())
-        for "agent_message" traffic. Always fast and non-blocking itself -
-        both branches below spawn their own thread, so a caller never needs
-        to remember to do that.
+        Route one incoming ``"agent_message"``, as either a reply or a new conversation.
+
+        Wire this into a bus's `default_handler` (see
+        `worker.start_dispatch`) for ``"agent_message"`` traffic. Always
+        fast and non-blocking itself - both branches spawn their own
+        thread, so a caller never needs to remember to do that. Ignores
+        (returns immediately for) any message whose ``type`` isn't
+        ``"agent_message"``.
+
+        Parameters
+        ----------
+        msg : dict
+            A message as delivered by `Messenger.Receive`.
         """
         body = msg.get("body", {})
         if body.get("type") != "agent_message":
@@ -160,6 +226,17 @@ class AgentDialogue:
         threading.Thread(target=self._respond, args=(conv_id, sender, content), daemon=True).start()
 
     def _respond(self, conv_id: str, sender: str, content: str) -> None:
+        """
+        Generate and send a grounded LLM reply to an incoming message this agent didn't initiate.
+
+        Parameters
+        ----------
+        conv_id : str
+        sender : str
+            `agentId` to reply to.
+        content : str
+            The incoming message content.
+        """
         with self._lock:
             history = self._sessions.setdefault(conv_id, [])
         history = list(history)  # work on a local copy, write back under lock below
@@ -178,9 +255,17 @@ class AgentDialogue:
         self._bus.Send(sender, {"type": "agent_message", "conversation_id": conv_id, "content": reply_text})
 
     def forget(self, conv_id: str) -> None:
-        """Drop tracked state for a conversation - call once you know it's
-        concluded (e.g. the initiator decided not to reply again), same
-        cleanup discipline as router.py/conversation_store.py's forget()."""
+        """
+        Drop tracked state for a conversation.
+
+        Call once you know it's concluded (e.g. the initiator decided
+        not to reply again), same cleanup discipline as
+        `router.MessageRouter.forget`/`conversation_store.ConversationStore.forget`.
+
+        Parameters
+        ----------
+        conv_id : str
+        """
         with self._lock:
             self._waiting.pop(conv_id, None)
             self._sessions.pop(conv_id, None)

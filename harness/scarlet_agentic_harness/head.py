@@ -79,18 +79,46 @@ from scarlet_agentic_harness.skills.base import Skill
 
 
 class ChatClient(Protocol):
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
+    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """
+        Parameters
+        ----------
+        messages : list of dict
+        tools : list of dict or None, optional
+
+        Returns
+        -------
+        dict
+        """
+        ...
 
 
 def _deliberate(llm_client: ChatClient, coordinator_reply: str, coordinate_timeout: float) -> bool:
     """
-    True = keep waiting, False = retry now. A single, narrow LLM call -
-    not converse()'s tool-calling loop, this isn't about choosing a skill,
-    it's about weighing one piece of qualitative evidence. Defaults to
-    False (retry) whenever the model's answer isn't clearly "wait" - the
-    conservative choice, matching every other default-to-safe convention
-    in this codebase (e.g. Skill results default to not-retryable unless
-    explicitly marked otherwise).
+    Weigh a single check-in reply and decide whether to keep waiting.
+
+    A single, narrow LLM call - not `converse`'s tool-calling loop, this
+    isn't about choosing a skill, it's about weighing one piece of
+    qualitative evidence.
+
+    Parameters
+    ----------
+    llm_client : ChatClient
+    coordinator_reply : str
+        The coordinator's answer to a status check-in.
+    coordinate_timeout : float
+        The skill's `coordinate_timeout`, included in the prompt for
+        context.
+
+    Returns
+    -------
+    bool
+        `True` to keep waiting, `False` to retry now. Defaults to
+        `False` (retry) whenever the model's answer isn't clearly
+        "wait" - the conservative choice, matching every other
+        default-to-safe convention in this codebase.
     """
     prompt = (
         f"A distributed computation's coordinator has not produced a final "
@@ -111,11 +139,28 @@ def _compose_checkin_question(
     check_in_num: int, max_check_ins: int,
 ) -> str:
     """
-    Composes the head's own opening check-in question - real LLM reasoning,
-    not a fixed template, so the question itself can vary with the
-    situation instead of asking the same fixed sentence every time. Falls
-    back to a plain, functional question if the model returns nothing
-    usable, so a check-in can never silently stall on an empty reply.
+    Compose the head's own opening check-in question.
+
+    Real LLM reasoning, not a fixed template, so the question itself can
+    vary with the situation instead of asking the same fixed sentence
+    every time.
+
+    Parameters
+    ----------
+    llm_client : ChatClient
+    skill_name : str
+    request_id : str
+    coordinate_timeout : float
+    check_in_num : int
+        0-indexed check-in round, for prompt context.
+    max_check_ins : int
+
+    Returns
+    -------
+    str
+        The question to send. Falls back to a plain, functional
+        question if the model returns nothing usable, so a check-in can
+        never silently stall on an empty reply.
     """
     prompt = (
         f"A distributed {skill_name!r} computation (request {request_id}) hasn't produced "
@@ -140,15 +185,31 @@ def _deliberate_or_followup(
     allow_followup: bool,
 ) -> dict:
     """
-    The multi-turn sibling of _deliberate(): given the whole check-in
-    conversation so far (not just the latest reply), decide whether to
-    keep waiting, retry now, or ask a genuine follow-up before deciding -
-    real reasoning over open-ended text either way, never a keyword match
-    or a fixed script. allow_followup is False once check_in_max_turns is
-    reached, forcing a real decision instead of stalling in a loop.
-    Defaults to retry (the conservative choice - see _deliberate()'s
-    docstring) whenever the model's answer doesn't clearly parse as one of
-    the allowed actions.
+    Decide whether to keep waiting, retry, or ask a follow-up, given the whole check-in conversation so far.
+
+    The multi-turn sibling of `_deliberate` - reasons over the full
+    transcript, not just the latest reply, never a keyword match or a
+    fixed script.
+
+    Parameters
+    ----------
+    llm_client : ChatClient
+    transcript : list of dict
+        ``[{"speaker": "head"|"coordinator", "content": str}, ...]``.
+    skill_name : str
+    coordinate_timeout : float
+    allow_followup : bool
+        `False` once `check_in_max_turns` is reached, forcing a real
+        decision instead of stalling in a loop.
+
+    Returns
+    -------
+    dict
+        ``{"action": "wait"}``, ``{"action": "retry"}``, or (only when
+        `allow_followup`) ``{"action": "followup", "question": str}``.
+        Defaults to `"retry"` (the conservative choice) whenever the
+        model's answer doesn't clearly parse as one of the allowed
+        actions.
     """
     convo = "\n".join(
         f"{'You' if turn['speaker'] == 'head' else 'Coordinator'}: {turn['content']}"
@@ -183,20 +244,47 @@ def _deliberate_or_followup(
 
 
 def _default_scarlet_description(skill: Skill, params: dict, name: str) -> str:
+    """
+    Fixed, non-LLM fallback description for a scarlet.
+
+    Parameters
+    ----------
+    skill : Skill
+    params : dict
+    name : str
+
+    Returns
+    -------
+    str
+    """
     return f"Scarlet {name!r} backing a {skill.name!r} computation (params={params!r})."
 
 
 def _compose_scarlet_description(llm_client: ChatClient, skill: Skill, params: dict, name: str) -> str:
     """
-    Real LLM reasoning, not fixed text - same rationale as
-    _compose_checkin_question(). The scarlet's description is fed directly
-    into every agent's context window (see register_scarlet_definition()'s
-    docstring), so this is grounded in the skill's own description/params
-    rather than reused verbatim across every invocation, and asks for
-    something concrete about the data contract rather than a restatement of
-    what the skill does. Falls back to a plain, functional description if
-    the model returns nothing usable - same convention as every other LLM
-    call in this module.
+    Generate a scarlet's description via real LLM reasoning, not fixed text.
+
+    The description is fed directly into every agent's context window
+    (see `scarlets.utils.ScarletUtils.register_scarlet_definition`), so
+    this is grounded in the skill's own description/params rather than
+    reused verbatim across every invocation, and asks for something
+    concrete about the data contract rather than a restatement of what
+    the skill does.
+
+    Parameters
+    ----------
+    llm_client : ChatClient
+    skill : Skill
+    params : dict
+        This invocation's actual parameters.
+    name : str
+        The scarlet name being described.
+
+    Returns
+    -------
+    str
+        Falls back to `_default_scarlet_description` if the model
+        returns nothing usable.
     """
     prompt = (
         f"You're about to dispatch a distributed {skill.name!r} computation "
@@ -215,16 +303,30 @@ def _compose_scarlet_description(llm_client: ChatClient, skill: Skill, params: d
 
 def _register_scarlets(skill: Skill, params: dict, mapper_name: str, llm_client: "ChatClient | None") -> None:
     """
-    Mints every scarlet this attempt's skill.contribute()/coordinate() will
-    construct - before dispatch, on the head, with a real description -
-    rather than leaving registration to happen lazily (and blankly) the
-    first time some worker constructs its own ctx.mapper()/ctx.federator().
-    A no-op for skills that don't declare any (scarlet_names() defaults to
-    []). See Skill.scarlet_names()'s docstring for why the *names* are
-    still assigned by run_skill() deterministically (mapper_name is
-    request_id-based, never LLM-authored) while only the description is
-    generated - an LLM-invented name would have nothing forcing it to match
-    the literal Redis key a worker's own code actually touches.
+    Pre-register every scarlet this attempt's `contribute`/`coordinate` will construct.
+
+    Done before dispatch, on the head, with a real description - rather
+    than leaving registration to happen lazily (and blankly) the first
+    time some worker constructs its own `ctx.mapper`/`ctx.federator`.
+    Names are always assigned deterministically by `run_skill`
+    (`mapper_name` is request_id-based, never LLM-authored); only the
+    *description* is LLM-generated when `llm_client` is given.
+
+    Parameters
+    ----------
+    skill : Skill
+    params : dict
+    mapper_name : str
+        This attempt's base scarlet name, passed to `Skill.scarlet_names`.
+    llm_client : ChatClient or None
+        When given, description generation uses
+        `_compose_scarlet_description`; otherwise
+        `_default_scarlet_description`.
+
+    Notes
+    -----
+    A no-op for skills that don't declare any names (`scarlet_names`
+    defaults to `[]`).
     """
     names = skill.scarlet_names(mapper_name)
     if not names:
@@ -260,56 +362,70 @@ def run_skill(
 ) -> None:
     """
     Dispatch one invocation of `skill` across currently-registered workers.
+
     Does not block and does not return the result - `on_result` fires
-    exactly once, on some later thread, with the final result dict (shape:
-    {"status": "ok"/"error", ...}), whether that's success, a
-    non-retryable failure, or exhausting every retry attempt. Despite the
-    module name, nothing here is actually head-specific - it only ever
-    touches the `config`/`buses` it's handed, which is exactly what lets a
-    worker call this too (see HarnessContext.invoke_skill()) to dispatch a
-    skill across its own peers on its own initiative, with no head
-    involvement at all. Workers are discovered fresh via GatherStatus() on
-    every attempt, per DESIGN_v3.md section 8.5 - never a hardcoded
-    topology, which is exactly what lets a retry naturally exclude a worker
-    that went offline mid-computation without any special-cased "remove
-    this worker" logic.
+    exactly once, on some later thread, with the final result dict
+    (shape: ``{"status": "ok"/"error", ...}``), whether that's success,
+    a non-retryable failure, or exhausting every retry attempt. Despite
+    the module name, nothing here is actually head-specific - it only
+    ever touches the `config`/`buses` it's handed, which is exactly what
+    lets a worker call this too (see `HarnessContext.invoke_skill`) to
+    dispatch a skill across its own peers on its own initiative, with no
+    head involvement at all. Workers are discovered fresh via
+    `Buses.gather_workers` on every attempt - never a hardcoded
+    topology, which is exactly what lets a retry naturally exclude a
+    worker that went offline mid-computation.
 
-    A failed attempt is retried (fresh request_id, fresh worker survey,
-    possibly a new coordinator) only if the result carries `"retryable":
-    True` - set by a Skill's coordinate() for failures that are plausibly
-    transient (a contributor never signaled ready, an AllGather/Aggregate
-    call failed, the coordinator never replied at all). Failures that would
-    just happen again regardless of which worker runs them (e.g. combine's
-    "bad expression" errors) are not retryable, and skills that don't set
-    the flag at all default to not-retryable - the conservative choice, so
-    a skill written before this existed doesn't get retried by accident.
-    "no worker currently reports this capability" is a precondition check
-    before any dispatch happens, not a mid-computation failure, so it is
-    never retried here.
+    A failed attempt is retried (fresh `request_id`, fresh worker
+    survey, possibly a new coordinator) only if the result carries
+    ``"retryable": True`` - set by a `Skill`'s `coordinate` for failures
+    that are plausibly transient. Failures that would just happen again
+    regardless of which worker runs them are not retryable, and skills
+    that don't set the flag at all default to not-retryable. "no worker
+    currently reports this capability" is a precondition check before
+    any dispatch happens, not a mid-computation failure, so it is never
+    retried here.
 
-    reply_slack: extra seconds beyond the coordinator's own coordinate_timeout
-    that the head waits for a reply before giving up on that attempt - real
-    slack accounts for message round-trip time on top of the coordinator's
-    internal deadline. Overridable mainly so tests can shrink it instead of
-    waiting through a real ~10s timeout to prove retry behavior.
+    Deliberation (optional, via `dialogue`/`llm_client`): a plain
+    timeout normally means an immediate, mechanical retry. When both are
+    given, a timeout instead starts a real check-in conversation with
+    the coordinator, grounded in the coordinator's own real state.
+    Neither side of that conversation is fixed text -
+    `_compose_checkin_question` writes the opening question,
+    `_deliberate_or_followup` weighs the exchange and decides to wait,
+    retry, or ask a genuine follow-up. Bounded on three axes so this can
+    never hang: `max_check_ins` caps check-ins per attempt,
+    `check_in_max_turns` caps question/answer rounds within one
+    check-in, `check_in_timeout` bounds the whole check-in exchange.
 
-    dialogue/llm_client: optional. If both are given, a timeout doesn't
-    immediately mean retry - see the module docstring's "Deliberation"
-    section. Omit either (the default) for the old, purely mechanical
-    behavior. max_check_ins/check_in_timeout/check_in_max_turns only
-    matter when both are given - see the same section for what they
-    bound. check_in_max_turns caps how many question/answer rounds a
-    single check-in conversation may run before a decision is forced -
-    both the opening question and any follow-up are themselves composed
-    by an LLM call (_compose_checkin_question/_deliberate_or_followup),
-    not fixed text, so the exchange can genuinely vary with what the
-    coordinator actually says instead of following one fixed script.
-
-    max_attempts/reply_slack/max_check_ins/check_in_timeout/
-    check_in_max_turns each default to None, meaning "use config's value"
-    (HarnessConfig.max_attempts etc. - see config.py, settable via env var
-    for a real deployment) - pass an explicit value here (as tests do) to
-    override just this one call.
+    Parameters
+    ----------
+    skill : Skill
+    params : dict
+        This invocation's parameters.
+    config : HarnessConfig
+    buses : Buses
+    on_result : callable
+        ``(result: dict) -> None``, fired exactly once.
+    max_attempts : int or None, optional
+        Defaults to `config.max_attempts` when `None`.
+    reply_slack : float or None, optional
+        Extra seconds beyond the coordinator's own `coordinate_timeout`
+        that the head waits for a reply before giving up on an attempt -
+        accounts for message round-trip time on top of the
+        coordinator's internal deadline. Defaults to
+        `config.reply_slack` when `None`.
+    dialogue : AgentDialogue or None, optional
+        See "Deliberation" above. Omit (with `llm_client`) for the old,
+        purely mechanical retry-on-timeout behavior.
+    llm_client : ChatClient or None, optional
+    max_check_ins : int or None, optional
+        Defaults to `config.max_check_ins` when `None`. Only matters
+        when `dialogue`/`llm_client` are both given.
+    check_in_timeout : float or None, optional
+        Defaults to `config.check_in_timeout` when `None`.
+    check_in_max_turns : int or None, optional
+        Defaults to `config.check_in_max_turns` when `None`.
     """
     max_attempts = max_attempts if max_attempts is not None else config.max_attempts
     reply_slack = reply_slack if reply_slack is not None else config.reply_slack
@@ -489,10 +605,23 @@ def run_skill(
 
 
 class ConversationDidNotConclude(RuntimeError):
-    """Raised (via on_done's error argument, not a real raise across
-    threads) if the model keeps calling tools past max_turns without ever
-    producing a final answer - a real safety limit, not a soft warning:
-    without one, a model stuck in a tool-calling loop runs indefinitely."""
+    """
+    Raised when the model keeps calling tools past `max_turns` without ever producing a final answer.
+
+    Delivered via `converse`'s `on_done` error argument, not a real raise
+    across threads. A real safety limit, not a soft warning: without
+    one, a model stuck in a tool-calling loop runs indefinitely.
+
+    Parameters
+    ----------
+    message : str
+    messages : list of dict
+        Full transcript so far, for post-mortem.
+
+    Attributes
+    ----------
+    messages : list of dict
+    """
 
     def __init__(self, message: str, messages: list[dict]):
         super().__init__(message)
@@ -502,10 +631,16 @@ class ConversationDidNotConclude(RuntimeError):
 @dataclass
 class ConverseResult:
     """
-    converse()'s result (delivered via on_done, not a return value).
-    `answer` is the final string; `messages` is the full canonical-shape
-    transcript (every turn, every tool call, every tool result) - kept for
-    post-hoc audit, not just what on_event saw as it happened.
+    `converse`'s result, delivered via `on_done`, not a return value.
+
+    Attributes
+    ----------
+    answer : str
+        The final natural-language reply.
+    messages : list of dict
+        The full canonical-shape transcript (every turn, every tool
+        call, every tool result) - kept for post-hoc audit, not just
+        what `on_event` saw as it happened.
     """
     answer: str
     messages: list[dict] = field(default_factory=list)
@@ -513,13 +648,22 @@ class ConverseResult:
 
 class _Joiner:
     """
-    Collects N async tool-call results for one turn, then runs
-    `on_all_done` exactly once with every result, keyed by call id in the
-    turn's original order - not completion order, which varies now that
-    each tool call dispatches independently instead of one after another.
-    The decrement-and-check is done atomically under one lock so exactly
-    one thread ever observes "that was the last one", regardless of which
-    call's result arrives last.
+    Collect N async tool-call results for one turn, then run `on_all_done` exactly once.
+
+    Results are keyed by call id in the turn's original order - not
+    completion order, which varies now that each tool call dispatches
+    independently instead of one after another. The decrement-and-check
+    is done atomically under one lock so exactly one thread ever
+    observes "that was the last one", regardless of which call's result
+    arrives last.
+
+    Parameters
+    ----------
+    calls : list of dict
+        This turn's tool calls, each with an ``"id"`` key.
+    on_all_done : callable
+        ``(results_by_id: dict) -> None``, called once every call has a
+        result, with results in `calls`' original order.
     """
 
     def __init__(self, calls: list[dict], on_all_done: Callable[[dict], None]):
@@ -530,6 +674,14 @@ class _Joiner:
         self._lock = threading.Lock()
 
     def submit(self, call_id: str, result: dict) -> None:
+        """
+        Record one call's result; run `on_all_done` if this was the last one.
+
+        Parameters
+        ----------
+        call_id : str
+        result : dict
+        """
         with self._lock:
             self._results[call_id] = result
             self._remaining -= 1
@@ -552,41 +704,56 @@ def converse(
     dialogue: AgentDialogue | None = None,
 ) -> None:
     """
-    Turn one human message into zero or more skill invocations and a final
-    natural-language reply. Does not block and does not return anything -
-    `on_done(result, error)` fires exactly once, on some later thread, with
-    either a ConverseResult or a ConversationDidNotConclude (never both).
+    Turn one human message into zero or more skill invocations and a final natural-language reply.
 
-    A single call can involve multiple tool-call turns, and a single turn
-    can request multiple tool calls at once - those now dispatch
-    concurrently (via run_skill(), itself non-blocking) rather than one
-    after another, since nothing requires waiting for call 1's reply
-    before starting call 2 anymore. The turn only advances once every call
-    in it has replied (see _Joiner), and results are placed back into the
+    Does not block and does not return anything - ``on_done(result,
+    error)`` fires exactly once, on some later thread, with either a
+    `ConverseResult` or a `ConversationDidNotConclude` (never both).
+
+    A single call can involve multiple tool-call turns, and a single
+    turn can request multiple tool calls at once - those dispatch
+    concurrently (via `run_skill`, itself non-blocking) rather than one
+    after another. The turn only advances once every call in it has
+    replied (see `_Joiner`), and results are placed back into the
     transcript in the original call order regardless of which finished
     first, so the model always sees a deterministic conversation shape.
 
-    dialogue: optional - if given, every run_skill() call this conversation
-    makes gets deliberation on timeout (see run_skill()'s docstring)
-    instead of an immediate mechanical retry, reusing this same
-    `llm_client` for the deliberation call itself (no separate client
-    needed - it's the same backend either way).
+    `llm_client.chat` itself is still an ordinary blocking call - only
+    the bus-mediated waiting (skill results, and check-in replies) is
+    non-blocking. Blocking the thread currently running a turn for the
+    LLM round-trip doesn't stall anything else, since it isn't a
+    router's polling thread.
 
-    llm_client.chat() itself is still an ordinary blocking call - only the
-    bus-mediated waiting (skill results, and eventually check-in replies)
-    is non-blocking. Blocking the thread currently running a turn for the
-    LLM round-trip doesn't stall anything else, since it isn't a router's
-    polling thread.
+    Parameters
+    ----------
+    human_message : str
+    config : HarnessConfig
+    buses : Buses
+    skills : dict of str to Skill
+        Every skill this conversation may call, keyed by name.
+    llm_client : ChatClient
+    on_done : callable
+        ``(result: ConverseResult | None, error: Exception | None) -> None``.
+    max_turns : int, optional
+        Safety limit on tool-calling turns. Default `5`.
+    on_event : callable or None, optional
+        If given, called synchronously (on whichever thread is running
+        that turn, in order for that turn) for:
 
-    If `on_event` is given, it is called synchronously (on whichever thread
-    is running that turn, in order for that turn) for:
-      - {"type": "narration", "turn": i, "content": ...} whenever a turn
-        carries non-empty content alongside tool calls.
-      - {"type": "tool_call", "turn": i, "call_id", "skill", "params"}
-        right before dispatch.
-      - {"type": "tool_result", "turn": i, "call_id", "skill", "result"}
-        right after a reply arrives.
-      - {"type": "final", "content": ...} when the loop concludes.
+        - ``{"type": "narration", "turn": i, "content": ...}`` whenever
+          a turn carries non-empty content alongside tool calls.
+        - ``{"type": "tool_call", "turn": i, "call_id", "skill", "params"}``
+          right before dispatch.
+        - ``{"type": "tool_result", "turn": i, "call_id", "skill", "result"}``
+          right after a reply arrives.
+        - ``{"type": "final", "content": ...}`` when the loop concludes.
+    store : ConversationStore or None, optional
+        Defaults to a fresh `ConversationStore` if not given.
+    dialogue : AgentDialogue or None, optional
+        If given, every `run_skill` call this conversation makes gets
+        deliberation on timeout instead of an immediate mechanical
+        retry, reusing this same `llm_client` for the deliberation call
+        itself.
     """
     store = store if store is not None else ConversationStore()
     conv_id = str(uuid.uuid4())

@@ -6,10 +6,19 @@ import time
 
 class Mapper(RedisScarlet):
     """
-    Mapper Scarlet maps keys to values.
+    Distributed key-value store — workers write independently, any node reads all values.
 
-    Delegates all storage operations to a RedisScarlet backend.
+    Delegates all storage operations to a `RedisScarlet` backend.
     In the open source release only pure-hybrid (Redis) mode is supported.
+
+    Parameters
+    ----------
+    scarletName : str
+        Redis-namespaced name for this Mapper. Agents that share the same
+        `scarletName` participate in the same shared object.
+    description : str, optional
+        Human-readable description registered alongside this scarlet's
+        definition (surfaced in the Composer UI's Scarlets page).
 
     Methods
     -------
@@ -35,44 +44,46 @@ class Mapper(RedisScarlet):
         self.super.loadContract()
 
     def _registerNewKey(self, key):
-        """registers new key by calling the corresponding underlying contract function
+        """
+        Register a new key with the underlying contract.
 
-        Attributes
+        Parameters
         ----------
-        key : string
-            value of key to be registered
+        key : str
+            Key to register.
 
+        Returns
+        -------
+        bool
+            Whether registration succeeded.
         """
         keyRegisterSuccess = self.super.contract.registerNewKey(key)
         return keyRegisterSuccess
 
     def Map(self, modelLocal, key, timeseries=False):
+        """
+        Write a value to a key.
 
-        """maps model parameters to a given key
-
-        Attributes
+        Parameters
         ----------
-        modelLocal : numpy array
-            the content concerning modelLocal
-
-        key : string
-            value of key to be registered
-
-        timeseries : boolean
-            whether to store these as time series data or not
+        modelLocal : numpy.ndarray
+            Value to write.
+        key : str
+            Key to write it under.
+        timeseries : bool, optional
+            If `True`, append a Unix-timestamp suffix to `key` and
+            register it as a new key rather than overwriting an existing
+            one, so successive calls accumulate a time series instead of
+            replacing the previous value. Default `False`.
 
         Returns
         -------
-
         successChunksList : list
-            concerns the chunks which were successfully mapped
-
-        status : boolean
-            status of the Map operation
-
-        exception : Exception
-            exception if any else it will be None
-
+            Chunks that were successfully mapped.
+        status : bool
+            Whether the operation succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
 
         if timeseries:
@@ -93,26 +104,23 @@ class Mapper(RedisScarlet):
         return successChunksList, True, None
 
     def AllGather(self, modelLocal=None):
-        """Performs an AllGather operation in which all the key-value pairs are obtained from the decentralized
-        infrastructure.
+        """
+        Read all key-value pairs currently stored.
 
-        Attributes
+        Parameters
         ----------
-        modelLocal : numpy array
-            the content concerning modelLocal
+        modelLocal : numpy.ndarray, optional
+            Passed through to the underlying `Pull` call per key; not
+            required for a plain read.
 
         Returns
         -------
-
         allgather_dict : dict
-            the dictionary containing all key value pairs
-
-        status : boolean
-            status of the Map operation
-
-        exception : Exception
-            exception if any else it will be None
-
+            All key-value pairs, keyed by the original `Map` key.
+        status : bool
+            Whether the operation succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         allgather_dict = {}
         try:
@@ -142,30 +150,28 @@ class Mapper(RedisScarlet):
             return allgather_dict, False, exception
 
     def Reduce(self, modelLocal, op):
-        """Performs a Reduce operation which comprises of an AllGather followed by an operation on all the values
-        obtained thus far. The choice of operations is SUM,MAX,MIN,MULT. In case of MAX,MIN and MULT it will be an
-        element wise operation.
+        """
+        `AllGather` followed by folding all values with `op`.
 
-        Attributes
+        `MAX`/`MIN`/`MUL` are applied element-wise; `SUM` sums.
+
+        Parameters
         ----------
-        modelLocal : numpy array
-            the content concerning modelLocal
-
-        op : operation
-            any one of the 4 operations SUM,MAX,MIN,MULT
+        modelLocal : numpy.ndarray
+            Initial value the fold starts from.
+        op : callable
+            One of `Mapper.SUM`, `Mapper.MAX`, `Mapper.MIN`, `Mapper.MUL`
+            (inherited from `ScarletBase` — see its `Attributes`).
 
         Returns
         -------
-
-        sumV : numpy array
-            final value after carrying out the operation sequentially on all values.
-
-        status : boolean
-            status of the Map operation
-
-        exception : Exception
-            exception if any else it will be None
-
+        sumV : numpy.ndarray
+            Result of folding `op` over every gathered value, starting
+            from `modelLocal`.
+        status : bool
+            Whether the operation succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         sumV = modelLocal
         allgather_dict, status, exception = self.AllGather(modelLocal)
@@ -177,22 +183,20 @@ class Mapper(RedisScarlet):
             return sumV, status, exception
 
     def resetAll(self, modelLocal):
-        """Resets all the key-value pairs
+        """
+        Overwrite every existing key with `modelLocal`.
 
-        Attributes
+        Parameters
         ----------
-        modelLocal : numpy array
-            the content concerning modelLocal
+        modelLocal : numpy.ndarray
+            Value to write to every existing key.
 
         Returns
         -------
-
         successChunksList : list
-            concerns the chunks which were successfully reset
-
-        exception : Exception
-            exception if any else it will be None
-
+            Chunks that were successfully reset.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         successChunksList = []
         try:
@@ -208,20 +212,15 @@ class Mapper(RedisScarlet):
         return successChunksList, None
 
     def clearAll(self):
-        """Clears all the key-value pairs
-
-        Attributes
-        ----------
+        """
+        Delete every key.
 
         Returns
         -------
-
         successChunksList : list
-            concerns the chunks which were successfully reset
-
-        exception : Exception
-            exception if any else it will be None
-
+            Per-key deletion results.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         successChunksList = []
         try:

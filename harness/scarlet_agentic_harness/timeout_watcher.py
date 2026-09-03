@@ -28,6 +28,23 @@ from typing import Callable
 
 
 class TimeoutWatcher:
+    """
+    One background thread scanning scheduled deadlines, instead of one thread per pending wait.
+
+    Generic "call this if nothing cancels it by this time" primitive -
+    has no knowledge of `MessageRouter`, keys' meaning, or callbacks'
+    purpose. `MessageRouter` owns the actual double-fire prevention
+    (cancelling a scheduled timeout when the real message arrives, and
+    clearing the real callback when a timeout fires instead).
+
+    Parameters
+    ----------
+    scan_interval : float, optional
+        Seconds between deadline scans - a real floor on how fast any
+        scheduled timeout can fire (a deadline shorter than this doesn't
+        fire any sooner, it just waits for the next scan). Default `0.5`.
+    """
+
     def __init__(self, scan_interval: float = 0.5):
         self._scan_interval = scan_interval
         self._deadlines: dict[object, tuple[float, Callable[[], None]]] = {}
@@ -37,23 +54,41 @@ class TimeoutWatcher:
         self._thread.start()
 
     def schedule(self, key, deadline: float, on_timeout: Callable[[], None]) -> None:
-        """Fire on_timeout() - on a new thread - if cancel(key) isn't called
-        before `deadline` (an absolute time.time() value, not a duration)."""
+        """
+        Fire `on_timeout`, on a new thread, if `cancel(key)` isn't called before `deadline`.
+
+        Parameters
+        ----------
+        key : object
+        deadline : float
+            Absolute `time.time()` value, not a duration.
+        on_timeout : callable
+            Called with no arguments if the deadline passes uncancelled.
+        """
         with self._lock:
             self._deadlines[key] = (deadline, on_timeout)
 
     def cancel(self, key) -> None:
-        """Remove a scheduled timeout - call this once whatever the timeout
-        was guarding against happened for a real reason (e.g. the awaited
-        message actually arrived)."""
+        """
+        Remove a scheduled timeout.
+
+        Call once whatever the timeout was guarding against happened for
+        a real reason (e.g. the awaited message actually arrived).
+
+        Parameters
+        ----------
+        key : object
+        """
         with self._lock:
             self._deadlines.pop(key, None)
 
     def stop(self) -> None:
+        """Stop the scanning thread, joining it (up to 2s)."""
         self._stop.set()
         self._thread.join(timeout=2)
 
     def _run(self) -> None:
+        """Scan `_deadlines` every `_scan_interval` seconds until `stop` is called, firing anything past its deadline."""
         while not self._stop.is_set():
             time.sleep(self._scan_interval)
             now = time.time()

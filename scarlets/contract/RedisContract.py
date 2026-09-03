@@ -60,46 +60,42 @@ from scarlets.contract.ContractBase import ContractBase
 
 class RedisContract(ContractBase):
     """
-    Base class for all types of Contracts. Contains all Contract attributes
+    `ContractBase` implementation storing chunks as Redis hashes.
+
+    Each ``(key, chunk)`` pair is stored at
+    ``{contractName}_key-value:{key}:{chunk}``, a hash with fields
+    ``updater``, ``content``, ``lastUpdatedTime``, expiring after
+    `scarletDataExpiry` seconds.
 
     Attributes
     ----------
-    key_list : list
-        list of keys
+    key_list : list of str
+        Cached list of keys, populated by `getMapperLength` and indexed
+        by `getKey`.
 
     Methods
     -------
-
-    * `load()`
-        Loads contract details from redis. Only done if debug is True.
-
-    * `registerNewKey(key)`
-        registers new key on contract
-
-    * `loadRedis()`
-        Connect to redis given redisDBHost,redisDBPort and redisDBPwd
-
-    * `setChunk(key, chunk, chunk_content, address)`
-        Set the chunk for a particular key
-
-    * `checkChunkExists(key, chunk)`
-        Check if the chunk exists for a particular key
-
-    * `getChunk(key, chunk)`
-        Get chunk for a particular key
-
-    * `getChunkUpdater(key, chunk)`
-        Get the updater (address) of chunk for a particular key
-
-    * `getLastUpdateTime(key, chunk)`
-        Get the last updated time of chunk for a particular key
-
-    * `getMapperLength()`
-        gets mapper length, i.e. number of unique keys on the mapper. applicable only in case of Mapper scarlets.
-
-    * `getKey()`
-        if given an index key_index, retrieves the key at that location. applicable in case of Mapper scarlets.
-
+    load()
+        No-op in this release (open-source builds skip the license/env
+        re-validation the commercial release performs here).
+    registerNewKey(key)
+        Register a new key on the contract.
+    loadRedis()
+        Connect to Redis using `redisDBHost`/`redisDBPort`/`redisDBPwd`.
+    setChunk(key, chunk, chunk_content, address)
+        Set one chunk's value.
+    checkChunkExists(key, chunk)
+        Check whether a chunk exists.
+    getChunk(key, chunk)
+        Get one chunk's value.
+    getChunkUpdater(key, chunk)
+        Get the address that last updated a chunk.
+    getLastUpdateTime(key, chunk)
+        Get a chunk's last-updated timestamp.
+    getMapperLength()
+        Count unique keys (Mapper scarlets only).
+    getKey(key_index)
+        Look up a key by index (Mapper scarlets only).
     """
 
     def __init__(self,contractname,redisDBHost,redisDBPort,redisDBPwd,defaultAccount,defaultPassword,debug,scarletDataExpiry):
@@ -110,6 +106,7 @@ class RedisContract(ContractBase):
         self.load()
 
     def load(self):
+        """No-op in the open source release — see class summary."""
         pass
 
 
@@ -157,19 +154,18 @@ class RedisContract(ContractBase):
     def registerNewKey(self, key):
 
         """
-        registers new key on contract
+        Register a new key on the contract.
 
         Parameters
         ----------
-        key : string
-            the key to be registered
+        key : str
+            The key to register.
 
         Returns
         -------
-
-        ret_val : boolean
-            represents whether the register method was successful on the SmartContract
-
+        bool
+            `True` if the key was newly registered, or already existed
+            and `debug` is `True`; `False` otherwise.
         """
 
         key = str(key)
@@ -187,20 +183,16 @@ class RedisContract(ContractBase):
 
     def loadRedis(self):
         """
-        Connect to redis given redisDBHost,redisDBPort and redisDBPwd
+        Connect to Redis using `redisDBHost`/`redisDBPort`/`redisDBPwd`.
 
         Returns
         -------
-
-        r : redis object
-            the object that can connect to redis
-
-        success : boolean
-            flag that indicates whether the connect succeeded
-
-        exception : Exception
-            the exception that is thrown in case of an error
-
+        r : redis.StrictRedis or None
+            The connected client, or `None` on failure.
+        success : bool
+            Whether the connection (and `PING`) succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         try:
             if self.debug:
@@ -218,32 +210,24 @@ class RedisContract(ContractBase):
 
     def setChunk(self, key, chunk, chunk_content, address):
         """
-        Set the chunk for a particular key
+        Set one chunk's value.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
-
-        chunk_content : string
-            binary string that represents the chunk content
-
-        address : string
-            the address of the agent setting the string
-
+        chunk_content : bytes
+            Binary content to store.
+        address : str
+            Address of the agent performing the write, stored as
+            `updater`.
 
         Returns
         -------
-
-        ret_val : boolean
-            flag that represents whether the set operation was successful or not
-
-        exception : Exception
-            Exception thrown in case of an error, None in case of no exception
+        bool
+            Whether the write succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
 
 
@@ -261,22 +245,19 @@ class RedisContract(ContractBase):
 
     def clearChunk(self, key, chunk):
         """
-        Clear chunk for a particular key
+        Delete one chunk, and its parent key entry if present.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
 
         Returns
         -------
-
-        ret_val : boolean
-            flag representing the success of operation
+        bool
+            Whether the chunk was found and deleted.
+        exception : str or None
+            Error message, if any; `None` on success.
         """
 
 
@@ -307,16 +288,14 @@ class RedisContract(ContractBase):
 
     def clearAll(self,):
         """
-        Clear chunk for a particular key
-
-        Parameters
-        ----------
+        Delete every chunk/key entry belonging to this contract.
 
         Returns
         -------
-
-        ret_val : boolean
-            flag representing the success of operation
+        bool
+            Whether the operation succeeded.
+        exception : str or None
+            Error message, if any; `None` on success.
         """
 
 
@@ -341,22 +320,16 @@ class RedisContract(ContractBase):
 
     def checkChunkExists(self, key, chunk):
         """
-        Check if the chunk exists for a particular key
+        Check whether a chunk exists.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
 
         Returns
         -------
-
-        ret_val : boolean
-            flag representing the existence of the flag
+        bool
         """
 
 
@@ -369,23 +342,18 @@ class RedisContract(ContractBase):
 
     def getChunk(self,key, chunk):
         """
-        Get chunk for a particular key
+        Get one chunk's stored content.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
 
         Returns
         -------
-
-        chunk_content : string
-            binary string representing the chunk content, defaults to empty string in case of failure
-
+        bytes
+            The chunk's `content` field, or `b""` if it doesn't exist or
+            Redis is unreachable.
         """
 
         r, status, exception = self.loadRedis()
@@ -399,23 +367,18 @@ class RedisContract(ContractBase):
 
     def getChunkUpdater(self,key, chunk):
         """
-        Get the updater (address) of chunk for a particular key
+        Get the address that last updated a chunk.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
 
         Returns
         -------
-
-        chunk_updater : string
-            address of the last updater, None in case of failure
-
+        str or None
+            The `updater` field, or `None` if the chunk doesn't exist or
+            Redis is unreachable.
         """
 
         r, status, exception = self.loadRedis()
@@ -428,23 +391,21 @@ class RedisContract(ContractBase):
 
     def getLastUpdateTime(self, key, chunk):
         """
-        Get the last updated time of chunk for a particular key
+        Get a chunk's last-updated timestamp.
 
         Parameters
         ----------
-
-        key : string
-           the key id
-
+        key : str
         chunk : int
-            the chunk id to be set
 
         Returns
         -------
-
-        lastUpdatedTime : string
-            time of the last update, empty string in case of failure
-
+        lastUpdatedTime : str
+            The stored `lastUpdatedTime` field.
+        exception : None
+            Always `None` on the success path; the method returns
+            ``""`` alone (no tuple) if the chunk doesn't exist or Redis
+            is unreachable.
         """
         r, status, exception = self.loadRedis()
         if status:
@@ -455,9 +416,16 @@ class RedisContract(ContractBase):
 
 
     def getMapperLength(self):
-
         """
-        gets mapper length, i.e. number of unique keys on the mapper. applicable only in case of Mapper scarlets.
+        Count unique keys registered on this contract.
+
+        Applicable only for Mapper scarlets. Refreshes `key_list` as a
+        side effect.
+
+        Returns
+        -------
+        int
+            Number of unique keys, or `0` if Redis is unreachable.
         """
 
         r, status, exception = self.loadRedis()
@@ -476,6 +444,18 @@ class RedisContract(ContractBase):
 
     def getKey(self,key_index):
         """
-        if given an index key_index, retrieves the key at that location. applicable in case of Mapper scarlets.
+        Look up a key by its index in `key_list`.
+
+        Applicable only for Mapper scarlets. Call `getMapperLength`
+        first to ensure `key_list` is populated.
+
+        Parameters
+        ----------
+        key_index : int
+
+        Returns
+        -------
+        str
+            The key at `key_index`.
         """
         return self.key_list[key_index]
