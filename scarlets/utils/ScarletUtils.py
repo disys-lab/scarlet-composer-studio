@@ -2,7 +2,25 @@ import logging, os, redis, json, time
 
 
 def redisConnect(decode_responses=False):
-    """Create and return a Redis client from environment variables."""
+    """
+    Create a Redis client from environment variables.
+
+    Parameters
+    ----------
+    decode_responses : bool, optional
+        Passed through to `redis.StrictRedis` - `True` decodes replies
+        to `str`, `False` (the default) leaves them as `bytes`.
+
+    Returns
+    -------
+    redis.StrictRedis
+
+    Raises
+    ------
+    Exception
+        If `REDIS_HOST`/`REDIS_PORT`/`REDIS_AUTH_TOKEN` (or their
+        `REDIS_DB_*` aliases) aren't set in the environment.
+    """
     redis_host = os.environ.get("REDIS_HOST") or os.environ.get("REDIS_DB_HOST")
     redis_port = os.environ.get("REDIS_PORT") or os.environ.get("REDIS_DB_PORT")
     redis_pwd = os.environ.get("REDIS_AUTH_TOKEN") or os.environ.get("REDIS_DB_PWD")
@@ -43,15 +61,21 @@ def register_scarlet_definition(
     Parameters
     ----------
     scarlet_name : str
-    scarlet_type : str       "mapper" or "messaging"
-    description  : str       Natural language contract — data format, key naming,
-                             usage intent. Fed directly into agent context windows.
-    attributes   : dict      Mode, expiry, and any other scarlet attributes.
-    expiry       : int|None  TTL in seconds for both the definition key and data.
-                             None means the definition persists indefinitely.
-    overwrite    : bool      If False (default), skip write when the key already
-                             exists so a head agent's rich description is not
-                             clobbered by workers joining later.
+    scarlet_type : str
+        ``"mapper"`` or ``"messaging"``.
+    description : str, optional
+        Natural language contract - data format, key naming, usage
+        intent. Fed directly into agent context windows.
+    attributes : dict, optional
+        Mode, expiry, and any other scarlet attributes. Defaults to
+        ``{"mode": "redis-scarlet"}`` if not given.
+    expiry : int or None, optional
+        TTL in seconds for the definition key. `None` (the default)
+        means the definition persists indefinitely.
+    overwrite : bool, optional
+        If `False` (the default), skip the write when the key already
+        exists, so a head agent's rich description isn't clobbered by
+        workers joining later with an empty description.
     """
     try:
         r = redisConnect(decode_responses=True)

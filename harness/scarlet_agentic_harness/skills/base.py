@@ -32,14 +32,39 @@ from scarlet_agentic_harness.context import HarnessContext
 
 
 class Skill(ABC):
+    """
+    The generalization unit for scarlet-agentic-harness.
+
+    Any single well-defined distributed computation the head can offer
+    to a human and delegate across workers is a `Skill`, expressed
+    entirely through scarlets primitives (`Mapper`/`Federator`/
+    `Messenger`, via `HarnessContext`) - never a side channel. A new
+    skill is a new module implementing this interface, without changing
+    `head`/`worker`'s dispatch logic at all.
+
+    Two handlers, invoked on different agents by the harness's generic
+    dispatch logic - a `Skill` implementation never talks to
+    `Messenger`'s routing machinery directly.
+
+    Attributes
+    ----------
+    name : str
+        Tool/skill name, used for dispatch and the LLM tool schema.
+    description : str
+        Natural-language description, used in the LLM tool schema.
+    parameters : dict
+        JSON-schema "parameters" block for the LLM tool-call definition.
+        Empty (the default) means the skill takes no arguments beyond
+        being invoked by name.
+    coordinate_timeout : float
+        Seconds `coordinate` should wait for peer contributions before
+        giving up. Per-skill because different skills have very
+        different expected completion times. Default `15.0`.
+    """
+
     name: str = ""
     description: str = ""
-    # JSON-schema "parameters" block for the LLM tool-call definition. Empty
-    # means the skill takes no arguments beyond being invoked by name.
     parameters: dict = {"type": "object", "properties": {}, "required": []}
-    # Seconds coordinate() should wait for peer contributions before giving
-    # up. Per-skill because different skills have very different expected
-    # completion times (a local sort vs. a long-running training round).
     coordinate_timeout: float = 15.0
 
     def coordinator_for(self, ctx: HarnessContext, workers: list[str]) -> str:
@@ -62,6 +87,17 @@ class Skill(ABC):
         cheap enough (e.g. folding a handful of Federator scalars) that the
         extra two message hops (dispatch-to-coordinator, result-back-to-head)
         aren't worth it - an explicit opt-in for that case, not the default.
+
+        Parameters
+        ----------
+        ctx : HarnessContext
+        workers : list of str
+            Agent ids currently reporting this skill's capability.
+
+        Returns
+        -------
+        str
+            The `agent_id` that will run `coordinate` for this invocation.
         """
         return random.choice(workers)
 
@@ -91,19 +127,75 @@ class Skill(ABC):
         rather than imported, since scarlets' Federator doesn't expose that
         naming scheme as a constant; if Federator's internal suffixes ever
         change, this needs updating too.
+
+        Parameters
+        ----------
+        mapper_name : str
+            The per-request base name `run_skill` assigns.
+
+        Returns
+        -------
+        list of str
+            Scarlet names this invocation will construct. `[]` (the
+            default) means this skill doesn't use a Mapper/Federator-
+            backed scarlet at all.
         """
         return []
 
     @abstractmethod
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """
+        Run on every worker asked to participate in this invocation.
+
+        Does local compute and publishes/signals via scarlets
+        primitives. No return value - the real result surfaces through
+        `Mapper`/`Messenger`, not a Python call stack, since `contribute`
+        and `coordinate` run in different processes, often on different
+        machines.
+
+        Parameters
+        ----------
+        ctx : HarnessContext
+        request : dict
+            The dispatch request - includes ``request_id``, ``skill``,
+            ``mapper_name``, ``coordinator``, ``workers``, ``params``.
+        """
         ...
 
     @abstractmethod
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Run on exactly one agent - the coordinator, decided per-invocation by `coordinator_for`.
+
+        Gathers contributions and returns the final result.
+
+        Parameters
+        ----------
+        ctx : HarnessContext
+        request : dict
+            The dispatch request (same shape as `contribute`'s).
+        workers : list of str
+            Agent ids participating in this invocation.
+
+        Returns
+        -------
+        dict
+            JSON-serializable result. Becomes (or is folded into) the
+            ``skill_result`` message sent back to the head. Should
+            include ``"status": "ok"`` on success, or ``"status":
+            "error"`` (optionally ``"retryable": True`` for transient
+            failures) on failure.
+        """
         ...
 
     def as_tool_schema(self) -> dict:
-        """OpenAI/vLLM-compatible tool definition for this skill."""
+        """
+        Build an OpenAI/vLLM-compatible tool definition for this skill.
+
+        Returns
+        -------
+        dict
+        """
         return {
             "type": "function",
             "function": {

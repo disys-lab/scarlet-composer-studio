@@ -6,35 +6,35 @@ import pickle, zlib
 
 class RedisScarlet(ScarletBase):
     """
-    Scarlet class for pure-hybrid mode, i.e. storage and pointer on the blockchain
+    Low-level storage primitive: chunked, compressed values over Redis.
+
+    Extends `ScarletBase` with `Push`/`Pull`/`Clear`/`ClearAll`, backed by
+    a `RedisContract`. In the open source release only pure-hybrid
+    (Redis) mode is supported.
+
+    Parameters
+    ----------
+    scarletName : str
+        Redis-namespaced name for this scarlet.
 
     Attributes
     ----------
-
-    super : ScarletBase
-        superclass is ScarletBase
-
-    lastUpdatedTime : list
-        list of unix timestamp for each chunk part of the model
-
-    contract : Contract
-        the contract object that handles communication with the SmartContracts
+    contract : RedisContract or None
+        The contract handling Redis reads/writes for this scarlet.
+        `None` until `loadContract` is called.
 
     Methods
     -------
-
-    * `_verifyScarletParameters()`
-        Verifies whether scarlet parameters match
-
-    * `loadContract()`
-        Loads contract details from remote DB
-
-    * `Pull(modelLocal, key="0x0", calcWD=False, average=False)`
-        Pull the global model from chain and update the local model
-
-    * `Push( modelLocal, key="0x0", wait4Tx=None)`
-        Push the local model to the chain.
-
+    loadContract()
+        (Re)connect `contract` to Redis.
+    Pull(modelLocal, key="0x0", average=False)
+        Read a chunk's value from Redis.
+    Push(modelLocal, key="0x0", wait4Tx=None)
+        Write a chunk's value to Redis.
+    Clear(key="0x0", wait4Tx=None)
+        Delete one chunk.
+    ClearAll(wait4Tx=None)
+        Delete every chunk.
     """
 
     def __init__(self, scarletName):
@@ -44,6 +44,7 @@ class RedisScarlet(ScarletBase):
         self.contract = None
 
     def loadContract(self):
+        """(Re)connect `contract` to Redis using this instance's current connection settings."""
         self.contract = RedisContract(
             self.scarletName,
             self.redisDBHost,
@@ -63,26 +64,24 @@ class RedisScarlet(ScarletBase):
     ):
 
         """
-        Pull the global model from chain and update the local model.
+        Read one chunk's value from Redis.
 
         Parameters
         ----------
-        modelLocal : numpy array
-            A unidimensional numpy array representing the local estimate
-        key: string
-            Used as key for Mapper
-        calcWD : bool
-            Boolean indicating whether to calculate weight difference with the global model
-        average : bool
-            Boolean indicating whether to average the global model with the local model or not
+        modelLocal : numpy.ndarray
+            Fallback value returned if `key` doesn't exist in Redis.
+        key : str, optional
+            Chunk key. Default ``"0x0"``.
+        average : bool, optional
+            Currently unused by this implementation. Default `False`.
 
         Returns
         -------
-        modelOut:
-            The updated model
-        numUpdatedChunks:
-            The number of chunks which were successfully pulled from global model
-
+        modelOut : numpy.ndarray
+            The value read from Redis (unpickled, decompressed), or
+            `modelLocal` if `key` wasn't found.
+        status : bool
+            Whether the read succeeded.
         """
 
         val = self.contract.checkChunkExists(key, 0)
@@ -100,23 +99,21 @@ class RedisScarlet(ScarletBase):
 
     def Push(self, modelLocal, key="0x0", wait4Tx=None):
         """
-        Push the local model to the chain.
+        Write one chunk's value to Redis (pickled, then zlib-compressed).
 
         Parameters
         ----------
-        modelLocal : numpy array
-            A unidimensional numpy array representing the local estimate
-        key: string
-            Used as key for Mapper
-        wait4Tx (optional): list
-            contains the wait4Tx bool as well as wait4TxRecieptTime
-            If empty, the config default is taken
-
+        modelLocal : numpy.ndarray
+            Value to write.
+        key : str, optional
+            Chunk key. Default ``"0x0"``.
+        wait4Tx : list, optional
+            Currently unused by this implementation.
 
         Returns
         -------
-        successChunksList:
-            List with one element, either 0/1 depending on whether the push was successful or not
+        list of bool
+            Single-element list: whether the write succeeded.
         """
 
         # check if any debug values have been sent in wait4Tx
@@ -135,21 +132,19 @@ class RedisScarlet(ScarletBase):
 
     def Clear(self, key="0x0", wait4Tx=None):
         """
-        Clears the scarlet.
+        Delete one chunk.
 
         Parameters
         ----------
-        key: string
-            Used as key for Mapper
-        wait4Tx (optional): list
-            contains the wait4Tx bool as well as wait4TxRecieptTime
-            If empty, the config default is taken
-
+        key : str, optional
+            Chunk key. Default ``"0x0"``.
+        wait4Tx : list, optional
+            Currently unused by this implementation.
 
         Returns
         -------
-        successChunksList:
-            List with one element, either 0/1 depending on whether the push was successful or not
+        list of bool
+            Single-element list: whether the delete succeeded.
         """
 
         # check if any debug values have been sent in wait4Tx
@@ -167,20 +162,17 @@ class RedisScarlet(ScarletBase):
 
     def ClearAll(self, wait4Tx=None):
         """
-        Clear all data of the scarlet.
+        Delete every chunk belonging to this scarlet.
 
         Parameters
         ----------
-
-        wait4Tx (optional): list
-            contains the wait4Tx bool as well as wait4TxRecieptTime
-            If empty, the config default is taken
-
+        wait4Tx : list, optional
+            Currently unused by this implementation.
 
         Returns
         -------
-        successChunksList:
-            List with one element, either 0/1 depending on whether the push was successful or not
+        list of bool
+            Single-element list: whether the delete succeeded.
         """
 
         # check if any debug values have been sent in wait4Tx

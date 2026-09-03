@@ -39,6 +39,25 @@ _READY_MSG_TYPE = "create_scarlet_contribution_ready"
 
 
 class CreateScarletSkill(Skill):
+    """
+    Mint a scarlet via the same generic `Skill` dispatch mechanism as median/sum.
+
+    Invocable by *any* agent - the head (via `head.run_skill`/`converse`,
+    as always), or any worker acting as coordinator or contributor (via
+    `HarnessContext.invoke_skill`), with no head involvement required at
+    all. Any agent can dispatch "I need a shared bucket for X" as a real
+    distributed request - contributors signal they're in, the
+    coordinator does the actual minting (real LLM reasoning over
+    name/type/description via `HarnessContext.mint_scarlet`), and the
+    concrete registered name flows back to whoever dispatched it.
+
+    Structurally identical to `SumSkill`/`MedianSkill` on purpose:
+    `contribute` signals readiness on the local bus exactly like they
+    do, `coordinate` waits for it, then does its one real piece of work
+    - here, "decide on and register a scarlet" instead of "reduce N
+    local values."
+    """
+
     name = "create_scarlet"
     description = (
         "Mint a new scarlet - a shared, Redis-backed bucket other agents can discover "
@@ -74,6 +93,7 @@ class CreateScarletSkill(Skill):
     coordinate_timeout = 15.0
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """No local computation - signal readiness that this worker is aware of the scarlet being established."""
         # No local computation to do - a contributor's only job is to
         # signal it's alive and aware of this shared resource being
         # established, same readiness-handshake shape as sum.py/median.py.
@@ -87,6 +107,7 @@ class CreateScarletSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """Run `_coordinate`, then release the router queue for this `request_id` regardless of outcome."""
         try:
             return self._coordinate(ctx, request, workers)
         finally:
@@ -94,6 +115,18 @@ class CreateScarletSkill(Skill):
             ctx.buses.local_router.forget(request["request_id"])
 
     def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Wait for every worker's readiness signal, then mint the scarlet via `HarnessContext.mint_scarlet`.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": {"name", "purpose", "artifact_kind"}, "detail": ...}``
+            on success; ``{"status": "error", "detail": ..., "retryable": ...}``
+            on missing workers, cancellation, or a minting failure
+            (treated as retryable - a fresh coordinator may have a
+            working LLM backend or better luck).
+        """
         ready_from: set[str] = set()
         ctx.report_progress(ready_count=0, expected_count=len(workers))
         deadline = time.time() + self.coordinate_timeout

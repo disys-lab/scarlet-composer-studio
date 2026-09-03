@@ -28,6 +28,23 @@ _RESULT_MSG_TYPE = "list_tags_result"
 
 
 class ListTagsSkill(Skill):
+    """
+    Dynamic counterpart to a data source's static `description`.
+
+    Given a `source_name` a caller already knows (from its own config,
+    the directory, or a peer's dialogue reply), returns what that
+    source's connector reports right now via
+    `data_connectors.base.Connector.list_tags` - real schema, not a
+    human-written guess.
+
+    Same shape as `skills.query_feature.QueryFeatureSkill` exactly
+    (self-filtering `contribute`, first-response-wins `coordinate`). One
+    real difference: `mode: broker` entries aren't supported yet - there's
+    no ``/list_tags`` HTTP route on the broker today (unlike `query`), so
+    `contribute` raises a clear, honest error for a matching `mode:
+    broker` entry rather than silently returning nothing.
+    """
+
     name = "list_tags"
     description = (
         "List the real, live tags/columns a data source actually has right now - "
@@ -47,6 +64,12 @@ class ListTagsSkill(Skill):
     coordinate_timeout = 15.0
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """
+        Self-filter on ``params["source_name"]``; if this worker has it locally, list its real tags and reply.
+
+        Sends nothing if this worker doesn't have `source_name` in its
+        own local config - not even a "not applicable" message.
+        """
         source_name = request.get("params", {})["source_name"]
 
         entry = local_config.find_source(source_name)
@@ -73,12 +96,25 @@ class ListTagsSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """Run `_coordinate`, then release the router queue for this `request_id` regardless of outcome."""
         try:
             return self._coordinate(ctx, request)
         finally:
             ctx.buses.local_router.forget(request["request_id"])
 
     def _coordinate(self, ctx: HarnessContext, request: dict) -> dict:
+        """
+        Wait for the first worker holding ``source_name`` to reply, and return its answer.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <tags>, "detail": ...}`` from
+            the first responder; ``{"status": "error", "detail": ..., "retryable": ...}``
+            if the responder failed to introspect, or if nothing
+            responds within `coordinate_timeout` (treated as a real "not
+            found", not retryable).
+        """
         source_name = request.get("params", {}).get("source_name", "<unknown>")
         deadline = time.time() + self.coordinate_timeout
         while time.time() < deadline:

@@ -28,6 +28,25 @@ from scarlet_agentic_harness.skills.safe_eval import SafeEvalError, safe_eval
 
 
 class CombineSkill(Skill):
+    """
+    Local, non-distributed arithmetic step deriving one value from already-computed skill results.
+
+    Deliberately generic rather than statistic-specific: the model
+    itself supplies both the `expression` (e.g. ``"s2/n - (s1/n)**2"``)
+    and the `variables` it binds, evaluated via
+    `skills.safe_eval.safe_eval` (AST-whitelisted, no `eval`, no
+    arbitrary code).
+
+    `contribute` is a no-op: combine has no per-worker local data to
+    gather. `coordinate` does the one and only real work, on a single
+    randomly-chosen worker (`Skill`'s base `coordinator_for` default) -
+    the head supplies the expression and values but never evaluates
+    them itself. No readiness handshake is needed (unlike
+    `MedianSkill`/`SumSkill`): combine depends on nothing from peer
+    workers, only on values already in the request, so `coordinate` can
+    answer immediately without touching the local bus at all.
+    """
+
     name = "combine"
     description = (
         "Evaluate a numeric arithmetic expression against a set of named "
@@ -59,9 +78,21 @@ class CombineSkill(Skill):
     }
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """No-op - combine has no per-worker data to gather."""
         pass  # no per-worker data to gather - see module docstring
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Evaluate ``request["params"]["expression"]`` against ``request["params"]["variables"]``.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <value>, "detail": ...}`` on
+            success; ``{"status": "error", "detail": ..., "retryable": False}``
+            if `expression` is missing or invalid - a logical/input
+            error, never transient, so never retryable.
+        """
         params = request.get("params", {})
         expression = params.get("expression")
         variables = params.get("variables", {})

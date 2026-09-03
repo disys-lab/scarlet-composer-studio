@@ -3,23 +3,34 @@ from scarlets.core.Mapper import Mapper
 
 class Federator(Mapper):
     """
+    Federated aggregation — workers post local models, the head aggregates.
 
-    Federator class for conducting federated learning
+    Extends `Mapper` with a fixed reduction `op`, applied automatically
+    on every `Aggregate` call, and a second `Mapper` (`mpr_global`)
+    holding the aggregated result.
+
+    Parameters
+    ----------
+    scarletName : str
+        Base name for this Federator. Two underlying Mapper scarlets are
+        constructed from it: ``{scarletName}_mapper_reducer`` (local
+        contributions) and ``{scarletName}_mapper_global`` (the
+        aggregated result).
+    op : callable
+        Reduction applied on every `Aggregate` call - one of
+        `Mapper.SUM`, `Mapper.MAX`, `Mapper.MIN`, `Mapper.MUL`.
 
     Attributes
     ----------
-    op : operation
-        The operation concerning the federation
-
+    op : callable
+        The reduction operation, as passed to `__init__`.
     mpr_global : Mapper
-        The mapper for storing the global model
+        The Mapper storing the aggregated global model.
 
     Methods
     -------
-
-    * `Aggregate(modelLocal)`
-        Aggregates all the local models present into the global model.
-
+    Aggregate(modelLocal)
+        Aggregate all local models into the global model.
     """
     def __init__(self,scarletName,op):
         self.op = op
@@ -31,25 +42,23 @@ class Federator(Mapper):
 
     def Aggregate(self,modelLocal):
         """
-        Aggregates all the local models present into the global model.
+        Post this worker's local model, then fold it and every other
+        contribution with `op` and store the result on `mpr_global`.
 
         Parameters
         ----------
-        modelLocal : numpy array
-            The local model that is used as input for the federated learning
+        modelLocal : numpy.ndarray
+            This worker's local contribution.
 
         Returns
         -------
-
-        sumV : numpy array
-            final value after carrying out the operation sequentially on all values.
-
-        status : boolean
-            status of the Map operation
-
-        exception : Exception
-            exception if any else it will be None
-
+        sumV : numpy.ndarray
+            The aggregated result (`op` applied across every worker's
+            contribution).
+        status : bool
+            Whether the operation succeeded.
+        exception : Exception or None
+            The exception raised, if any; `None` on success.
         """
         sumV, status, exception = self.Reduce(modelLocal, self.op)
 

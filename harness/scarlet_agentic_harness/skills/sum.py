@@ -35,6 +35,25 @@ _TRANSFORMS = {
 
 
 class SumSkill(Skill):
+    """
+    The first `Federator`-backed `Skill`, and the first to accept a parameter (`transform`).
+
+    Unlike median, sum *is* an associative reduction - `Federator`
+    exists for exactly this. But the coordinator is still a
+    randomly-assigned worker (the `Skill` base default, not the head),
+    so the shape mirrors `MedianSkill`'s: contributors `Map` their local
+    contribution and signal readiness on the local bus; the coordinator
+    waits for everyone, then `Aggregate`s.
+
+    ``transform`` is what makes this a genuine building block:
+    ``"identity"`` gives sum(x), ``"square"`` gives sum(x^2) - together
+    with `n` (reported alongside the total on every call), those are
+    exactly the three numbers a mean/variance/stddev needs, composable
+    from two `sum` calls plus a local `combine` step. No composition
+    code lives here on purpose - this skill only needs to know how to
+    sum, not what a caller does with two sums.
+    """
+
     name = "sum"
     description = (
         "Compute the sum of the real numbers held privately across all "
@@ -58,12 +77,20 @@ class SumSkill(Skill):
     coordinate_timeout = 15.0
 
     def scarlet_names(self, mapper_name: str) -> list[str]:
+        """
+        Backed by a `Federator`. Returns the two names its `__init__` actually constructs.
+
+        Must match what `Federator.__init__` constructs - see
+        `Skill.scarlet_names`'s docstring for why this can't just be
+        imported instead.
+        """
         # Must match what Federator.__init__ actually constructs (scarlets'
         # formulations/Federator.py) - see Skill.scarlet_names()'s docstring
         # for why this can't just be imported instead.
         return [f"{mapper_name}_mapper_reducer", f"{mapper_name}_mapper_global"]
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """Sum this worker's local numbers (after `transform`), `Map` `[total, count]`, and signal readiness."""
         transform_name = request.get("params", {}).get("transform", "identity")
         transform = _TRANSFORMS.get(transform_name, _TRANSFORMS["identity"])
         values = local_numbers()
@@ -94,6 +121,7 @@ class SumSkill(Skill):
         })
 
     def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """Run `_coordinate`, then release the router queue for this `request_id` regardless of outcome."""
         try:
             return self._coordinate(ctx, request, workers)
         finally:
@@ -103,6 +131,17 @@ class SumSkill(Skill):
             ctx.buses.local_router.forget(request["request_id"])
 
     def _coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Wait for every worker's readiness signal, then `Aggregate` their partial sums.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <sum>, "n": <element count>, "detail": ...}``
+            on success; ``{"status": "error", "detail": ..., "retryable": ...}``
+            on a Map failure, missing workers, cancellation, or an
+            Aggregate failure.
+        """
         ready_from: set[str] = set()
         # Reported before anything has checked in, not just after the
         # first one - a check-in arriving in that early window should

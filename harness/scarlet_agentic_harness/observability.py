@@ -23,8 +23,20 @@ from scarlets.core.Mapper import Mapper
 
 
 def activity_mapper(app_id: str) -> Mapper:
-    """One shared Mapper, scoped consistently by app_id so every agent in
-    the same campaign publishes to (and reads from) the same place."""
+    """
+    Build the shared `Mapper` every agent in a campaign publishes activity to.
+
+    Scoped consistently by `app_id` so every agent in the same campaign
+    publishes to (and reads from) the same place.
+
+    Parameters
+    ----------
+    app_id : str
+
+    Returns
+    -------
+    Mapper
+    """
     return Mapper(
         f"{app_id}_activity",
         description="Live per-agent in-flight request snapshot - see observability.py.",
@@ -32,8 +44,20 @@ def activity_mapper(app_id: str) -> Mapper:
 
 
 def snapshot(mapper: Mapper) -> dict:
-    """Read back every agent's last-published activity. Returns {} on
-    failure rather than raising - this is best-effort visibility, not
-    something dispatch/retry/cancellation logic depends on."""
+    """
+    Read back every agent's last-published activity.
+
+    Parameters
+    ----------
+    mapper : Mapper
+        As returned by `activity_mapper`.
+
+    Returns
+    -------
+    dict
+        Per-agent activity, keyed by agent id. `{}` on failure rather
+        than raising - this is best-effort visibility, not something
+        dispatch/retry/cancellation logic depends on.
+    """
     gathered, status, _exc = mapper.AllGather()
     return gathered if status else {}

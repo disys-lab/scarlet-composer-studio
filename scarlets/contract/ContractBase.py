@@ -6,53 +6,53 @@ from scarlets.types.ScarletBase import ScarletBase
 
 class ContractBase:
     """
-    Base class for all types of Contracts. Contains all Contract attributes
+    Base class for all Contracts — holds Redis connection details and (open-source-inert) contract metadata.
+
+    `contractABI`/`contractHandle`/`contractAddress` are vestigial in the
+    open source release: they only apply to the commercial pure-decent/
+    full-decent (smart-contract-backed) modes, not available here.
+    `contractMode` is always ``"pure-hybrid"`` in this release (see
+    `scarlets.types.ScarletBase.ScarletBase.acquireMode`).
+
+    Parameters
+    ----------
+    contractname : str
+        Name of the contract (matches the owning scarlet's name).
+    redisDBHost : str
+        Redis hostname or IP.
+    redisDBPort : str
+        Redis port.
+    redisDBPwd : str
+        Redis password.
+    defaultAccount : str
+        Local default account address.
+    defaultPassword : str
+        Default account password.
+    debug : bool
+        Whether the owning scarlet is running in debug mode.
+    scarletDataExpiry : int
+        TTL in seconds for values this contract writes to Redis.
 
     Attributes
     ----------
-    contractName : string
-        name of the contract
-
+    contractName : str
     contractABI : dict
-        MODE APPLICABILITY: pure-decent, full-decent
-        contract Application Binary Interface, relevant for SmartContracts, contains signatures of Solidity functions
-
-    contractHandle : ethereum contract handle
-        MODE APPLICABILITY: pure-decent, full-decent
-        the object yielded by web3.eth.contract(abi=contractABI, bytecode=contractBin), serves as a handle to invoke
-        SmartContract functions
-
-    contractAddress : string
-        MODE APPLICABILITY: pure-decent, full-decent
-        the hexstring representing the contract address obtained during deployment
-
-    redisDBHost : string
-        the IP or hostname hosting redis
-
-    redisDBPort : string
-        the port for redis
-
-    redisDBPwd : string
-        the password for redis.
-
-    debug : boolean
-        the flag that determines whether scarlet being invoked in debug mode.
-        debug mode is usually for local development debugging
-
-    defaultAccount : string
-        the local default account address
-
-    defaultPassword : string
-        the default account password. right now hardcoded
-
-    contractMode : string
-        the contract mode (set during deployment) obtained from redis during runtime
+        Inert in this release — see class summary.
+    contractHandle : object
+        Inert in this release — see class summary.
+    contractAddress : str
+        Inert in this release — see class summary.
+    redisDBHost, redisDBPort, redisDBPwd : str
+    debug : bool
+    defaultAccount, defaultPassword : str
+    scarletDataExpiry : int
+    contractMode : str
+        Always ``"pure-hybrid"`` in the open source release.
 
     Methods
     -------
-    * `getContractDetails()`
-        Obtains the contract details from redis
-
+    getContractDetails()
+        Fetch this contract's data from Redis.
     """
 
     def __init__(self, contractname, redisDBHost, redisDBPort, redisDBPwd, defaultAccount, defaultPassword, debug,scarletDataExpiry):
@@ -72,7 +72,14 @@ class ContractBase:
 
     def getContractDetails(self):
         """
-        Obtains the contract details from redis
+        Fetch and unpickle this contract's data from Redis.
+
+        Returns
+        -------
+        object
+            The unpickled value stored under `contractName`, or `None`
+            (logged as critical) if the key doesn't exist or Redis is
+            unreachable.
         """
         try:
             r = redis.StrictRedis(host=self.redisDBHost, port=self.redisDBPort, password=self.redisDBPwd)  # ,password=redisDBPass)
@@ -86,5 +93,6 @@ class ContractBase:
 
 
     def load(self):
+        """No-op in the base class; overridden by subclasses that need to load contract state."""
         pass
 

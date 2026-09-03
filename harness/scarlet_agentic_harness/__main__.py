@@ -25,6 +25,24 @@ from scarlet_agentic_harness import worker as worker_mod
 
 
 def main() -> None:
+    """
+    Entrypoint for ``python -m scarlet_agentic_harness``.
+
+    Branches on `HarnessConfig.role` (same image either way):
+
+    - ``worker``: reports status/capabilities, starts a periodic
+      local-data-source tag-cache refresh, wires up `AgentDialogue` (if
+      an LLM backend is configured), and starts dispatch via
+      `worker.start_dispatch`. Blocks forever afterward - dispatch runs
+      entirely on the bus router's own threads.
+    - ``head``: reports status, then either a manual-dispatch stdin REPL
+      (JSON lines of ``{"skill": ..., "params": ...}``, if no LLM
+      backend is configured) or an LLM-backed chat REPL (one message per
+      stdin line, via `head.converse`) - logging every `converse` event
+      to stderr as JSON in the latter case.
+
+    Reads all configuration from the environment via `HarnessConfig.from_env`.
+    """
     config = HarnessConfig.from_env()
     buses = Buses(config)
     skills = discover_skills()

@@ -43,7 +43,25 @@ from typing import Protocol
 
 
 class ChatClient(Protocol):
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict: ...
+    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """
+        Send a chat turn to the model.
+
+        Parameters
+        ----------
+        messages : list of dict
+            Canonical-shape message history.
+        tools : list of dict or None, optional
+            Tool definitions the model may call.
+
+        Returns
+        -------
+        dict
+            The model's turn, including `tool_calls` if it called a tool.
+        """
+        ...
 
 
 # Grounded in the real scarlets primitives (scarlets/core/Mapper.py,
@@ -141,24 +159,48 @@ MINT_SCARLET_TOOL = {
 
 
 class ScarletMintingFailed(RuntimeError):
-    """Raised when the model doesn't call mint_scarlet (or calls anything
-    else - there is only one tool offered, so anything else is a hard
-    failure, not a case to silently paper over). Unlike head's
-    description-only generation, there is no safe template fallback here:
-    a generic *description* is low-stakes, but an ad hoc scarlet has no
-    safe default *name* to fall back to."""
+    """
+    Raised when the model doesn't call `mint_scarlet` (or calls anything else).
+
+    There is only one tool offered, so anything else is a hard failure,
+    not a case to silently paper over. Unlike head's description-only
+    generation, there is no safe template fallback here: a generic
+    *description* is low-stakes, but an ad hoc scarlet has no safe
+    default *name* to fall back to.
+    """
 
 
 def mint_scarlet_with_reasoning(llm_client: ChatClient, agent_id: str, motivation: str) -> str:
     """
-    One bounded LLM tool-call turn: given `motivation` (why the calling
-    skill decided, in its own code, that a new scarlet is needed right
-    now), the model picks the tool's arguments and this function registers
-    exactly what it chose - real reasoning over the specifics, not a
-    template. Returns the registered name; the caller MUST use this return
-    value for any subsequent Map()/AllGather() call rather than a
-    separately hardcoded string, or the two can drift (see module
-    docstring's discussion of why that's safe here specifically).
+    One bounded LLM tool-call turn that mints and registers a new scarlet.
+
+    The model picks the tool's arguments (name/type/description) and
+    this function registers exactly what it chose - real reasoning over
+    the specifics, not a template.
+
+    Parameters
+    ----------
+    llm_client : ChatClient
+    agent_id : str
+        This agent's id, included in the prompt so the model knows who
+        it's reasoning as.
+    motivation : str
+        Why the calling skill decided, in its own code, that a new
+        scarlet is needed right now - the model's entire situational
+        context for this call.
+
+    Returns
+    -------
+    str
+        The registered scarlet name. The caller **must** use this return
+        value for any subsequent `Map`/`AllGather` call rather than a
+        separately hardcoded string, or the two can drift.
+
+    Raises
+    ------
+    ScarletMintingFailed
+        If the model doesn't call `mint_scarlet`, or calls it without a
+        usable `name`.
     """
     # Deferred import: this module doesn't otherwise depend on the scarlets
     # package, and importing at call time keeps that dependency scoped to

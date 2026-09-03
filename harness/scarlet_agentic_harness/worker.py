@@ -72,6 +72,38 @@ def handle_message(
     token: CancellationToken,
     llm_client: "ChatClient | None" = None,
 ) -> None:
+    """
+    Deterministically dispatch one ``skill_contribute``/``skill_coordinate`` message to its `Skill`.
+
+    Which skill runs is never re-decided here: the head's LLM already
+    decided that and sent a fully structured instruction, so
+    re-interpreting that choice with another LLM call would just
+    reintroduce ambiguity one hop later. This is a thin, deterministic
+    lookup from message type to `Skill` handler.
+
+    Ignores (returns immediately for) any message whose type isn't
+    ``skill_contribute``/``skill_coordinate``. Sends a ``skill_result``
+    error reply if the named skill is unknown. Always calls
+    `Skill.contribute`; additionally calls `Skill.coordinate` and sends
+    its result back as ``skill_result`` when this message was
+    ``skill_coordinate``.
+
+    Parameters
+    ----------
+    msg : dict
+        A message as delivered by `Messenger.Receive`.
+    config : HarnessConfig
+    buses : Buses
+    skills : dict of str to Skill
+        Every skill this worker can run, keyed by name.
+    token : CancellationToken
+        This request's cancellation token, passed straight into the
+        `HarnessContext` handed to the skill.
+    llm_client : ChatClient or None, optional
+        Threaded into the `HarnessContext` so the skill can call
+        `HarnessContext.mint_scarlet`. `None` means a skill that tries
+        gets a clear, immediate error rather than a silent no-op.
+    """
     body = msg.get("body", {})
     msg_type = body.get("type")
     if msg_type not in ("skill_contribute", "skill_coordinate"):
@@ -113,40 +145,53 @@ def start_dispatch(
 ) -> CancellationRegistry:
     """
     Start servicing this worker's incoming dispatch messages concurrently.
-    Call once at startup. After this, a new skill_contribute/skill_coordinate
-    message arriving while an earlier one is still being handled (e.g. this
-    worker is coordinating a slow skill.coordinate()) gets its own thread
-    immediately, rather than waiting behind it.
 
-    dialogue: if given (i.e. an LLM backend is configured - see __main__.py),
-    agent_message traffic (dialogue.py) on the global bus is routed to it
-    instead of being silently dropped. AgentDialogue.handle() manages its
-    own threading internally, so it's safe to call directly here rather
-    than wrapping it in another spawned thread.
+    Call once at startup. After this, a new
+    ``skill_contribute``/``skill_coordinate`` message arriving while an
+    earlier one is still being handled (e.g. this worker is coordinating
+    a slow `Skill.coordinate`) gets its own thread immediately, rather
+    than waiting behind it.
 
-    llm_client: same "is an LLM backend configured" condition as dialogue
-    (in practice __main__.py constructs one LLMClient and passes it to
-    both) - threaded through to every HarnessContext this worker builds, so
-    a skill's contribute()/coordinate() can call ctx.mint_scarlet(). None
-    (the default) means skills running on this worker that try to mint a
-    scarlet get a clear, immediate error rather than a silent no-op - see
-    HarnessContext.mint_scarlet().
+    Parameters
+    ----------
+    config : HarnessConfig
+    buses : Buses
+    skills : dict of str to Skill
+        Every skill this worker can run, keyed by name.
+    dialogue : AgentDialogue or None, optional
+        If given (i.e. an LLM backend is configured), ``agent_message``
+        traffic on the global bus is routed to it instead of being
+        silently dropped. `AgentDialogue.handle` manages its own
+        threading internally, so it's safe to call directly here rather
+        than wrapping it in another spawned thread.
+    registry : CancellationRegistry or None, optional
+        This worker's registry - constructed here if not given. A
+        caller that wants live observability or a ``context_fn``
+        grounded in real in-flight state needs to construct its own
+        `CancellationRegistry` (optionally wired to a shared Mapper) and
+        pass it in *before* calling this, so it can also be handed to
+        `AgentDialogue`'s ``context_fn``.
+    llm_client : ChatClient or None, optional
+        Same "is an LLM backend configured" condition as `dialogue` (in
+        practice one `LLMClient` is constructed and passed to both) -
+        threaded through to every `HarnessContext` this worker builds,
+        so a skill's `contribute`/`coordinate` can call
+        `HarnessContext.mint_scarlet`.
 
-    registry: this worker's CancellationRegistry - constructed here if not
-    given (existing callers that don't need one, e.g. most tests, are
-    unaffected), but a caller that wants live observability (see
-    observability.py) or a context_fn grounded in real in-flight state
-    (see dialogue.py) needs to construct its own CancellationRegistry
-    (optionally wired to a shared Mapper - see __main__.py) and pass it in
-    *before* calling start_dispatch(), so it can also be handed to
-    AgentDialogue's context_fn. Returned either way, so a caller that let
-    this function construct one can still get a handle to it.
+    Returns
+    -------
+    CancellationRegistry
+        `registry`, or the one constructed here if it wasn't given - so
+        a caller that let this function construct one can still get a
+        handle to it.
 
-    skill_cancel messages (sent by head.run_skill() when a retry
-    supersedes an earlier attempt) look up the matching request_id in the
-    registry and cancel its token, if this worker is still tracking it - a
-    cancel for a request that already finished, or that this worker was
-    never part of, is a normal race, not an error (see cancellation.py).
+    Notes
+    -----
+    ``skill_cancel`` messages (sent by `head.run_skill` when a retry
+    supersedes an earlier attempt) look up the matching `request_id` in
+    the registry and cancel its token, if this worker is still tracking
+    it - a cancel for a request that already finished, or that this
+    worker was never part of, is a normal race, not an error.
     """
     registry = registry if registry is not None else CancellationRegistry()
 

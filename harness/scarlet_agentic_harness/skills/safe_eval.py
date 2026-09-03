@@ -41,6 +41,36 @@ class SafeEvalError(ValueError):
 
 
 def safe_eval(expression: str, variables: dict) -> float:
+    """
+    Evaluate a restricted arithmetic expression.
+
+    Walks the parsed AST and allow-lists exactly the node types a plain
+    arithmetic expression needs: numeric constants, variable lookups,
+    binary operators (``+ - * / **``), and unary ``+``/``-``. Anything
+    else - function calls, attribute access, subscripting, comparisons,
+    boolean ops, imports, comprehensions, string constants - raises
+    before any code runs, not caught after the fact. Not `eval` with a
+    restricted namespace: a restricted namespace alone doesn't stop
+    `eval` from reaching `__builtins__`, attribute access, or
+    comprehensions.
+
+    Parameters
+    ----------
+    expression : str
+        e.g. ``"s2/n - (s1/n)**2"``.
+    variables : dict
+        Name -> numeric value bindings referenced by `expression`.
+
+    Returns
+    -------
+    float
+
+    Raises
+    ------
+    SafeEvalError
+        If `expression` doesn't parse, or contains anything outside the
+        allowed grammar, or references an unknown/non-numeric variable.
+    """
     try:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
@@ -49,6 +79,23 @@ def safe_eval(expression: str, variables: dict) -> float:
 
 
 def _eval_node(node: ast.AST, variables: dict) -> float:
+    """
+    Recursively evaluate one AST node under the same allow-list `safe_eval` documents.
+
+    Parameters
+    ----------
+    node : ast.AST
+    variables : dict
+
+    Returns
+    -------
+    float
+
+    Raises
+    ------
+    SafeEvalError
+        If `node` (or any sub-node) is outside the allowed grammar.
+    """
     if isinstance(node, ast.Constant):
         if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
             return node.value

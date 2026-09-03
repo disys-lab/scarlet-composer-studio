@@ -16,24 +16,60 @@ from scarlet_agentic_harness.scarlet_minting import ChatClient, mint_scarlet_wit
 
 
 class _NoopCancellation:
-    """Stand-in for a real CancellationToken when a context isn't scoped to
-    one in-flight, cancellable request (e.g. run_skill()'s own top-level
-    ctx, used only for coordinator_for() calls - see head.py). .cancelled
-    reports "not cancelled" (a fresh, unset Event) and .on_cancel() is a
-    silent no-op, so code written against ctx.cancelled/ctx.on_cancel()
-    doesn't need to branch on whether a token exists."""
+    """
+    Stand-in for a real `CancellationToken` on a context that isn't
+    scoped to one in-flight, cancellable request (e.g. `run_skill`'s own
+    top-level `ctx`, used only for `coordinator_for` calls).
+
+    `cancelled` reports "not cancelled" (a fresh, unset `Event`) and
+    `on_cancel` is a silent no-op, so code written against
+    `ctx.cancelled`/`ctx.on_cancel` doesn't need to branch on whether a
+    real token exists.
+
+    Attributes
+    ----------
+    event : threading.Event
+        A fresh, never-set event.
+    """
 
     def __init__(self):
         self.event = threading.Event()
 
     def on_cancel(self, fn) -> None:
+        """No-op. Parameters: `fn` (callable), ignored."""
         pass
 
     def update_progress(self, **kwargs) -> None:
+        """No-op. Parameters: arbitrary keyword progress fields, ignored."""
         pass
 
 
 class HarnessContext:
+    """
+    Bundles an agent's config and buses; constructs request-scoped `Mapper`/`Federator` instances.
+
+    Passed into every `Skill` handler so a skill never has to touch env
+    vars or bus wiring directly.
+
+    Parameters
+    ----------
+    config : HarnessConfig
+    buses : Buses
+    cancellation : CancellationToken or None, optional
+        Defaults to a `_NoopCancellation` when this context isn't scoped
+        to one in-flight, cancellable request.
+    llm_client : ChatClient or None, optional
+        `None` unless the owning process has an LLM backend configured.
+        `mint_scarlet` raises clearly rather than silently no-op'ing
+        when it's absent.
+
+    Attributes
+    ----------
+    config : HarnessConfig
+    buses : Buses
+    llm_client : ChatClient or None
+    """
+
     def __init__(
         self,
         config: HarnessConfig,
@@ -62,72 +98,120 @@ class HarnessContext:
 
     @property
     def agent_id(self) -> str:
+        """str: This agent's id, `config.agent_id`."""
         return self.config.agent_id
 
     @property
     def cancelled(self) -> threading.Event:
-        """Set once this request has been cancelled (see cancellation.py) -
-        for code that already loops/polls a deadline, add
-        `and not ctx.cancelled.is_set()` alongside it."""
+        """
+        threading.Event: Set once this request has been cancelled.
+
+        For code that already loops/polls a deadline, add
+        ``and not ctx.cancelled.is_set()`` alongside it.
+        """
         return self._cancellation.event
 
     def on_cancel(self, fn) -> None:
-        """Register fn to run immediately, on a new thread, the moment this
-        request is cancelled - for a skill doing one blocking call with no
-        natural checkpoint to poll a flag at. See cancellation.py."""
+        """
+        Register `fn` to run immediately, on a new thread, the moment this request is cancelled.
+
+        For a skill doing one blocking call with no natural checkpoint to
+        poll a flag at.
+
+        Parameters
+        ----------
+        fn : callable
+            Called with no arguments on cancellation.
+        """
         self._cancellation.on_cancel(fn)
 
     def report_progress(self, **kwargs) -> None:
         """
-        Opt-in: let a skill's coordinate() report real, specific progress
-        (e.g. `ctx.report_progress(ready_count=2, expected_count=3)`) as it
-        goes - this is what makes a check-in reply grounded in genuinely
-        useful detail rather than just "this request exists" (see
-        cancellation.py's CancellationToken.update_progress()). A no-op
-        when this context isn't scoped to a cancellable, tracked request.
+        Report real, specific progress on this request as it happens.
+
+        Opt-in: e.g. ``ctx.report_progress(ready_count=2, expected_count=3)``.
+        This is what makes a check-in reply grounded in genuinely useful
+        detail rather than just "this request exists". A no-op when this
+        context isn't scoped to a cancellable, tracked request.
+
+        Parameters
+        ----------
+        **kwargs
+            Arbitrary progress fields, forwarded to
+            `CancellationToken.update_progress`.
         """
         self._cancellation.update_progress(**kwargs)
 
     def mapper(self, name: str, description: str = "") -> Mapper:
         """
-        Construct a Mapper scoped to `name`. Callers (skills) must pass a
-        name unique to the in-flight request (e.g. f"{skill.name}_{request_id}")
-        - a shared/static name would let two concurrent invocations of the
-        same skill collide on each other's keys.
+        Construct a `Mapper` scoped to `name`.
+
+        Callers (skills) must pass a name unique to the in-flight request
+        (e.g. ``f"{skill.name}_{request_id}"``) - a shared/static name
+        would let two concurrent invocations of the same skill collide on
+        each other's keys.
+
+        Parameters
+        ----------
+        name : str
+        description : str, optional
+
+        Returns
+        -------
+        Mapper
         """
         return Mapper(name, description=description)
 
     def federator(self, name: str, op) -> Federator:
         """
-        Construct a Federator scoped to `name`, same per-request naming rule
-        as mapper(). Note: Federator's real __init__ signature (scarlets
-        source, not the README) takes no `description` kwarg - only
-        scarletName and op.
+        Construct a `Federator` scoped to `name`, same per-request naming rule as `mapper`.
+
+        Parameters
+        ----------
+        name : str
+        op : callable
+            One of `Mapper.SUM`, `Mapper.MAX`, `Mapper.MIN`, `Mapper.MUL`.
+
+        Returns
+        -------
+        Federator
         """
         return Federator(name, op)
 
     def mint_scarlet(self, motivation: str) -> str:
         """
-        Real LLM reasoning over a scarlet's name/type/description, for the
-        case a skill's own contribute()/coordinate() decides mid-run that it
-        needs shared state nobody declared in advance via
-        Skill.scarlet_names() (see head.py) - see scarlet_minting.py's
-        module docstring for the full rationale and why this is narrower
-        than head.converse()'s tool-calling loop.
+        Mint a new scarlet mid-task via real LLM reasoning over its name/type/description.
 
-        `motivation` is this call's entire situational context - why the
-        calling skill decided (in its own code) that a scarlet is needed
-        right now. Returns the registered name; pass it straight into
-        ctx.mapper()/ctx.federator() for the actual read/write - never
-        reconstruct or guess that name separately, since nothing else
-        forces the two to match (see scarlet_minting.py for why that's
-        still safe here specifically).
+        For the case a skill's own `contribute`/`coordinate` decides
+        mid-run that it needs shared state nobody declared in advance via
+        `Skill.scarlet_names` - see `scarlet_minting` for the full
+        rationale and why this is narrower than `head.converse`'s
+        tool-calling loop.
 
-        Raises ScarletMintingFailed if the model doesn't produce a usable
-        tool call. Raises RuntimeError immediately, before any LLM call, if
-        this context has no llm_client - the calling skill's own code
-        decided to mint one, so a silent no-op here would hide that
-        decision rather than surface it.
+        Parameters
+        ----------
+        motivation : str
+            This call's entire situational context - why the calling
+            skill decided (in its own code) that a scarlet is needed
+            right now.
+
+        Returns
+        -------
+        str
+            The registered scarlet name. Pass it straight into
+            `mapper`/`federator` for the actual read/write - never
+            reconstruct or guess that name separately, since nothing else
+            forces the two to match.
+
+        Raises
+        ------
+        RuntimeError
+            If this context has no `llm_client` - raised immediately,
+            before any LLM call, since the calling skill's own code
+            decided to mint one and a silent no-op here would hide that
+            decision.
+        ScarletMintingFailed
+            If the model doesn't produce a usable tool call.
         """
         if self.llm_client is None:
             raise RuntimeError(
@@ -136,6 +220,20 @@ class HarnessContext:
         return mint_scarlet_with_reasoning(self.llm_client, self.agent_id, motivation)
 
     def _authenticate_to_composer(self) -> str:
+        """
+        Log into composer-api with this agent's Nebula identity.
+
+        Returns
+        -------
+        str
+            The composer session token.
+
+        Raises
+        ------
+        RuntimeError
+            If the login request fails (non-200) or composer-api reports
+            an error.
+        """
         resp = requests.post(
             f"{self.config.composer_api_url.rstrip('/')}/api/auth/login",
             json={"credential": f"{self.config.nebula_username}:{self.config.nebula_secret}"},
@@ -152,36 +250,43 @@ class HarnessContext:
 
     def query_data_source(self, name: str, query: dict) -> dict:
         """
-        Query the data source registered as `name` in composer-api, via its
-        broker - see scarlet_composer_studio_open_source/broker/main.py and
-        composer-api/routers/data_sources.py for the full architecture.
-        `query` is passed straight through as the broker's own /query
-        request body (shape is connector-specific - e.g. {"query": "SELECT
-        ..."} for the mssql connector); the result is whatever the broker's
-        connector returns, unwrapped from its {error, response} envelope.
+        Query the centrally-registered data source `name`, via its broker.
 
-        This agent authenticates to composer-api using its own real Nebula
-        identity (config.nebula_username/nebula_secret) - the same
-        Gustavo-delegated login composer-ui itself uses, reusing that
-        rather than a second credential type for agents - then presents
+        See `broker.main` and `composer-api`'s ``routers/data_sources.py``
+        for the full architecture. This agent authenticates to
+        composer-api using its own real Nebula identity
+        (`HarnessConfig.nebula_username`/`nebula_secret` - the same
+        Gustavo-delegated login composer-ui itself uses), then presents
         the resulting composer session token directly to the broker as
         Bearer auth. Composer-api itself never sees the query or its
-        result: this call only ever touches composer-api to authenticate
-        once and to look up which broker fronts `name` - see broker/
-        main.py's docstring for why the actual query/result never transits
-        composer-api.
+        result - this call only ever touches composer-api to
+        authenticate once and to look up which broker fronts `name`.
 
-        Raises RuntimeError immediately, before any network call, if this
-        config has no composer_api_url/nebula_username/nebula_secret set -
-        same "raise clearly rather than silently no-op" convention as
-        mint_scarlet()'s llm_client check. Raises RuntimeError if `name`
-        isn't registered or this agent's Nebula identity isn't authorized
-        for it (composer-api's own GET /api/data-sources already filters
-        out anything this caller isn't authorized to see - see
-        _is_authorized() there - so those two cases are indistinguishable
-        here, same as the broker's own /authorize endpoint not leaking
-        that distinction either). Raises RuntimeError if the broker itself
-        reports a query failure (its own {"error": true} response).
+        Parameters
+        ----------
+        name : str
+            Name of a data source registered in composer-api.
+        query : dict
+            Passed straight through as the broker's own ``/query``
+            request body - shape is connector-specific (e.g.
+            ``{"query": "SELECT ..."}`` for the mssql connector).
+
+        Returns
+        -------
+        dict
+            Whatever the broker's connector returns, unwrapped from its
+            ``{error, response}`` envelope.
+
+        Raises
+        ------
+        RuntimeError
+            If this config has no `composer_api_url`/`nebula_username`/
+            `nebula_secret` set (raised immediately, before any network
+            call); if `name` isn't registered or this agent's Nebula
+            identity isn't authorized for it (composer-api's own
+            authorization filter makes those two cases
+            indistinguishable here, deliberately); or if the broker
+            itself reports a query failure.
         """
         if not (self.config.composer_api_url and self.config.nebula_username and self.config.nebula_secret):
             raise RuntimeError(
@@ -240,27 +345,36 @@ class HarnessContext:
 
     def invoke_skill(self, skill: "Skill", params: dict, timeout: float = 60.0, **run_skill_kwargs) -> dict:
         """
-        Dispatch `skill` across this agent's own peer set - using this
-        context's own config/buses, not the head's - and block until the
-        result arrives. This is what makes a Skill invocable by ANY agent
-        (head, a coordinating worker, or a contributing worker), not only
-        by head via its own top-level run_skill()/converse() entry points:
-        head.run_skill() itself has no head-specific logic in it at all -
-        it only ever touches whatever config/buses it's handed - so this is
-        a thin synchronous wrapper around it (same "local blocking to drive
-        a synchronous caller" pattern tests/helpers.py's run_skill_sync()
-        uses), not a new dispatch mechanism. See skills/create_scarlet.py
-        for the motivating case: a worker establishing shared aggregation/
-        dissemination infrastructure with its peers on its own initiative,
-        without routing through head at all.
+        Dispatch `skill` across this agent's own peer set and block until the result arrives.
 
-        Deferred import: head.py imports HarnessContext already, so a
-        module-level import here would be circular.
+        Uses this context's own config/buses, not the head's. This is
+        what makes a `Skill` invocable by *any* agent (head, a
+        coordinating worker, or a contributing worker), not only by head
+        via its own top-level `run_skill`/`converse` entry points:
+        `head.run_skill` has no head-specific logic in it at all - it
+        only ever touches whatever config/buses it's handed - so this is
+        a thin synchronous wrapper around it, not a new dispatch
+        mechanism. See `skills.create_scarlet` for the motivating case: a
+        worker establishing shared aggregation/dissemination
+        infrastructure with its peers on its own initiative, without
+        routing through head at all.
 
-        Returns run_skill()'s result dict directly (same shape as
-        run_skill_sync() in tests), or a synthetic {"status": "error",
-        "retryable": True, "detail": "invoke_skill() timed out..."} if no
-        result arrives within `timeout` seconds.
+        Parameters
+        ----------
+        skill : Skill
+        params : dict
+            Skill invocation parameters.
+        timeout : float, optional
+            Seconds to wait for a result before giving up. Default `60.0`.
+        **run_skill_kwargs
+            Forwarded to `head.run_skill`.
+
+        Returns
+        -------
+        dict
+            `head.run_skill`'s result dict directly, or a synthetic
+            ``{"status": "error", "retryable": True, "detail": "invoke_skill() timed out..."}``
+            if no result arrives within `timeout` seconds.
         """
         from scarlet_agentic_harness import head as head_mod
 
