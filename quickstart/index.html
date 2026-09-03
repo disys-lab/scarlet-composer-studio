@@ -1353,14 +1353,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../harness/design/" class="md-nav__link">
+      <a href="../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1381,14 +1381,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../harness/status/" class="md-nav__link">
+      <a href="../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1682,7 +1682,7 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 <tbody>
 <tr>
 <td><code>scarlet-composer</code></td>
-<td>Operator UI — Streamlit on <strong>8501</strong>, Tornado on <strong>9099</strong></td>
+<td>Operator UI — Next.js on <strong>8501</strong>, FastAPI bound internally</td>
 </tr>
 <tr>
 <td><code>hello-agent</code></td>
@@ -1696,11 +1696,11 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 <hr />
 <h2 id="step-3-open-the-composer-ui">Step 3 — Open the Composer UI</h2>
 <p>Visit <strong><a href="http://localhost:8501">http://localhost:8501</a></strong></p>
-<p>In the sidebar:</p>
-<ol>
-<li>Enter your <strong>Redis Host</strong> and <strong>Auth Token</strong> → <strong>Save</strong></li>
-<li>Click the <strong>Agents</strong> tab — you should see <code>hello-agent_local</code> with a green indicator</li>
-</ol>
+<p>Redis connection details come from <code>.env</code> at container start — nothing to
+configure in the browser. With <code>AUTH_ENABLED=false</code> (the default here) you
+land straight on the dashboard.</p>
+<p>Click <strong>Agents</strong> in the sidebar — you should see <code>hello-agent_local</code> with a
+green status indicator.</p>
 <hr />
 <h2 id="step-4-send-your-first-message">Step 4 — Send your first message</h2>
 <p>From a Python REPL on any machine that can reach your Redis:</p>

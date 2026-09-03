@@ -1179,14 +1179,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../harness/design/" class="md-nav__link">
+      <a href="../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1207,14 +1207,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../harness/status/" class="md-nav__link">
+      <a href="../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1464,106 +1464,66 @@
 
 
 <h1 id="composer-ui-overview">Composer UI — Overview</h1>
-<p>The Scarlet Composer Studio UI is a Streamlit application that gives operators a real-time view of their distributed agent deployment. It reads directly from Redis — no separate backend API is needed.</p>
+<p>The operator dashboard for a Scarlet deployment — see the <a href="../#architecture-at-a-glance">Architecture at a Glance</a> section for how it fits into the rest of the system. Two processes in one container: <code>composer-api</code> (FastAPI, talks to Redis) and <code>composer-ui</code> (Next.js, the browser client) — the UI never talks to Redis directly.</p>
 <hr />
 <h2 id="launch">Launch</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># From pip installation</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># With custom ports</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui<span class="w"> </span>--port<span class="w"> </span><span class="m">8502</span><span class="w"> </span>--lport<span class="w"> </span><span class="m">9100</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># From Docker</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>-p<span class="w"> </span><span class="m">8501</span>:8501<span class="w"> </span>-p<span class="w"> </span><span class="m">9099</span>:9099<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_HOST</span><span class="o">=</span>your-redis-host<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_AUTH_TOKEN</span><span class="o">=</span>your-password<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span>ghcr.io/disys-lab/scarlet-composer:0.5.0
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>-p<span class="w"> </span><span class="m">8501</span>:3000<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_HOST</span><span class="o">=</span>your-redis-host<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_AUTH_TOKEN</span><span class="o">=</span>your-password<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">AUTH_ENABLED</span><span class="o">=</span><span class="nb">false</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>ghcr.io/disys-lab/scarlet-composer:latest
 </code></pre></div>
-<p>Open <strong>http://localhost:8501</strong> in a browser.</p>
-<hr />
-<h2 id="layout">Layout</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>┌──────────────────────────────────────────────────────────────┐
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>│  Sidebar          │  Main content                            │
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>│  ─────────────    │  ─────────────────────────────────────   │
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>│  Redis Host       │  Agents  │  Data Sources  │  Logging     │
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>│  Auth Token       │                                          │
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>│  APP_ID           │  (tab content)                           │
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>│  NODE_ADDRESS     │                                          │
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>│  [Save]           │                                          │
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>│                   │                                          │
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>│  Scarlets page    │                                          │
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>└──────────────────────────────────────────────────────────────┘
-</code></pre></div>
+<p>Open <strong>http://localhost:8501</strong> in a browser. See <a href="../deployment/docker/">Docker Images</a> for building locally and running <code>background-server</code> alongside it.</p>
+<p><img alt="Dashboard" src="img/dashboard.png" /></p>
 <hr />
 <h2 id="sidebar">Sidebar</h2>
-<p>The sidebar persists connection settings across tab switches. Changes only take effect after clicking <strong>Save</strong>.</p>
 <table>
 <thead>
 <tr>
-<th>Field</th>
-<th>Description</th>
+<th>Page</th>
+<th>What it's for</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Redis Host</strong></td>
-<td>Hostname or IP of your Redis instance</td>
+<td><strong>Dashboard</strong></td>
+<td>Redis health, agent/scarlet counts at a glance</td>
 </tr>
 <tr>
-<td><strong>Redis Auth Token</strong></td>
-<td>Redis password</td>
+<td><strong><a href="agents/">Agents</a></strong></td>
+<td>Live agent registry — status, capabilities, data sources</td>
 </tr>
 <tr>
-<td><strong>APP_ID</strong></td>
-<td>Campaign identifier — filters the agent view</td>
+<td><strong>Scarlets</strong></td>
+<td>Registered scarlet definitions; interpret and deploy from source</td>
 </tr>
 <tr>
-<td><strong>NODE_ADDRESS</strong></td>
-<td>This node's address — used to resolve local identity</td>
+<td><strong><a href="data-sources/">Data Sources</a></strong></td>
+<td>The centralized data-source broker registry</td>
+</tr>
+<tr>
+<td><strong><a href="logging/">Logging</a></strong></td>
+<td>Live tail of the <code>RedisLogger</code> stream</td>
+</tr>
+<tr>
+<td><strong>Settings</strong></td>
+<td>Composer-api configuration</td>
 </tr>
 </tbody>
 </table>
-<p>Settings are stored in Streamlit session state. For Docker deployments, pre-populate them via environment variables so the UI opens pre-configured.</p>
+<p>Redis connection details are set once, server-side, via environment
+variables at container start — there's no in-browser "connect" step.</p>
 <hr />
-<h2 id="pages">Pages</h2>
-<p>The Composer UI has two top-level pages:</p>
-<h3 id="main-page-scarletspy">Main page (<code>Scarlets.py</code>)</h3>
-<p>Three tabs:</p>
-<table>
-<thead>
-<tr>
-<th>Tab</th>
-<th>What it shows</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Agents</strong></td>
-<td>Live agent registry, heartbeat status, capability cards</td>
-</tr>
-<tr>
-<td><strong>Data Sources</strong></td>
-<td>Three-tier data source registry (global / worker / local)</td>
-</tr>
-<tr>
-<td><strong>Logging</strong></td>
-<td>Redis-backed log stream with filtering</td>
-</tr>
-</tbody>
-</table>
-<h3 id="scarlets-page">Scarlets page</h3>
-<p>Lists all registered scarlet definitions from Redis (<code>scarlet_definition_*</code> keys). Allows loading definitions from source files via <code>#scarlet</code> declarations and registering them.</p>
-<hr />
-<h2 id="backgroundserver">BackgroundServer</h2>
-<p>The Composer UI starts a <code>BackgroundServer</code> (Tornado, port 9099) alongside Streamlit. It provides:</p>
-<ul>
-<li><code>/api/v2/getNodeInfo</code> — resolves node hostnames to Nebula overlay IPs via the <code>node-aliases</code> Redis key</li>
-</ul>
-<p>This is used internally by the Agents tab to display resolved IP addresses instead of raw hostnames.</p>
+<h2 id="authentication">Authentication</h2>
+<p>When <code>AUTH_ENABLED=true</code>, every page redirects to <code>/login</code> until a Nebula-backed
+session is established. <code>NEXT_PUBLIC_AUTH_ENABLED</code> (a build-time flag, not
+runtime) must be set to match — see
+<a href="../deployment/env-vars/">Environment Variables</a>.</p>
 <hr />
 <h2 id="automatic-refresh">Automatic Refresh</h2>
-<p>The UI polls Redis every <strong>5 seconds</strong> by default (Streamlit <code>st.rerun()</code> loop). Agent cards update their heartbeat status on each refresh cycle.</p>
-<p>Agents that have not sent a heartbeat within <code>STALE_THRESHOLD</code> seconds (default 120) appear with a stale indicator.</p>
+<p>The Agents page polls composer-api periodically; agents that haven't sent a
+heartbeat within <code>STALE_THRESHOLD</code> seconds (default 120) show a stale
+indicator.</p>
 
 
 

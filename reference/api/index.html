@@ -1179,14 +1179,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/design/" class="md-nav__link">
+      <a href="../../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1207,14 +1207,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/status/" class="md-nav__link">
+      <a href="../../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1425,6 +1425,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#composer-api-fastapi-the-operator-dashboards-real-http-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        composer-api (FastAPI) — the operator dashboard's real HTTP API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#harness-scarlet_agentic_harness-the-agentic-skill-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        harness (scarlet_agentic_harness) — the agentic Skill runtime
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1621,54 +1643,74 @@
 </thead>
 <tbody>
 <tr>
-<td><code>ScarletHandler</code></td>
-<td><code>scarletcomposer.handlers.ScarletHandler</code></td>
-<td>Streamlit component for managing scarlets</td>
-</tr>
-<tr>
 <td><code>ScarletInterpreter</code></td>
 <td><code>scarletcomposer.interpreter.ScarletInterpreter</code></td>
 <td>Parse <code>#scarlet</code> declarations from source files</td>
 </tr>
 <tr>
 <td><code>BackgroundServer</code></td>
-<td><code>scarletcomposer.server.BackgroundServer</code></td>
-<td>Tornado server: <code>/api/v2/getNodeInfo</code></td>
-</tr>
-<tr>
-<td><code>Sidebar.sidebarInit</code></td>
-<td><code>scarletcomposer.components.Sidebar</code></td>
-<td>Render and persist connection settings sidebar</td>
-</tr>
-<tr>
-<td><code>loadSidebarCss</code></td>
-<td><code>scarletcomposer.components.loadSidebarCss</code></td>
-<td>Inject custom CSS</td>
-</tr>
-<tr>
-<td><code>agents_page</code></td>
-<td><code>scarletcomposer.pages.Agents</code></td>
-<td>Agents tab renderer</td>
-</tr>
-<tr>
-<td><code>data_sources_page</code></td>
-<td><code>scarletcomposer.pages.DataSources</code></td>
-<td>Data Sources tab renderer</td>
-</tr>
-<tr>
-<td><code>Logging</code> page</td>
-<td><code>scarletcomposer.pages.Logging</code></td>
-<td>Logging tab renderer</td>
+<td><code>scarletcomposer.pages.config.BackgroundServer</code></td>
+<td>Tornado server: <code>/api/v2/getNodeInfo</code>, <code>/api/v2/getNodeIp</code></td>
 </tr>
 <tr>
 <td><code>scarletDriver</code> CLI</td>
-<td><code>scarletcomposer.cli.scarletDriver</code></td>
-<td><code>scarlet-composer</code> CLI entry point</td>
+<td><code>scarletcomposer.composer.scarletDriver</code></td>
+<td><code>scarlet-composer</code> CLI entry point — see <a href="../cli/">CLI Reference</a></td>
 </tr>
 </tbody>
 </table>
+<h3 id="composer-api-fastapi-the-operator-dashboards-real-http-api"><code>composer-api</code> (FastAPI) — the operator dashboard's real HTTP API</h3>
+<table>
+<thead>
+<tr>
+<th>Router</th>
+<th>Path prefix</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auth</code></td>
+<td><code>/api/auth</code></td>
+<td>Session login/logout (Nebula-backed, when <code>AUTH_ENABLED</code>)</td>
+</tr>
+<tr>
+<td><code>dashboard</code></td>
+<td><code>/api/dashboard</code></td>
+<td>Redis health, agent/scarlet counts</td>
+</tr>
+<tr>
+<td><code>agents</code></td>
+<td><code>/api/agents</code></td>
+<td>Live agent registry from <code>GatherStatus()</code></td>
+</tr>
+<tr>
+<td><code>scarlets</code></td>
+<td><code>/api/scarlets</code></td>
+<td>Registered scarlet definitions; interpret/deploy from uploaded source</td>
+</tr>
+<tr>
+<td><code>data-sources</code></td>
+<td><code>/api/data-sources</code></td>
+<td>The centralized data-source broker registry</td>
+</tr>
+<tr>
+<td><code>logs</code></td>
+<td><code>/api/logs</code></td>
+<td>Live tail of the <code>RedisLogger</code> stream</td>
+</tr>
+<tr>
+<td><code>config</code></td>
+<td><code>/api/config</code></td>
+<td>Persisted composer-api configuration</td>
+</tr>
+</tbody>
+</table>
+<p><code>composer-ui</code> (Next.js) is the browser client for this API — see <a href="../../composer/">Composer UI</a>.</p>
+<h3 id="harness-scarlet_agentic_harness-the-agentic-skill-runtime"><code>harness</code> (<code>scarlet_agentic_harness</code>) — the agentic <code>Skill</code> runtime</h3>
+<p>See <a href="../../harness/concepts/">Harness → Core Concepts</a> for the <code>Skill</code> interface, dispatch, and <code>AgentDialogue</code>; the reference skills live under <code>harness/scarlet_agentic_harness/skills/</code>.</p>
 <hr />
-<p>For parameter signatures, return types, and code examples, see the source docstrings in the <code>scarlets</code> and <code>scarletcomposer</code> packages.</p>
+<p>For parameter signatures, return types, and code examples, see the source docstrings in each package.</p>
 
 
 

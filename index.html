@@ -1264,14 +1264,14 @@
   
   
     <li class="md-nav__item">
-      <a href="harness/design/" class="md-nav__link">
+      <a href="harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1292,14 +1292,14 @@
   
   
     <li class="md-nav__item">
-      <a href="harness/status/" class="md-nav__link">
+      <a href="harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1556,33 +1556,41 @@ Redis backend, Apache 2.0, built for the edge.
 </p>
 </div>
 
-<div class="feature-grid">
-<div class="feature-card">
-<h3>🗺 Mapper</h3>
-<p>Distributed key-value store. Workers write independently; any node reads all values with AllGather or folds them with Reduce.</p>
-</div>
-<div class="feature-card">
-<h3>🤝 Federator</h3>
-<p>One-line federated aggregation. Workers post local models; the head calls Aggregate to sum, multiply, or max across all contributions.</p>
-</div>
-<div class="feature-card">
-<h3>📬 Messenger</h3>
-<p>Reliable per-agent inboxes with sequence-numbered delivery, a liveness registry, and heartbeat threads — all over raw Redis.</p>
-</div>
-<div class="feature-card">
-<h3>🎛 Composer UI</h3>
-<p>Streamlit dashboard to deploy scarlets, browse the agent registry, manage data sources, and stream logs — all from a browser.</p>
-</div>
-<div class="feature-card">
-<h3>🤖 LLM / MCP Ready</h3>
-<p><code>Messenger.AsTools()</code> exports MCP-compatible tool definitions. Drop into any agent framework: LangChain, LlamaIndex, Open WebUI.</p>
-</div>
-<div class="feature-card">
-<h3>🏭 Edge-First</h3>
-<p>Designed for physically distributed IoT and factory-floor deployments. No cloud dependency — just Redis on your network.</p>
-</div>
-</div>
-
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Mapper</strong></td>
+<td>Distributed key-value store. Workers write independently; any node reads all values with <code>AllGather</code> or folds them with <code>Reduce</code>.</td>
+</tr>
+<tr>
+<td><strong>Federator</strong></td>
+<td>One-line federated aggregation. Workers post local models; the head calls <code>Aggregate</code> to sum, multiply, or max across all contributions.</td>
+</tr>
+<tr>
+<td><strong>Messenger</strong></td>
+<td>Reliable per-agent inboxes with sequence-numbered delivery, a liveness registry, and heartbeat threads — all over raw Redis.</td>
+</tr>
+<tr>
+<td><strong>Harness</strong></td>
+<td>A decentralized <code>Skill</code> runtime built on the primitives above: a head dispatches work, workers coordinate, and agents find each other's data by feature, not by connection string.</td>
+</tr>
+<tr>
+<td><strong>Composer UI</strong></td>
+<td>Operator dashboard to deploy scarlets, browse the agent registry, manage data sources, and stream logs — from a browser.</td>
+</tr>
+<tr>
+<td><strong>LLM / MCP ready</strong></td>
+<td><code>Messenger.AsTools()</code> exports MCP-compatible tool definitions. Drop into any agent framework: LangChain, LlamaIndex, Open WebUI.</td>
+</tr>
+</tbody>
+</table>
+<p>Designed for physically distributed, edge-first deployments — industrial and IoT sites with no cloud dependency, just Redis on your own network.</p>
 <hr />
 <h2 id="quick-links">Quick Links</h2>
 <div class="quick-links">
@@ -1615,6 +1623,10 @@ Redis backend, Apache 2.0, built for the edge.
 <td><a href="guides/llm-integration/">LLM / MCP Integration</a></td>
 </tr>
 <tr>
+<td>Building a decentralized agent (<code>Skill</code>, dispatch, dialogue)</td>
+<td><a href="harness/">Harness</a></td>
+</tr>
+<tr>
 <td>Deploying to edge nodes with Gustavo</td>
 <td><a href="deployment/gustavo/">Gustavo Integration</a></td>
 </tr>
@@ -1631,23 +1643,25 @@ Redis backend, Apache 2.0, built for the edge.
 </div>
 <hr />
 <h2 id="architecture-at-a-glance">Architecture at a Glance</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────────────────────────────────────────┐
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                    scarletcomposer                        │
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│  Streamlit UI (8501)   Tornado (9099)   scarlet-composer  │
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>└──────────────────┬────────────────────────────────────────┘
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                   │
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>┌──────────────────▼────────────────────────────────────────┐
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│                       Redis                               │
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│   Mapper data   Messenger queues   Scarlet definitions    │
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>└──────────────────▲────────────────────────────────────────┘
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                   │
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>┌──────────────────┴────────────────────────────────────────┐
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│                      scarlets                             │
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│   Mapper     Federator     Messenger     RedisScarlet      │
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│         (agents import directly — no broker)              │
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>└──────────────────────────────────────────────────────────┘
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌──────────────────────────────────────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  scarlet-composer  (operator UI)                              │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│  composer-ui (Next.js, :3000)  ⇄  composer-api (FastAPI)       │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  background-server — node identity resolution                 │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└───────────────────────────────┬────────────────────────────────┘
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                                │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>┌───────────────────────────────▼────────────────────────────────┐
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│                             Redis                              │
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│      Mapper data     Messenger queues     Scarlet definitions   │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>└───────────────────────────────▲────────────────────────────────┘
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                                │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>┌───────────────────────────────┴────────────────────────────────┐
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│  scarlet-agents  (harness)              scarlets  (library)     │
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│  Skill dispatch, AgentDialogue,         Mapper / Federator /    │
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│  local-first data access                Messenger — imported    │
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│                                          directly, no broker     │
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>└──────────────────────────────────────────────────────────────┘
 </code></pre></div>
-<p>Two packages ship from this repository:</p>
+<p>Four packages ship from this repository:</p>
 <table>
 <thead>
 <tr>
@@ -1662,11 +1676,19 @@ Redis backend, Apache 2.0, built for the edge.
 </tr>
 <tr>
 <td><code>scarletcomposer</code></td>
-<td>Streamlit UI, Tornado background server, <code>ScarletInterpreter</code>, <code>ScarletHandler</code>, <code>scarlet-composer</code> CLI</td>
+<td><code>composer-api</code> (FastAPI) + <code>composer-ui</code> (Next.js) operator dashboard, <code>ScarletInterpreter</code>, <code>scarlet-composer</code> CLI</td>
+</tr>
+<tr>
+<td><code>data-connectors</code></td>
+<td>Pluggable data-source connectors (MSSQL, Postgres, MySQL, PI, InfluxDB, Redis, CSV, Excel)</td>
+</tr>
+<tr>
+<td><code>harness/</code></td>
+<td>The agentic <code>Skill</code> runtime — see <a href="harness/">Harness</a></td>
 </tr>
 </tbody>
 </table>
-<p>Agent containers only need <code>scarlets</code>. The operator dashboard needs <code>scarletcomposer</code>.</p>
+<p>Agent containers only need <code>scarlets</code>. The operator dashboard needs <code>scarletcomposer</code>. Agents built with the harness also need <code>data-connectors</code> for local-mode data sources.</p>
 <hr />
 <h2 id="vs-a2a-and-acp">vs. A2A and ACP</h2>
 <p>A2A and ACP answer: <em>how does one agent call another?</em></p>

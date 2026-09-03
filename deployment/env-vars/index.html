@@ -1314,14 +1314,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/design/" class="md-nav__link">
+      <a href="../../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1342,14 +1342,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/status/" class="md-nav__link">
+      <a href="../../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1707,14 +1707,29 @@
 </thead>
 <tbody>
 <tr>
-<td><code>STREAMLIT_PORT</code></td>
-<td><code>8501</code></td>
-<td>Port the Streamlit UI listens on</td>
+<td><code>AUTH_ENABLED</code></td>
+<td><code>false</code></td>
+<td>Require Nebula-backed login before the UI/API is usable</td>
+</tr>
+<tr>
+<td><code>NEXT_PUBLIC_AUTH_ENABLED</code></td>
+<td><code>false</code></td>
+<td>Same flag, baked into the Next.js client bundle at <strong>build</strong> time — must match <code>AUTH_ENABLED</code>, since the browser needs to know before any request whether to redirect to <code>/login</code></td>
+</tr>
+<tr>
+<td><code>COMPOSER_API_CONFIG</code></td>
+<td><code>/etc/scarlet-composer/composer_api.yaml</code></td>
+<td>Path to composer-api's persisted config file</td>
+</tr>
+<tr>
+<td><code>GUSTAVO_API_URL</code></td>
+<td><code>http://host.docker.internal:3002</code></td>
+<td>Where composer-api reaches Gustavo's own API</td>
 </tr>
 <tr>
 <td><code>BACKGROUND_SERVER_PORT</code></td>
-<td><code>9099</code></td>
-<td>Port for the Tornado identity server</td>
+<td><code>9098</code></td>
+<td>Port for the node-identity resolution service (<code>background-server</code>), when run as its own container</td>
 </tr>
 <tr>
 <td><code>STALE_THRESHOLD</code></td>
@@ -1786,8 +1801,8 @@
 <a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="c1"># MANAGER_PORT=8080</span>
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># ── Composer UI (optional) ───────────────────────────</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># STREAMLIT_PORT=8501</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># BACKGROUND_SERVER_PORT=9099</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1"># AUTH_ENABLED=false</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1"># BACKGROUND_SERVER_PORT=9098</span>
 <a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="c1"># STALE_THRESHOLD=120</span>
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="c1"># ── Logging (optional) ───────────────────────────────</span>

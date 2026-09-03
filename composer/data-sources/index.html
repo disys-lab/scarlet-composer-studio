@@ -1101,10 +1101,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#three-tiers" class="md-nav__link">
+  <a href="#what-this-registry-actually-holds" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Three Tiers
+        What this registry actually holds
       
     </span>
   </a>
@@ -1112,10 +1112,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#adding-a-data-source" class="md-nav__link">
+  <a href="#authorization" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Adding a Data Source
+        Authorization
       
     </span>
   </a>
@@ -1123,32 +1123,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#reading-data-sources-in-agent-code" class="md-nav__link">
+  <a href="#in-the-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reading Data Sources in Agent Code
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#use-cases" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Use Cases
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#priority-override" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Priority Override
+        In the UI
       
     </span>
   </a>
@@ -1281,14 +1259,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/design/" class="md-nav__link">
+      <a href="../../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1309,14 +1287,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/status/" class="md-nav__link">
+      <a href="../../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1566,130 +1544,48 @@
 
 
 <h1 id="data-sources-page">Data Sources Page</h1>
-<p>The <strong>Data Sources</strong> tab manages a three-tier registry of named data endpoints that agents can discover at runtime. It is backed entirely by Redis — no separate database.</p>
+<p>Manages the <strong>centralized</strong> data-source registry — the broker path for
+genuinely shared sources. This is one of two ways an agent reaches a data
+source; for a site-owned source that shouldn't be centralized at all, see
+<a href="../../harness/concepts/#local-first-data-access">Local-First Data Access</a>.</p>
+<p><img alt="Data Sources page" src="../img/data-sources.png" /></p>
 <hr />
-<h2 id="three-tiers">Three Tiers</h2>
-<table>
-<thead>
-<tr>
-<th>Tier</th>
-<th>Redis Key</th>
-<th>Scope</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Global</strong></td>
-<td><code>data-sources:global</code></td>
-<td>All campaigns on this Redis instance</td>
-</tr>
-<tr>
-<td><strong>Worker</strong></td>
-<td><code>data-sources:worker:{APP_ID}</code></td>
-<td>One campaign — all nodes</td>
-</tr>
-<tr>
-<td><strong>Local</strong></td>
-<td><code>data-sources:local:{NODE_ADDRESS}</code></td>
-<td>One node only</td>
-</tr>
-</tbody>
-</table>
-<p>Each tier is a Redis hash. Keys are data source names; values are JSON blobs with connection details.</p>
-<hr />
-<h2 id="adding-a-data-source">Adding a Data Source</h2>
-<p>In the UI:</p>
-<ol>
-<li>Select the tier from the <strong>Scope</strong> dropdown</li>
-<li>Enter a <strong>Name</strong> (e.g., <code>plant_db</code>, <code>sensor_feed</code>)</li>
-<li>Enter a JSON <strong>Configuration</strong> block</li>
-<li>Click <strong>Save</strong></li>
-</ol>
-<p>Example configuration:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"postgresql"</span><span class="p">,</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">"host"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10.0.1.50"</span><span class="p">,</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"port"</span><span class="p">:</span><span class="w"> </span><span class="mi">5432</span><span class="p">,</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">"database"</span><span class="p">:</span><span class="w"> </span><span class="s2">"plant_readings"</span><span class="p">,</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">"user"</span><span class="p">:</span><span class="w"> </span><span class="s2">"scarlet_reader"</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">}</span>
+<h2 id="what-this-registry-actually-holds">What this registry actually holds</h2>
+<p>A YAML-backed list (<code>/etc/scarlet-composer/data_sources.yaml</code>), each entry:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">data_sources</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">plant_erp</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mssql</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">broker_url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://broker.example.com"</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Corporate</span><span class="nv"> </span><span class="s">ERP</span><span class="nv"> </span><span class="s">inventory</span><span class="nv"> </span><span class="s">figures."</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">allowed_users</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">allowed_groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"plant-ops"</span><span class="p p-Indicator">]</span>
 </code></pre></div>
-<p>Alternatively, write directly to Redis:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">redis</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">r</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">Redis</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="n">REDIS_HOST</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="n">REDIS_AUTH_TOKEN</span><span class="p">,</span> <span class="n">decode_responses</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Global data source</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">r</span><span class="o">.</span><span class="n">hset</span><span class="p">(</span><span class="s2">"data-sources:global"</span><span class="p">,</span> <span class="s2">"plant_db"</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"postgresql"</span><span class="p">,</span> <span class="s2">"host"</span><span class="p">:</span> <span class="s2">"10.0.1.50"</span><span class="p">,</span> <span class="s2">"port"</span><span class="p">:</span> <span class="mi">5432</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}))</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Worker-scoped (only visible to APP_ID=quickstart)</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">r</span><span class="o">.</span><span class="n">hset</span><span class="p">(</span><span class="s2">"data-sources:worker:quickstart"</span><span class="p">,</span> <span class="s2">"local_model"</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"mlflow"</span><span class="p">,</span> <span class="s2">"tracking_uri"</span><span class="p">:</span> <span class="s2">"http://mlflow.local:5000"</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="p">}))</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="c1"># Node-local (only visible on 10.42.0.2)</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="n">r</span><span class="o">.</span><span class="n">hset</span><span class="p">(</span><span class="s2">"data-sources:local:10.42.0.2"</span><span class="p">,</span> <span class="s2">"raw_sensor"</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"opc-ua"</span><span class="p">,</span> <span class="s2">"endpoint"</span><span class="p">:</span> <span class="s2">"opc.tcp://192.168.1.10:4840"</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="p">}))</span>
-</code></pre></div>
+<p><strong>No credential is ever stored here.</strong> The registry holds <em>authorization
+policy and a directory of where to find each broker</em> — <code>{name, type,
+broker_url, description, allowed_users, allowed_groups}</code> — nothing more.
+The actual database credential lives only in that broker's own deployment
+(its own environment variables, set once when the broker container is
+deployed), never returned by, sent to, or stored in composer-api.</p>
 <hr />
-<h2 id="reading-data-sources-in-agent-code">Reading Data Sources in Agent Code</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">redis</span><span class="o">,</span><span class="w"> </span><span class="nn">json</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">r</span> <span class="o">=</span> <span class="n">redis</span><span class="o">.</span><span class="n">Redis</span><span class="p">(</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">host</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"REDIS_HOST"</span><span class="p">],</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">password</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"REDIS_AUTH_TOKEN"</span><span class="p">],</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">decode_responses</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">)</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">APP_ID</span>  <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"APP_ID"</span><span class="p">]</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">NODE</span>    <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"NODE_ADDRESS"</span><span class="p">,</span> <span class="s2">"local"</span><span class="p">)</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="c1"># Merge all three tiers — local overrides worker overrides global</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_data_sources</span><span class="p">():</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="n">global_</span>  <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="s2">"data-sources:global"</span><span class="p">)</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="n">worker_</span>  <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="sa">f</span><span class="s2">"data-sources:worker:</span><span class="si">{</span><span class="n">APP_ID</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="n">local_</span>   <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">hgetall</span><span class="p">(</span><span class="sa">f</span><span class="s2">"data-sources:local:</span><span class="si">{</span><span class="n">NODE</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="n">merged</span>   <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">global_</span><span class="p">,</span> <span class="o">**</span><span class="n">worker_</span><span class="p">,</span> <span class="o">**</span><span class="n">local_</span><span class="p">}</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="k">return</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">merged</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="n">sources</span> <span class="o">=</span> <span class="n">get_data_sources</span><span class="p">()</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="n">db_config</span> <span class="o">=</span> <span class="n">sources</span><span class="p">[</span><span class="s2">"plant_db"</span><span class="p">]</span>   <span class="c1"># {"type": "postgresql", ...}</span>
-</code></pre></div>
+<h2 id="authorization">Authorization</h2>
+<p><code>allowed_users</code>/<code>allowed_groups</code> are checked against the calling agent's
+session (Nebula group membership, the same mechanism Gustavo's own
+app/device-group access grants use) before a query is allowed through —
+<code>POST /api/data-sources/{name}/authorize</code>. Creating, editing, or deleting
+an entry requires an admin session; any authenticated session can list
+entries and request authorization to query one.</p>
 <hr />
-<h2 id="use-cases">Use Cases</h2>
-<table>
-<thead>
-<tr>
-<th>Tier</th>
-<th>Example</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Global</td>
-<td>Shared PostgreSQL database, MLflow tracking server, S3 bucket</td>
-</tr>
-<tr>
-<td>Worker</td>
-<td>Campaign-specific model registry, feature store for this experiment</td>
-</tr>
-<tr>
-<td>Local</td>
-<td>On-node OPC-UA server, local GPU endpoint, camera stream</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="priority-override">Priority Override</h2>
-<p>The three-tier merge gives local highest priority. A node can override a global data source with a local one of the same name without affecting other nodes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># On 10.42.0.2 only — use a local MLflow instance instead of the global one</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">r</span><span class="o">.</span><span class="n">hset</span><span class="p">(</span><span class="s2">"data-sources:local:10.42.0.2"</span><span class="p">,</span> <span class="s2">"model_registry"</span><span class="p">,</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"mlflow"</span><span class="p">,</span> <span class="s2">"tracking_uri"</span><span class="p">:</span> <span class="s2">"http://localhost:5000"</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}))</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># All other nodes still use data-sources:global → model_registry</span>
-</code></pre></div>
+<h2 id="in-the-ui">In the UI</h2>
+<p>The <strong>Register a Data Source</strong> form (always visible below the list, no
+modal) takes <strong>Name</strong> (must match the broker's own <code>DATA_SOURCE_NAME</code> env
+var exactly), connector <strong>Type</strong>, the broker's <strong>URL</strong> — reachable
+directly by agents, not through composer-api — a natural-language
+<strong>Description</strong> (fed into agent context, the same role a scarlet's own
+description plays), and comma-separated <strong>allowed users</strong>/<strong>allowed
+Nebula groups</strong>.</p>
+<p>An agent's own <code>query_feature</code> skill call goes through this registry only
+when its <code>~/.scarlet/config.yaml</code> entry is <code>mode: broker</code> — a <code>mode: local</code>
+entry never touches this page or composer-api at all.</p>
 
 
 

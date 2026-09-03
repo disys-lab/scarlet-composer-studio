@@ -16,7 +16,7 @@
         <link rel="prev" href="../composer/logging/">
       
       
-        <link rel="next" href="design/">
+        <link rel="next" href="concepts/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Overview - Scarlet Composer Studio</title>
+        <title>Introduction - Scarlet Composer Studio</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#scarlet-agentic-harness" class="md-skip">
+        <a href="#introduction" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              Introduction
             
           </span>
         </div>
@@ -1179,14 +1179,14 @@
   
   
     <li class="md-nav__item">
-      <a href="design/" class="md-nav__link">
+      <a href="concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1207,14 +1207,14 @@
   
   
     <li class="md-nav__item">
-      <a href="status/" class="md-nav__link">
+      <a href="getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1463,59 +1463,48 @@
   
 
 
-<h1 id="scarlet-agentic-harness">scarlet-agentic-harness</h1>
-<p>A generalized decentralized agentic <strong>Skill</strong> harness built on top of this
-repo's <code>scarlets</code> primitives (<code>Mapper</code>, <code>Federator</code>, <code>Messenger</code>) — deployed
-alongside <a href="https://github.com/disys-lab/gustavo">Gustavo</a>. Lives in this
-monorepo at <code>harness/</code>, built as <code>ghcr.io/disys-lab/scarlet-agents</code> (see
-<a href="deployment/">Deployment</a>).</p>
-<h2 id="what-this-is">What this is</h2>
-<p>Scarlet Composer Studio gives agents shared memory and messaging over Redis.
-It does not define what an agent's <em>task</em> looks like — that's what this
-component adds: a <strong>Skill</strong> interface (<code>scarlet_agentic_harness/skills/base.py</code>)
-that any well-defined distributed computation implements, plus a thin,
-skill-agnostic harness that dispatches invocations across a head and any
-number of worker agents using only scarlets primitives — no side channels.</p>
-<p>Three reference skills exist, deliberately chosen to exercise different shapes:</p>
+<h1 id="introduction">Introduction</h1>
+<p>The harness is a decentralized agent runtime built on top of this repo's
+<code>scarlets</code> primitives (<code>Mapper</code>, <code>Federator</code>, <code>Messenger</code>). It defines what
+an agent's <em>task</em> looks like and how a head and any number of workers carry
+one out together — something <code>scarlets</code> itself deliberately doesn't define.
+Deployed alongside <a href="https://github.com/disys-lab/gustavo">Gustavo</a> as
+<code>ghcr.io/disys-lab/scarlet-agents</code>.</p>
+<h2 id="why-this-exists">Why this exists</h2>
+<p>Most agent frameworks assume a central orchestrator that knows every
+capability and every data source in advance. That model fights how
+industrial sites actually operate: a plant manager runs their own
+historian, is territorial about their own data, and won't hand credentials
+to a system they don't control. The harness is built around the opposite
+default — capability and data-source knowledge live at the edge, and
+agents find each other on demand.</p>
+<p>Three principles follow from that:</p>
 <ul>
-<li><strong><code>median</code></strong> — workers each hold a private, unordered list of numbers; the
-  head assigns one worker as coordinator (workers never self-assign); the
-  coordinator gathers every worker's sorted local partition via
-  <code>Mapper.AllGather()</code> and merges them into the true global median. Median
-  isn't an associative reduction (you can't combine two workers' local
-  medians into the global one), so it can't be built on <code>Federator</code> at all —
-  it needs the full partitioned data and a real merge.</li>
-<li><strong><code>sum</code></strong> — the first <code>Federator</code>-backed skill, and the first to take a
-  parameter (<code>transform: identity|square</code>). <code>Federator</code> <em>is</em> built for
-  associative reductions, but the coordinator is still a randomly-assigned
-  worker, same as median — nothing about <code>Federator</code> requires centralizing
-  on the head. Reports both the total and <code>n</code> (total element count across
-  all workers, co-aggregated as one numpy array in a single <code>Aggregate()</code>
-  call, not <code>len(workers)</code> — those are different numbers). <code>sum(transform=
-  identity)</code> and <code>sum(transform=square)</code>, plus <code>n</code>, are enough to derive
-  mean/variance/stddev from pure arithmetic with no new skill and no new
-  distributed protocol — <code>tests/test_sum_skill.py</code> proves this concretely.</li>
-<li><strong><code>combine</code></strong> — the local, non-distributed arithmetic step that closes the
-  composition loop: it evaluates a model-supplied expression (e.g.
-  <code>"s2/n - (s1/n)**2"</code>) against model-supplied named variables via
-  <code>safe_eval</code> (an AST-whitelisted evaluator — numeric constants, variable
-  lookup, <code>+ - * / **</code>, unary <code>+/-</code> only; everything else, including any
-  function call or attribute access, is rejected before anything runs).
-  Deliberately generic rather than a <code>CombineVarianceSkill</code> with the formula
-  baked in — that defeats the whole point of a small composable skill
-  library.</li>
+<li><strong>A task is a <code>Skill</code>, not a script.</strong> Any well-defined distributed
+  computation — sum a value across workers, find a median, mint a new
+  agent mid-task — implements one small interface. Adding a capability
+  means adding a module, never touching the dispatch logic that routes to
+  it.</li>
+<li><strong>Coordination happens by feature, not by infrastructure.</strong> A worker
+  asks "who can supply Roll Speed," not "who has a Postgres connection to
+  host X." The requester never needs to know what connector, database, or
+  site backs an answer — see <a href="concepts/#local-first-data-access">Local-First Data Access</a>.</li>
+<li><strong>Code stays static and auditable.</strong> Skills are bundled into the image
+  ahead of time, not generated or fetched at runtime. An agent running
+  against a live industrial database has to be something a site engineer
+  can trust and reason about — free-form code generation trades that away
+  for flexibility the platform doesn't need at that layer.</li>
 </ul>
-<p>Together these prove the <code>Skill</code> interface generalizes past "head aggregates
-centrally", past "every skill needs <code>Mapper</code>", and past "every skill is
-distributed" — a new skill is a new module under <code>skills/</code>, never a change
-to <code>head.py</code>/<code>worker.py</code>'s dispatch logic. Two production skills also exist:
-<code>create_scarlet</code> (mint a new scarlet mid-task via LLM reasoning) and
-<code>query_feature</code> (tag-level, edge-local data-source lookup — see
-<a href="../composer/data-sources/">Data Sources</a> for the composer-side registry
-this complements).</p>
-<p>See <a href="status/">Status</a> for the detailed build history and test coverage,
-and <a href="design/">Design Decisions</a> for the architectural choices worth
-knowing before extending this harness.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><strong><a href="concepts/">Core Concepts</a></strong> — the <code>Skill</code> interface, head/worker
+  roles, dispatch, agent-to-agent dialogue, and local-first data access.
+  Read this first.</li>
+<li><strong><a href="getting-started/">Getting Started</a></strong> — install, run the tests,
+  write and run a minimal skill.</li>
+<li><strong><a href="deployment/">Deployment</a></strong> — the Docker image and running it
+  alongside Gustavo/composer.</li>
+</ul>
 
 
 
@@ -1570,13 +1559,13 @@ knowing before extending this harness.</p>
         
         
           
-          <a href="design/" class="md-footer__link md-footer__link--next" aria-label="Next: Design Decisions">
+          <a href="concepts/" class="md-footer__link md-footer__link--next" aria-label="Next: Core Concepts">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Design Decisions
+                Core Concepts
               </div>
             </div>
             <div class="md-footer__button md-icon">

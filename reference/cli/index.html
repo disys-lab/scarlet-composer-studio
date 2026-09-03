@@ -1179,14 +1179,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/design/" class="md-nav__link">
+      <a href="../../harness/concepts/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Design Decisions
+    Core Concepts
   
 
     
@@ -1207,14 +1207,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../../harness/status/" class="md-nav__link">
+      <a href="../../harness/getting-started/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Status / Build History
+    Getting Started
   
 
     
@@ -1442,15 +1442,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#scarlet-composer-composer-gui" class="md-nav__link">
+  <a href="#scarlet-composer-composer-compose" class="md-nav__link">
     <span class="md-ellipsis">
       
-        scarlet-composer composer gui
+        scarlet-composer composer compose
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="scarlet-composer composer gui">
+    <nav class="md-nav" aria-label="scarlet-composer composer compose">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1475,41 +1475,8 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#what-it-starts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What it starts
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#scarlet-composer-composer-version" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        scarlet-composer composer version
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#environment-variables" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Environment Variables
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1616,7 +1583,10 @@
 
 
 <h1 id="cli-reference">CLI Reference</h1>
-<p>The <code>scarlet-composer</code> CLI is the entry point for the <code>scarletcomposer</code> package.</p>
+<p>The <code>scarlet-composer</code> CLI is the entry point for the <code>scarletcomposer</code>
+package. It covers parsing and deploying <code>#scarlet</code> declarations from
+source — it does <strong>not</strong> launch the operator dashboard; that's a Docker
+image, see <a href="../../deployment/docker/">Docker Images</a>.</p>
 <hr />
 <h2 id="installation">Installation</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>scarletcomposer
@@ -1626,13 +1596,13 @@
 <h2 id="command-tree">Command Tree</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>scarlet-composer
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>└── composer
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    ├── gui          Launch the Streamlit UI + Tornado background server
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    └── version      Print the package version
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    └── compose &lt;dir&gt;   Parse #scarlet declarations, optionally deploy
 </code></pre></div>
 <hr />
-<h2 id="scarlet-composer-composer-gui">scarlet-composer composer gui</h2>
-<p>Launch the Composer UI.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<h2 id="scarlet-composer-composer-compose">scarlet-composer composer compose</h2>
+<p>Parse a Python script (or directory of scripts) for <code>#scarlet</code>
+declarations, and optionally deploy the resulting scarlets to Redis.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>compose<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>DIR
 </code></pre></div>
 <h3 id="options">Options</h3>
 <table>
@@ -1645,52 +1615,32 @@
 </thead>
 <tbody>
 <tr>
-<td><code>--port</code>, <code>-p</code></td>
-<td><code>8501</code></td>
-<td>Streamlit port</td>
-</tr>
-<tr>
-<td><code>--lport</code></td>
-<td><code>9099</code></td>
-<td>Tornado background server port</td>
-</tr>
-<tr>
-<td><code>--no-background</code></td>
+<td><code>--deploy</code></td>
 <td><em>(flag)</em></td>
-<td>Skip starting the Tornado server</td>
+<td>Deploy parsed scarlets to Redis after interpretation</td>
+</tr>
+<tr>
+<td><code>--file</code></td>
+<td><em>(none)</em></td>
+<td>Target a single file within <code>DIR</code> instead of the whole directory</td>
 </tr>
 </tbody>
 </table>
 <h3 id="examples">Examples</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Default launch</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Parse every file in a directory, print what was found</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>compose<span class="w"> </span>./my_scarlets
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Custom ports</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui<span class="w"> </span>--port<span class="w"> </span><span class="m">8502</span><span class="w"> </span>--lport<span class="w"> </span><span class="m">9100</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># UI only (no background server)</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>gui<span class="w"> </span>--no-background
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Parse one file and deploy immediately</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>compose<span class="w"> </span>./my_scarlets<span class="w"> </span>--file<span class="w"> </span>model.py<span class="w"> </span>--deploy
 </code></pre></div>
-<h3 id="what-it-starts">What it starts</h3>
-<ol>
-<li><strong>Tornado BackgroundServer</strong> on <code>--lport</code> — provides <code>/api/v2/getNodeInfo</code></li>
-<li><strong>Streamlit</strong> on <code>--port</code> — serves <code>Scarlets.py</code> (the main UI)</li>
-</ol>
-<p>Both processes run in the same Python process. Ctrl-C stops both.</p>
-<hr />
-<h2 id="scarlet-composer-composer-version">scarlet-composer composer version</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>scarlet-composer<span class="w"> </span>composer<span class="w"> </span>version
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># scarletcomposer 0.5.0</span>
-</code></pre></div>
-<hr />
-<h2 id="environment-variables">Environment Variables</h2>
-<p>The CLI itself reads no environment variables. The Streamlit process it launches reads all the standard Scarlet env vars at runtime — see <a href="../../deployment/env-vars/">Environment Variables</a>.</p>
+<p>Reads <code>REDIS_HOST</code>/<code>REDIS_PORT</code>/<code>REDIS_AUTH_TOKEN</code> from the environment for
+the <code>--deploy</code> step — see <a href="../../deployment/env-vars/">Environment Variables</a>.</p>
 <hr />
 <h2 id="entry-point">Entry Point</h2>
-<p>The CLI is registered in <code>pyproject.toml</code> / <code>setup.py</code> as:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>scarlet-composer = scarletcomposer.cli.scarletDriver:main
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>scarlet-composer = scarletcomposer.composer.scarletDriver:scarletcomposer
 </code></pre></div>
-<p>The <code>scarletDriver</code> module uses <code>click</code> to define the command tree. The <code>composer gui</code> command calls <code>subprocess.Popen(["streamlit", "run", ...])</code> after starting the Tornado server in a background thread.</p>
+<p>Defined via <code>click</code>. <code>--version</code> is available on the CLI and every
+subcommand group.</p>
 
 
 
