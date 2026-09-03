@@ -193,6 +193,6 @@ The head container sets `HEAD_BUS=my-campaign_headagent` and `DEVICE_GROUP=my-ca
 | Symptom | Check |
 |---|---|
 | Node not appearing in `GatherStatus` | Verify the agent container started: `docker ps` on the node |
-| Wrong `agentId` (shows IP `127.0.0.1`) | `NODE_ADDRESS` resolution failed — check `node-aliases` in Redis; ensure BackgroundServer is running on port 9099 |
+| Wrong `agentId` (shows IP `127.0.0.1`) | `NODE_ADDRESS` resolution failed — check `node-aliases` in Redis; ensure the `background-server` service is running (see [Node Identity](../concepts/identity.md)) |
 | Agents not receiving messages | Verify `DEVICE_GROUP` matches the Messenger bus name exactly |
 | Gustavo manager unreachable | Check firewall; manager listens on UDP (Nebula) and TCP 8080 |

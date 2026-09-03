@@ -102,8 +102,12 @@ The `AGENT_ID` becomes:
 
 ## BackgroundServer Endpoints
 
-The `BackgroundServer` (Tornado, port 9099 by default - the actual bind
-port is a CLI flag to `scarlet-composer composer gui`, not an env var)
+The `BackgroundServer` (Tornado — same class scarletcomposer has always
+used, `scarletcomposer/pages/config/BackgroundServer.py`, now run as its
+own `background-server` service via `docker/composer-app/background_server.py`
+rather than bundled into the composer container's own process set; default
+port `9098`, configurable via `BACKGROUND_SERVER_PORT` — see
+[Docker Images](../deployment/docker.md#node-identity-resolution-background-server))
 exposes two endpoints:
 
 | Endpoint | Method | Description |

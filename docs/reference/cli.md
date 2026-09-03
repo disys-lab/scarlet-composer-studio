@@ -1,6 +1,9 @@
 # CLI Reference
 
-The `scarlet-composer` CLI is the entry point for the `scarletcomposer` package.
+The `scarlet-composer` CLI is the entry point for the `scarletcomposer`
+package. It covers parsing and deploying `#scarlet` declarations from
+source — it does **not** launch the operator dashboard; that's a Docker
+image, see [Docker Images](../deployment/docker.md).
 
 ---
 
@@ -18,71 +21,47 @@ scarlet-composer --help
 ```
 scarlet-composer
 └── composer
-    ├── gui          Launch the Streamlit UI + Tornado background server
-    └── version      Print the package version
+    └── compose <dir>   Parse #scarlet declarations, optionally deploy
 ```
 
 ---
 
-## scarlet-composer composer gui
+## scarlet-composer composer compose
 
-Launch the Composer UI.
+Parse a Python script (or directory of scripts) for `#scarlet`
+declarations, and optionally deploy the resulting scarlets to Redis.
 
 ```bash
-scarlet-composer composer gui [OPTIONS]
+scarlet-composer composer compose [OPTIONS] DIR
 ```
 
 ### Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--port`, `-p` | `8501` | Streamlit port |
-| `--lport` | `9099` | Tornado background server port |
-| `--no-background` | _(flag)_ | Skip starting the Tornado server |
+| `--deploy` | _(flag)_ | Deploy parsed scarlets to Redis after interpretation |
+| `--file` | _(none)_ | Target a single file within `DIR` instead of the whole directory |
 
 ### Examples
 
 ```bash
-# Default launch
-scarlet-composer composer gui
+# Parse every file in a directory, print what was found
+scarlet-composer composer compose ./my_scarlets
 
-# Custom ports
-scarlet-composer composer gui --port 8502 --lport 9100
-
-# UI only (no background server)
-scarlet-composer composer gui --no-background
+# Parse one file and deploy immediately
+scarlet-composer composer compose ./my_scarlets --file model.py --deploy
 ```
 
-### What it starts
-
-1. **Tornado BackgroundServer** on `--lport` — provides `/api/v2/getNodeInfo`
-2. **Streamlit** on `--port` — serves `Scarlets.py` (the main UI)
-
-Both processes run in the same Python process. Ctrl-C stops both.
-
----
-
-## scarlet-composer composer version
-
-```bash
-scarlet-composer composer version
-# scarletcomposer 0.5.0
-```
-
----
-
-## Environment Variables
-
-The CLI itself reads no environment variables. The Streamlit process it launches reads all the standard Scarlet env vars at runtime — see [Environment Variables](../deployment/env-vars.md).
+Reads `REDIS_HOST`/`REDIS_PORT`/`REDIS_AUTH_TOKEN` from the environment for
+the `--deploy` step — see [Environment Variables](../deployment/env-vars.md).
 
 ---
 
 ## Entry Point
 
-The CLI is registered in `pyproject.toml` / `setup.py` as:
-
 ```
-scarlet-composer = scarletcomposer.cli.scarletDriver:main
+scarlet-composer = scarletcomposer.composer.scarletDriver:scarletcomposer
 ```
 
-The `scarletDriver` module uses `click` to define the command tree. The `composer gui` command calls `subprocess.Popen(["streamlit", "run", ...])` after starting the Tornado server in a background thread.
+Defined via `click`. `--version` is available on the CLI and every
+subcommand group.

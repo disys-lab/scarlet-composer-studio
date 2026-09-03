@@ -42,8 +42,11 @@ Note: **`MANAGER_HOST`/`MANAGER_PORT` are a different pair from `GUSTAVO_MANAGER
 
 | Variable | Default | Description |
 |---|---|---|
-| `STREAMLIT_PORT` | `8501` | Port the Streamlit UI listens on |
-| `BACKGROUND_SERVER_PORT` | `9099` | Port for the Tornado identity server |
+| `AUTH_ENABLED` | `false` | Require Nebula-backed login before the UI/API is usable |
+| `NEXT_PUBLIC_AUTH_ENABLED` | `false` | Same flag, baked into the Next.js client bundle at **build** time — must match `AUTH_ENABLED`, since the browser needs to know before any request whether to redirect to `/login` |
+| `COMPOSER_API_CONFIG` | `/etc/scarlet-composer/composer_api.yaml` | Path to composer-api's persisted config file |
+| `GUSTAVO_API_URL` | `http://host.docker.internal:3002` | Where composer-api reaches Gustavo's own API |
+| `BACKGROUND_SERVER_PORT` | `9098` | Port for the node-identity resolution service (`background-server`), when run as its own container |
 | `STALE_THRESHOLD` | `120` | Seconds since last heartbeat before an agent is shown as stale in the UI |
 
 ---
@@ -88,8 +91,8 @@ DEVICE_GROUP=quickstart_subagent
 # MANAGER_PORT=8080
 
 # ── Composer UI (optional) ───────────────────────────
-# STREAMLIT_PORT=8501
-# BACKGROUND_SERVER_PORT=9099
+# AUTH_ENABLED=false
+# BACKGROUND_SERVER_PORT=9098
 # STALE_THRESHOLD=120
 
 # ── Logging (optional) ───────────────────────────────

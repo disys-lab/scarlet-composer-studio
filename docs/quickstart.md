@@ -48,7 +48,7 @@ docker compose up --build -d
 
 | Container | Role |
 |---|---|
-| `scarlet-composer` | Operator UI — Streamlit on **8501**, Tornado on **9099** |
+| `scarlet-composer` | Operator UI — Next.js on **8501**, FastAPI bound internally |
 | `hello-agent` | Sample agent — listens on two Messenger buses, echoes messages, heartbeats every 60 s |
 
 Watch progress:
@@ -62,10 +62,12 @@ docker compose logs -f hello-agent
 
 Visit **[http://localhost:8501](http://localhost:8501)**
 
-In the sidebar:
+Redis connection details come from `.env` at container start — nothing to
+configure in the browser. With `AUTH_ENABLED=false` (the default here) you
+land straight on the dashboard.
 
-1. Enter your **Redis Host** and **Auth Token** → **Save**
-2. Click the **Agents** tab — you should see `hello-agent_local` with a green indicator
+Click **Agents** in the sidebar — you should see `hello-agent_local` with a
+green status indicator.
 
 ---
 
