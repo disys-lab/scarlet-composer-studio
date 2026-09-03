@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.DS_Store
+tests
+transcripts
+.env
