@@ -1,0 +1,18 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+requests>=2.28.0
+
+# data_connectors (../data_connectors, setup_connectors.py) - the six
+# connector classes (mssql/postgres/mysql/pi/influx/redis) and their own
+# drivers, extracted into their own package so both this broker and
+# scarlet-agentic-harness's local-config mode can import the same classes
+# without the harness picking up FastAPI/uvicorn as a transitive
+# dependency. Installed separately (see Dockerfile), same non-standard-
+# setup-file convention as this repo's own scarlets/scarletcomposer
+# packages (setup.py / setup_composer.py) - not a name pip can resolve
+# via a plain requirements.txt line.
+
+# pi connector's `pitalk` package (github.com/blockalytics/PITalk) is
+# also installed separately, with --no-deps, in the Dockerfile - see
+# data_connectors' own setup_connectors.py for why (its setup.py pins
+# versions with no installable wheel for a modern Python).

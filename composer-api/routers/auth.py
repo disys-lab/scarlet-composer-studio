@@ -73,6 +73,7 @@ async def login(req: LoginRequest):
     session = Session(
         username=gustavo_session.get("username", ""),
         is_admin=bool(gustavo_session.get("is_admin", False)),
+        groups=list(gustavo_session.get("groups", [])),
     )
     return {
         "error": False,

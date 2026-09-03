@@ -16,7 +16,7 @@ import logging
 import os
 import secrets as _secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jwt
 
@@ -43,6 +43,13 @@ _SIGNING_KEY = _load_signing_key()
 class Session:
     username: str
     is_admin: bool
+    # Nebula group memberships, straight from Gustavo's own login response
+    # (see routers/auth.py) - carried through the token so a later request
+    # (e.g. a data-source authorize check) can test group-based grants
+    # without a second round-trip to Gustavo/Nebula. Empty for the
+    # AUTH_ENABLED=false local admin session, same as everywhere else that
+    # short-circuits on is_admin instead.
+    groups: list[str] = field(default_factory=list)
 
 
 class InvalidSession(Exception):
@@ -53,6 +60,7 @@ def create_session_token(session: Session) -> str:
     claims = {
         "username": session.username,
         "is_admin": session.is_admin,
+        "groups": session.groups,
         "exp": int(time.time()) + SESSION_TTL_SECONDS,
     }
     return jwt.encode(claims, _SIGNING_KEY, algorithm=_JWT_ALGORITHM)
@@ -61,6 +69,10 @@ def create_session_token(session: Session) -> str:
 def decode_session_token(token: str) -> Session:
     try:
         claims = jwt.decode(token, _SIGNING_KEY, algorithms=[_JWT_ALGORITHM])
-        return Session(username=claims["username"], is_admin=claims["is_admin"])
+        return Session(
+            username=claims["username"],
+            is_admin=claims["is_admin"],
+            groups=claims.get("groups", []),
+        )
     except (jwt.PyJWTError, KeyError) as exc:
         raise InvalidSession(str(exc)) from exc
