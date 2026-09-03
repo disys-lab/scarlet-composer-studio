@@ -50,6 +50,12 @@ export interface LoginResponse {
 
 export interface ComposerConfig {
   gustavo_api_url: string;
+  redis_host: string;
+  redis_port: string;
+  redis_auth_token_set: boolean;
+  // Present only on the PUT response (a live connection test runs on every save).
+  redis_ok?: boolean;
+  redis_error?: string | null;
 }
 
 export interface Scarlet {
@@ -78,6 +84,21 @@ export interface InterpretedScarlet {
 }
 
 export type InterpretedScarlets = Record<string, InterpretedScarlet>;
+
+export interface LogEntry {
+  id: string;
+  time: number;
+  app: string;
+  node: string;
+  level: string;
+  msg: string;
+  filename: string;
+  line: string;
+}
+
+export interface LogsResponse {
+  logs: LogEntry[];
+}
 
 // Matches composer-api's routers/data_sources.py _public_shape() exactly -
 // no credential field exists on this entry anywhere (see

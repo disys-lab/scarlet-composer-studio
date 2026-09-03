@@ -94,9 +94,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const isAuthenticated = authEnabled === false || (authEnabled === true && !!token);
+  // When auth is disabled, auth_dep.py's verify_session() treats every
+  // request as the fixed local admin session (see its docstring) - isAdmin
+  // has to agree, or every admin-gated form (Settings, scarlet delete/
+  // deploy) stays disabled here even though the write would actually
+  // succeed server-side. isAdmin otherwise reflects the real login result.
+  const effectiveIsAdmin = authEnabled === false || isAdmin;
 
   return (
-    <AuthContext.Provider value={{ token, username, isAdmin, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ token, username, isAdmin: effectiveIsAdmin, isAuthenticated, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

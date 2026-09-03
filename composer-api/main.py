@@ -24,6 +24,7 @@ from routers import auth as auth_router
 from routers import config as config_router
 from routers import dashboard as dashboard_router
 from routers import data_sources as data_sources_router
+from routers import logs as logs_router
 from routers import scarlets as scarlets_router
 
 logging.basicConfig(level=logging.INFO)
@@ -71,6 +72,10 @@ app.include_router(
 )
 app.include_router(
     data_sources_router.router, prefix="/api/data-sources", tags=["data-sources"],
+    dependencies=[Depends(verify_session)],
+)
+app.include_router(
+    logs_router.router, prefix="/api/logs", tags=["logs"],
     dependencies=[Depends(verify_session)],
 )
 
