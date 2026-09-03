@@ -1,3 +1,5 @@
 mkdocs>=1.5
 mkdocs-material>=9.2
 pymdown-extensions>=10.0
+mkdocstrings[python]>=0.26
+black>=24.0

@@ -16,7 +16,7 @@
         <link rel="prev" href="../../harness/deployment/">
       
       
-        <link rel="next" href="../cli/">
+        <link rel="next" href="../scarlets-api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Full API Reference - Scarlet Composer Studio</title>
+        <title>Overview - Scarlet Composer Studio</title>
       
     
     
@@ -52,6 +52,8 @@
         <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
       <link rel="stylesheet" href="../../assets/extra.css">
     
@@ -116,7 +118,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Full API Reference
+              Overview
             
           </span>
         </div>
@@ -1280,6 +1282,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1348,7 +1356,7 @@
   <span class="md-ellipsis">
     
   
-    Full API Reference
+    Overview
   
 
     
@@ -1366,7 +1374,7 @@
   <span class="md-ellipsis">
     
   
-    Full API Reference
+    Overview
   
 
     
@@ -1404,17 +1412,6 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#scarlets-package" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        scarlets package
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#scarletcomposer-package" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1436,17 +1433,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#harness-scarlet_agentic_harness-the-agentic-skill-runtime" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        harness (scarlet_agentic_harness) — the agentic Skill runtime
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -1456,6 +1442,90 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scarlets-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scarlets API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harness-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-connectors-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Connectors API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1572,66 +1642,14 @@
 
 
 <h1 id="api-reference">API Reference</h1>
-<p>Full API documentation covering every class, method, parameter, return type, and Redis key schema.</p>
+<p>Every class, method, and function below links to a page generated directly from that package's source docstrings — not a hand-maintained copy, so it can't drift out of sync with the code.</p>
+<ul>
+<li><strong><a href="../scarlets-api/">Scarlets API</a></strong> — <code>Mapper</code>, <code>Federator</code>, <code>Messenger</code>, and the base/contract/utility classes underneath them.</li>
+<li><strong><a href="../harness-api/">Harness API</a></strong> — the <code>Skill</code> interface, all 8 reference skills, <code>HarnessContext</code>, dispatch (<code>head</code>/<code>worker</code>), communication (<code>buses</code>/<code>dialogue</code>/<code>router</code>), cancellation/observability, and LLM integration.</li>
+<li><strong><a href="../data-connectors-api/">Data Connectors API</a></strong> — the <code>Connector</code> base interface and all 8 connector implementations (mssql, postgres, mysql, pi, influx, redis, csv, excel).</li>
+</ul>
 <hr />
 <h2 id="quick-index">Quick Index</h2>
-<h3 id="scarlets-package"><code>scarlets</code> package</h3>
-<table>
-<thead>
-<tr>
-<th>Class</th>
-<th>Module</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ScarletBase</code></td>
-<td><code>scarlets.types.ScarletBase</code></td>
-<td>Base class — env vars, Redis client, OPS constants</td>
-</tr>
-<tr>
-<td><code>RedisScarlet</code></td>
-<td><code>scarlets.types.RedisScarlet</code></td>
-<td>Low-level Push / Pull / Clear</td>
-</tr>
-<tr>
-<td><code>Mapper</code></td>
-<td><code>scarlets.core.Mapper</code></td>
-<td>Distributed key-value: Map / AllGather / Reduce</td>
-</tr>
-<tr>
-<td><code>Federator</code></td>
-<td><code>scarlets.formulations.Federator</code></td>
-<td>Federated aggregation: Map + Aggregate</td>
-</tr>
-<tr>
-<td><code>Messenger</code></td>
-<td><code>scarlets.messaging.Messenger</code></td>
-<td>Per-agent inboxes: Send / Receive / Broadcast</td>
-</tr>
-<tr>
-<td><code>ContractBase</code></td>
-<td><code>scarlets.types.ContractBase</code></td>
-<td>Abstract contract base</td>
-</tr>
-<tr>
-<td><code>RedisContract</code></td>
-<td><code>scarlets.types.RedisContract</code></td>
-<td>Contract with Redis persistence</td>
-</tr>
-<tr>
-<td><code>ScarletUtils</code></td>
-<td><code>scarlets.utils.ScarletUtils</code></td>
-<td>Serialisation helpers (pickle + zlib)</td>
-</tr>
-<tr>
-<td><code>RedisLogger</code></td>
-<td><code>scarlets.utils.RedisLogger</code></td>
-<td>Structured logging to Redis</td>
-</tr>
-</tbody>
-</table>
 <h3 id="scarletcomposer-package"><code>scarletcomposer</code> package</h3>
 <table>
 <thead>
@@ -1707,10 +1725,6 @@
 </tbody>
 </table>
 <p><code>composer-ui</code> (Next.js) is the browser client for this API — see <a href="../../composer/">Composer UI</a>.</p>
-<h3 id="harness-scarlet_agentic_harness-the-agentic-skill-runtime"><code>harness</code> (<code>scarlet_agentic_harness</code>) — the agentic <code>Skill</code> runtime</h3>
-<p>See <a href="../../harness/concepts/">Harness → Core Concepts</a> for the <code>Skill</code> interface, dispatch, and <code>AgentDialogue</code>; the reference skills live under <code>harness/scarlet_agentic_harness/skills/</code>.</p>
-<hr />
-<p>For parameter signatures, return types, and code examples, see the source docstrings in each package.</p>
 
 
 
@@ -1765,13 +1779,13 @@
         
         
           
-          <a href="../cli/" class="md-footer__link md-footer__link--next" aria-label="Next: CLI Reference">
+          <a href="../scarlets-api/" class="md-footer__link md-footer__link--next" aria-label="Next: Scarlets API">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                CLI Reference
+                Scarlets API
               </div>
             </div>
             <div class="md-footer__button md-icon">
