@@ -75,18 +75,25 @@ RedisLogger.expiry_time = 3600  # 1 hour
 
 ## Viewing Logs in the UI
 
-The Logging tab:
+![Logging page](img/logging.png)
 
-1. Scans Redis for all keys matching `logs_*`.
-2. Reads the `app` and `node` fields from each hash to populate the filter dropdowns.
-3. Fetches all fields via `hgetall` and renders each entry as a JSON block.
+`GET /api/logs` scans every `logs_*` key, same data source as always, and
+returns the full set — filtering by app/node/level happens client-side in
+composer-ui, matching each entry against **all** active filters together
+(app **and** node **and** level), not any one of them.
+
+This is a live tail, not durable history: `RedisLogger`'s 10-minute TTL
+means anything older is already gone from Redis by the time you'd look for
+it. For durable retention, ship logs somewhere else (e.g. Loki) — this page
+can't add history that Redis no longer has.
 
 ### Filters
 
 | Filter | Description |
 |---|---|
-| **Filter by App ID** | Dropdown — show entries from one app or "All" |
-| **Filter by Node IP** | Dropdown — show entries from one node or "All" |
+| **App** | Show entries from one `APP_ID` or all |
+| **Node** | Show entries from one `NODE_ADDRESS` or all |
+| **Level** | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL` or all |
 
 ---
 

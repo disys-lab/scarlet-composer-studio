@@ -6,32 +6,16 @@ Redis backend, Apache 2.0, built for the edge.
 </p>
 </div>
 
-<div class="feature-grid">
-<div class="feature-card">
-<h3>🗺 Mapper</h3>
-<p>Distributed key-value store. Workers write independently; any node reads all values with AllGather or folds them with Reduce.</p>
-</div>
-<div class="feature-card">
-<h3>🤝 Federator</h3>
-<p>One-line federated aggregation. Workers post local models; the head calls Aggregate to sum, multiply, or max across all contributions.</p>
-</div>
-<div class="feature-card">
-<h3>📬 Messenger</h3>
-<p>Reliable per-agent inboxes with sequence-numbered delivery, a liveness registry, and heartbeat threads — all over raw Redis.</p>
-</div>
-<div class="feature-card">
-<h3>🎛 Composer UI</h3>
-<p>Streamlit dashboard to deploy scarlets, browse the agent registry, manage data sources, and stream logs — all from a browser.</p>
-</div>
-<div class="feature-card">
-<h3>🤖 LLM / MCP Ready</h3>
-<p><code>Messenger.AsTools()</code> exports MCP-compatible tool definitions. Drop into any agent framework: LangChain, LlamaIndex, Open WebUI.</p>
-</div>
-<div class="feature-card">
-<h3>🏭 Edge-First</h3>
-<p>Designed for physically distributed IoT and factory-floor deployments. No cloud dependency — just Redis on your network.</p>
-</div>
-</div>
+| Component | What it does |
+|---|---|
+| **Mapper** | Distributed key-value store. Workers write independently; any node reads all values with `AllGather` or folds them with `Reduce`. |
+| **Federator** | One-line federated aggregation. Workers post local models; the head calls `Aggregate` to sum, multiply, or max across all contributions. |
+| **Messenger** | Reliable per-agent inboxes with sequence-numbered delivery, a liveness registry, and heartbeat threads — all over raw Redis. |
+| **Harness** | A decentralized `Skill` runtime built on the primitives above: a head dispatches work, workers coordinate, and agents find each other's data by feature, not by connection string. |
+| **Composer UI** | Operator dashboard to deploy scarlets, browse the agent registry, manage data sources, and stream logs — from a browser. |
+| **LLM / MCP ready** | `Messenger.AsTools()` exports MCP-compatible tool definitions. Drop into any agent framework: LangChain, LlamaIndex, Open WebUI. |
+
+Designed for physically distributed, edge-first deployments — industrial and IoT sites with no cloud dependency, just Redis on your own network.
 
 ---
 
@@ -46,6 +30,7 @@ Redis backend, Apache 2.0, built for the edge.
 | Two buses per agent explained | [Two-Channel Architecture](concepts/two-channel.md) |
 | Multiple campaigns on one deployment | [Campaign Isolation](concepts/campaigns.md) |
 | Connecting to LangChain / Open WebUI | [LLM / MCP Integration](guides/llm-integration.md) |
+| Building a decentralized agent (`Skill`, dispatch, dialogue) | [Harness](harness/index.md) |
 | Deploying to edge nodes with Gustavo | [Gustavo Integration](deployment/gustavo.md) |
 | All environment variables | [Environment Variables](deployment/env-vars.md) |
 | Full API reference | [API Reference](reference/api.md) |
@@ -57,31 +42,35 @@ Redis backend, Apache 2.0, built for the edge.
 ## Architecture at a Glance
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    scarletcomposer                        │
-│  Streamlit UI (8501)   Tornado (9099)   scarlet-composer  │
-└──────────────────┬────────────────────────────────────────┘
-                   │
-┌──────────────────▼────────────────────────────────────────┐
-│                       Redis                               │
-│   Mapper data   Messenger queues   Scarlet definitions    │
-└──────────────────▲────────────────────────────────────────┘
-                   │
-┌──────────────────┴────────────────────────────────────────┐
-│                      scarlets                             │
-│   Mapper     Federator     Messenger     RedisScarlet      │
-│         (agents import directly — no broker)              │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  scarlet-composer  (operator UI)                              │
+│  composer-ui (Next.js, :3000)  ⇄  composer-api (FastAPI)       │
+│  background-server — node identity resolution                 │
+└───────────────────────────────┬────────────────────────────────┘
+                                │
+┌───────────────────────────────▼────────────────────────────────┐
+│                             Redis                              │
+│      Mapper data     Messenger queues     Scarlet definitions   │
+└───────────────────────────────▲────────────────────────────────┘
+                                │
+┌───────────────────────────────┴────────────────────────────────┐
+│  scarlet-agents  (harness)              scarlets  (library)     │
+│  Skill dispatch, AgentDialogue,         Mapper / Federator /    │
+│  local-first data access                Messenger — imported    │
+│                                          directly, no broker     │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Two packages ship from this repository:
+Four packages ship from this repository:
 
 | Package | What it contains |
 |---|---|
 | `scarlets` | `Mapper`, `Federator`, `Messenger`, `RedisScarlet`, `ScarletBase`, `RedisContract`, `ScarletUtils`, `RedisLogger` |
-| `scarletcomposer` | Streamlit UI, Tornado background server, `ScarletInterpreter`, `ScarletHandler`, `scarlet-composer` CLI |
+| `scarletcomposer` | `composer-api` (FastAPI) + `composer-ui` (Next.js) operator dashboard, `ScarletInterpreter`, `scarlet-composer` CLI |
+| `data-connectors` | Pluggable data-source connectors (MSSQL, Postgres, MySQL, PI, InfluxDB, Redis, CSV, Excel) |
+| `harness/` | The agentic `Skill` runtime — see [Harness](harness/index.md) |
 
-Agent containers only need `scarlets`. The operator dashboard needs `scarletcomposer`.
+Agent containers only need `scarlets`. The operator dashboard needs `scarletcomposer`. Agents built with the harness also need `data-connectors` for local-mode data sources.
 
 ---
 

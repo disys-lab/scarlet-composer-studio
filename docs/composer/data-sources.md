@@ -1,112 +1,58 @@
 # Data Sources Page
 
-The **Data Sources** tab manages a three-tier registry of named data endpoints that agents can discover at runtime. It is backed entirely by Redis — no separate database.
+Manages the **centralized** data-source registry — the broker path for
+genuinely shared sources. This is one of two ways an agent reaches a data
+source; for a site-owned source that shouldn't be centralized at all, see
+[Local-First Data Access](../harness/concepts.md#local-first-data-access).
+
+![Data Sources page](img/data-sources.png)
 
 ---
 
-## Three Tiers
+## What this registry actually holds
 
-| Tier | Redis Key | Scope |
-|---|---|---|
-| **Global** | `data-sources:global` | All campaigns on this Redis instance |
-| **Worker** | `data-sources:worker:{APP_ID}` | One campaign — all nodes |
-| **Local** | `data-sources:local:{NODE_ADDRESS}` | One node only |
+A YAML-backed list (`/etc/scarlet-composer/data_sources.yaml`), each entry:
 
-Each tier is a Redis hash. Keys are data source names; values are JSON blobs with connection details.
-
----
-
-## Adding a Data Source
-
-In the UI:
-
-1. Select the tier from the **Scope** dropdown
-2. Enter a **Name** (e.g., `plant_db`, `sensor_feed`)
-3. Enter a JSON **Configuration** block
-4. Click **Save**
-
-Example configuration:
-
-```json
-{
-    "type": "postgresql",
-    "host": "10.0.1.50",
-    "port": 5432,
-    "database": "plant_readings",
-    "user": "scarlet_reader"
-}
+```yaml
+data_sources:
+  - name: plant_erp
+    type: mssql
+    broker_url: "https://broker.example.com"
+    description: "Corporate ERP inventory figures."
+    allowed_users: []
+    allowed_groups: ["plant-ops"]
 ```
 
-Alternatively, write directly to Redis:
-
-```python
-import redis, json
-
-r = redis.Redis(host=REDIS_HOST, password=REDIS_AUTH_TOKEN, decode_responses=True)
-
-# Global data source
-r.hset("data-sources:global", "plant_db", json.dumps({
-    "type": "postgresql", "host": "10.0.1.50", "port": 5432
-}))
-
-# Worker-scoped (only visible to APP_ID=quickstart)
-r.hset("data-sources:worker:quickstart", "local_model", json.dumps({
-    "type": "mlflow", "tracking_uri": "http://mlflow.local:5000"
-}))
-
-# Node-local (only visible on 10.42.0.2)
-r.hset("data-sources:local:10.42.0.2", "raw_sensor", json.dumps({
-    "type": "opc-ua", "endpoint": "opc.tcp://192.168.1.10:4840"
-}))
-```
+**No credential is ever stored here.** The registry holds *authorization
+policy and a directory of where to find each broker* — `{name, type,
+broker_url, description, allowed_users, allowed_groups}` — nothing more.
+The actual database credential lives only in that broker's own deployment
+(its own environment variables, set once when the broker container is
+deployed), never returned by, sent to, or stored in composer-api.
 
 ---
 
-## Reading Data Sources in Agent Code
+## Authorization
 
-```python
-import redis, json, os
-
-r = redis.Redis(
-    host=os.environ["REDIS_HOST"],
-    password=os.environ["REDIS_AUTH_TOKEN"],
-    decode_responses=True,
-)
-APP_ID  = os.environ["APP_ID"]
-NODE    = os.environ.get("NODE_ADDRESS", "local")
-
-# Merge all three tiers — local overrides worker overrides global
-def get_data_sources():
-    global_  = r.hgetall("data-sources:global")
-    worker_  = r.hgetall(f"data-sources:worker:{APP_ID}")
-    local_   = r.hgetall(f"data-sources:local:{NODE}")
-    merged   = {**global_, **worker_, **local_}
-    return {k: json.loads(v) for k, v in merged.items()}
-
-sources = get_data_sources()
-db_config = sources["plant_db"]   # {"type": "postgresql", ...}
-```
+`allowed_users`/`allowed_groups` are checked against the calling agent's
+session (Nebula group membership, the same mechanism Gustavo's own
+app/device-group access grants use) before a query is allowed through —
+`POST /api/data-sources/{name}/authorize`. Creating, editing, or deleting
+an entry requires an admin session; any authenticated session can list
+entries and request authorization to query one.
 
 ---
 
-## Use Cases
+## In the UI
 
-| Tier | Example |
-|---|---|
-| Global | Shared PostgreSQL database, MLflow tracking server, S3 bucket |
-| Worker | Campaign-specific model registry, feature store for this experiment |
-| Local | On-node OPC-UA server, local GPU endpoint, camera stream |
+The **Register a Data Source** form (always visible below the list, no
+modal) takes **Name** (must match the broker's own `DATA_SOURCE_NAME` env
+var exactly), connector **Type**, the broker's **URL** — reachable
+directly by agents, not through composer-api — a natural-language
+**Description** (fed into agent context, the same role a scarlet's own
+description plays), and comma-separated **allowed users**/**allowed
+Nebula groups**.
 
----
-
-## Priority Override
-
-The three-tier merge gives local highest priority. A node can override a global data source with a local one of the same name without affecting other nodes:
-
-```python
-# On 10.42.0.2 only — use a local MLflow instance instead of the global one
-r.hset("data-sources:local:10.42.0.2", "model_registry", json.dumps({
-    "type": "mlflow", "tracking_uri": "http://localhost:5000"
-}))
-# All other nodes still use data-sources:global → model_registry
-```
+An agent's own `query_feature` skill call goes through this registry only
+when its `~/.scarlet/config.yaml` entry is `mode: broker` — a `mode: local`
+entry never touches this page or composer-api at all.

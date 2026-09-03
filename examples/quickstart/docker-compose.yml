@@ -2,16 +2,25 @@ version: '3.9'
 
 # Scarlet Composer Studio — local quickstart
 #
-# Starts three services against an external Redis instance:
-#   1. scarlet-composer — Composer UI (port 8501) + BackgroundServer (port 9099)
+# Starts two services against an external Redis instance:
+#   1. scarlet-composer — composer-api (FastAPI) + composer-ui (Next.js), port 8501
 #   2. hello-agent      — sample Scarlet agent; echoes messages on two Messenger buses
 #
 # APP_ID, NODE_ADDRESS, DEVICE_GROUP, and HEAD_BUS are set directly as env vars.
 # Gustavo is not required for local development — it is only needed for multi-node
-# edge deployments where agents must be pushed to remote machines via Nebula.
+# edge deployments where agents must be pushed to remote machines via Nebula. Node
+# identity resolution (background-server) is likewise not needed here since
+# NODE_ADDRESS is set explicitly below - see deployment/docker.md for running it
+# as a third service in a real multi-node deployment.
 #
 # Usage:
 #   cp .env.example .env          # fill in REDIS_HOST, REDIS_AUTH_TOKEN
+#
+#   # scarlet-composer's Dockerfile consumes pre-built wheels from the repo
+#   # root's dist/ rather than building them itself - build them once first
+#   # (from the repo root, three levels up from here):
+#   cd ../.. && python3 setup.py bdist_wheel && python3 setup_composer.py bdist_wheel && cd examples/quickstart
+#
 #   docker compose up --build -d
 #   python3 smoke_test.py --env .env
 #
@@ -20,13 +29,20 @@ version: '3.9'
 services:
 
   # ─── Scarlet Composer Studio UI ────────────────────────────────────────────
+  # Built locally from this repo's own docker/composer-app/Dockerfile (build
+  # context is the repo root, three levels up) rather than a pinned ghcr.io
+  # tag - see deployment/docker.md for the CI-published image, once a release
+  # has been tagged.
   scarlet-composer:
-    image: ghcr.io/disys-lab/scarlet-composer:${SCARLET_VERSION:-0.5.0}
+    build:
+      context: ../..
+      dockerfile: docker/composer-app/Dockerfile
+      args:
+        NEXT_PUBLIC_AUTH_ENABLED: "false"
     container_name: scarlet-composer
     restart: unless-stopped
     ports:
-      - "8501:8501"   # Streamlit UI
-      - "9099:9099"   # Tornado background server (node identity)
+      - "8501:3000"
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"

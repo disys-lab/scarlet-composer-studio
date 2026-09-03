@@ -1,94 +1,52 @@
 # Composer UI — Overview
 
-The Scarlet Composer Studio UI is a Streamlit application that gives operators a real-time view of their distributed agent deployment. It reads directly from Redis — no separate backend API is needed.
+The operator dashboard for a Scarlet deployment — see the [Architecture at a Glance](../index.md#architecture-at-a-glance) section for how it fits into the rest of the system. Two processes in one container: `composer-api` (FastAPI, talks to Redis) and `composer-ui` (Next.js, the browser client) — the UI never talks to Redis directly.
 
 ---
 
 ## Launch
 
 ```bash
-# From pip installation
-scarlet-composer composer gui
-
-# With custom ports
-scarlet-composer composer gui --port 8502 --lport 9100
-
-# From Docker
-docker run -d -p 8501:8501 -p 9099:9099 \
+docker run -d -p 8501:3000 \
   -e REDIS_HOST=your-redis-host \
   -e REDIS_AUTH_TOKEN=your-password \
-  ghcr.io/disys-lab/scarlet-composer:0.5.0
+  -e AUTH_ENABLED=false \
+  ghcr.io/disys-lab/scarlet-composer:latest
 ```
 
-Open **http://localhost:8501** in a browser.
+Open **http://localhost:8501** in a browser. See [Docker Images](../deployment/docker.md) for building locally and running `background-server` alongside it.
 
----
-
-## Layout
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Sidebar          │  Main content                            │
-│  ─────────────    │  ─────────────────────────────────────   │
-│  Redis Host       │  Agents  │  Data Sources  │  Logging     │
-│  Auth Token       │                                          │
-│  APP_ID           │  (tab content)                           │
-│  NODE_ADDRESS     │                                          │
-│  [Save]           │                                          │
-│                   │                                          │
-│  Scarlets page    │                                          │
-└──────────────────────────────────────────────────────────────┘
-```
+![Dashboard](img/dashboard.png)
 
 ---
 
 ## Sidebar
 
-The sidebar persists connection settings across tab switches. Changes only take effect after clicking **Save**.
-
-| Field | Description |
+| Page | What it's for |
 |---|---|
-| **Redis Host** | Hostname or IP of your Redis instance |
-| **Redis Auth Token** | Redis password |
-| **APP_ID** | Campaign identifier — filters the agent view |
-| **NODE_ADDRESS** | This node's address — used to resolve local identity |
+| **Dashboard** | Redis health, agent/scarlet counts at a glance |
+| **[Agents](agents.md)** | Live agent registry — status, capabilities, data sources |
+| **Scarlets** | Registered scarlet definitions; interpret and deploy from source |
+| **[Data Sources](data-sources.md)** | The centralized data-source broker registry |
+| **[Logging](logging.md)** | Live tail of the `RedisLogger` stream |
+| **Settings** | Composer-api configuration |
 
-Settings are stored in Streamlit session state. For Docker deployments, pre-populate them via environment variables so the UI opens pre-configured.
+Redis connection details are set once, server-side, via environment
+variables at container start — there's no in-browser "connect" step.
 
 ---
 
-## Pages
+## Authentication
 
-The Composer UI has two top-level pages:
-
-### Main page (`Scarlets.py`)
-
-Three tabs:
-
-| Tab | What it shows |
-|---|---|
-| **Agents** | Live agent registry, heartbeat status, capability cards |
-| **Data Sources** | Three-tier data source registry (global / worker / local) |
-| **Logging** | Redis-backed log stream with filtering |
-
-### Scarlets page
-
-Lists all registered scarlet definitions from Redis (`scarlet_definition_*` keys). Allows loading definitions from source files via `#scarlet` declarations and registering them.
-
----
-
-## BackgroundServer
-
-The Composer UI starts a `BackgroundServer` (Tornado, port 9099) alongside Streamlit. It provides:
-
-- `/api/v2/getNodeInfo` — resolves node hostnames to Nebula overlay IPs via the `node-aliases` Redis key
-
-This is used internally by the Agents tab to display resolved IP addresses instead of raw hostnames.
+When `AUTH_ENABLED=true`, every page redirects to `/login` until a Nebula-backed
+session is established. `NEXT_PUBLIC_AUTH_ENABLED` (a build-time flag, not
+runtime) must be set to match — see
+[Environment Variables](../deployment/env-vars.md).
 
 ---
 
 ## Automatic Refresh
 
-The UI polls Redis every **5 seconds** by default (Streamlit `st.rerun()` loop). Agent cards update their heartbeat status on each refresh cycle.
-
-Agents that have not sent a heartbeat within `STALE_THRESHOLD` seconds (default 120) appear with a stale indicator.
+The Agents page polls composer-api periodically; agents that haven't sent a
+heartbeat within `STALE_THRESHOLD` seconds (default 120) show a stale
+indicator.
