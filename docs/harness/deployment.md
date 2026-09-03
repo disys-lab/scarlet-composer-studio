@@ -50,18 +50,5 @@ needs no stdin at all — but isn't wired as this image's default `CMD`; run
 it as a separate `docker run`/supervisord program if you need an
 MCP-reachable head.
 
-## Running the tests
-
-```bash
-cd harness/
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e . -r requirements.txt
-python3 -m pytest tests/ -v
-```
-
-`tests/test_median_skill.py` spins up a disposable local Redis via `docker
-run` (removed at the end of the session, never a real deployment target),
-spawns 3 real worker subprocesses, and drives a full median computation
-through the actual dispatch code — no mocks on the scarlets side. Six
-real-LLM tests are opt-in (skipped unless `LLM_BASE_URL` is set), so the
-regular suite stays fast and credential-free.
+See [Getting Started](getting-started.md) for running the harness (and its
+tests) outside Docker.
