@@ -1,24 +1,14 @@
 # API Reference
 
-Full API documentation covering every class, method, parameter, return type, and Redis key schema.
+Every class, method, and function below links to a page generated directly from that package's source docstrings — not a hand-maintained copy, so it can't drift out of sync with the code.
+
+- **[Scarlets API](scarlets-api.md)** — `Mapper`, `Federator`, `Messenger`, and the base/contract/utility classes underneath them.
+- **[Harness API](harness-api.md)** — the `Skill` interface, all 8 reference skills, `HarnessContext`, dispatch (`head`/`worker`), communication (`buses`/`dialogue`/`router`), cancellation/observability, and LLM integration.
+- **[Data Connectors API](data-connectors-api.md)** — the `Connector` base interface and all 8 connector implementations (mssql, postgres, mysql, pi, influx, redis, csv, excel).
 
 ---
 
 ## Quick Index
-
-### `scarlets` package
-
-| Class | Module | Purpose |
-|---|---|---|
-| `ScarletBase` | `scarlets.types.ScarletBase` | Base class — env vars, Redis client, OPS constants |
-| `RedisScarlet` | `scarlets.types.RedisScarlet` | Low-level Push / Pull / Clear |
-| `Mapper` | `scarlets.core.Mapper` | Distributed key-value: Map / AllGather / Reduce |
-| `Federator` | `scarlets.formulations.Federator` | Federated aggregation: Map + Aggregate |
-| `Messenger` | `scarlets.messaging.Messenger` | Per-agent inboxes: Send / Receive / Broadcast |
-| `ContractBase` | `scarlets.types.ContractBase` | Abstract contract base |
-| `RedisContract` | `scarlets.types.RedisContract` | Contract with Redis persistence |
-| `ScarletUtils` | `scarlets.utils.ScarletUtils` | Serialisation helpers (pickle + zlib) |
-| `RedisLogger` | `scarlets.utils.RedisLogger` | Structured logging to Redis |
 
 ### `scarletcomposer` package
 
@@ -41,11 +31,3 @@ Full API documentation covering every class, method, parameter, return type, and
 | `config` | `/api/config` | Persisted composer-api configuration |
 
 `composer-ui` (Next.js) is the browser client for this API — see [Composer UI](../composer/index.md).
-
-### `harness` (`scarlet_agentic_harness`) — the agentic `Skill` runtime
-
-See [Harness → Core Concepts](../harness/concepts.md) for the `Skill` interface, dispatch, and `AgentDialogue`; the reference skills live under `harness/scarlet_agentic_harness/skills/`.
-
----
-
-For parameter signatures, return types, and code examples, see the source docstrings in each package.
