@@ -84,6 +84,13 @@ COPY docker/composer-app/supervisord.conf /etc/supervisord.conf
 COPY docker/composer-app/entrypoint.sh /usr/local/bin/composer-next
 RUN chmod +x /usr/local/bin/composer-next
 
+# background_server.py isn't run by supervisord above - it's started as a
+# separate container from this same image via a command override (see
+# docker/composer-app/docker-compose.yml's background-server service). Must
+# be copied explicitly since the selective COPYs above (replacing the old
+# `COPY . .`) don't otherwise include it.
+COPY docker/composer-app/background_server.py /app/docker/composer-app/background_server.py
+
 RUN mkdir -p /etc/scarlet-composer
 
 # Only port 3000 (Next.js) is the public interface.
