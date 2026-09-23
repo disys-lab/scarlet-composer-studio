@@ -1,4 +1,5 @@
-import click, os, logging, warnings, pkg_resources
+import click, os, logging, warnings
+from importlib.metadata import version as _pkg_version
 from scarletcomposer.composer.ScarletHandler import ScarletHandler
 from streamlit.web import cli
 
@@ -10,7 +11,7 @@ with warnings.catch_warnings():
     fxn()
 
 try:
-    VERSION = pkg_resources.require("scarletcomposer")[0].version
+    VERSION = _pkg_version("scarletcomposer")
 except Exception:
     VERSION = "dev"
 
