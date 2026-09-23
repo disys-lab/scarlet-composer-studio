@@ -1762,7 +1762,13 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 </div>
 <hr />
 <h2 id="step-2-start-the-stack">Step 2 — Start the stack</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>-d
+<p><code>scarlet-composer</code>'s Dockerfile consumes pre-built wheels from the repo
+root's <code>dist/</code> rather than building them from source itself — build them
+once first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>../..<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>python3<span class="w"> </span>setup_composer.py<span class="w"> </span>bdist_wheel<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>examples/quickstart
+</code></pre></div>
+<p>Then start the stack:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>-d
 </code></pre></div>
 <table>
 <thead>
@@ -1783,7 +1789,7 @@ Then set <code>REDIS_HOST=host.docker.internal</code> in <code>.env</code>.</p>
 </tbody>
 </table>
 <p>Watch progress:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>hello-agent
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>hello-agent
 </code></pre></div></p>
 <hr />
 <h2 id="step-3-open-the-composer-ui">Step 3 — Open the Composer UI</h2>
@@ -1796,45 +1802,45 @@ green status indicator.</p>
 <hr />
 <h2 id="step-4-send-your-first-message">Step 4 — Send your first message</h2>
 <p>From a Python REPL on any machine that can reach your Redis:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.messaging</span><span class="w"> </span><span class="kn">import</span> <span class="n">Messenger</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">sender</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_headagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"my-repl"</span><span class="p">)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="c1"># hello-agent's agentId is "hello-agent_local"</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">sender</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"ping"</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">:</span> <span class="s2">"hello world"</span><span class="p">})</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">sender</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">])</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># → {"echo": {"task": "ping", "data": "hello world"}, "from": "hello-agent_local", ...}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarlets.messaging</span><span class="w"> </span><span class="kn">import</span> <span class="n">Messenger</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">sender</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_headagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"my-repl"</span><span class="p">)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># hello-agent's agentId is "hello-agent_local"</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">sender</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"ping"</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">:</span> <span class="s2">"hello world"</span><span class="p">})</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">sender</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">])</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1"># → {"echo": {"task": "ping", "data": "hello world"}, "from": "hello-agent_local", ...}</span>
 </code></pre></div>
 <h3 id="check-who-is-online">Check who is online</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">print</span><span class="p">(</span><span class="n">sender</span><span class="o">.</span><span class="n">GatherStatus</span><span class="p">())</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># {</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1">#   "hello-agent_local": {</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1">#     "status": "online",</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1">#     "capabilities": ["echo", "heartbeat"],</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1">#     "device_group": "quickstart_subagent",</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1">#     "head_bus": "quickstart_headagent",</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1">#   }</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># }</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">print</span><span class="p">(</span><span class="n">sender</span><span class="o">.</span><span class="n">GatherStatus</span><span class="p">())</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="c1"># {</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1">#   "hello-agent_local": {</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1">#     "status": "online",</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="c1">#     "capabilities": ["echo", "heartbeat"],</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1">#     "device_group": "quickstart_subagent",</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1">#     "head_bus": "quickstart_headagent",</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="c1">#   }</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="c1"># }</span>
 </code></pre></div>
 <h3 id="broadcast-to-all-agents">Broadcast to all agents</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">sender</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">({</span><span class="s2">"directive"</span><span class="p">:</span> <span class="s2">"update_config"</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">:</span> <span class="mi">2</span><span class="p">})</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">sender</span><span class="o">.</span><span class="n">Broadcast</span><span class="p">({</span><span class="s2">"directive"</span><span class="p">:</span> <span class="s2">"update_config"</span><span class="p">,</span> <span class="s2">"version"</span><span class="p">:</span> <span class="mi">2</span><span class="p">})</span>
 </code></pre></div>
 <h3 id="run-the-smoke-test">Run the smoke test</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>python3<span class="w"> </span>smoke_test.py<span class="w"> </span>--env<span class="w"> </span>.env
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>python3<span class="w"> </span>smoke_test.py<span class="w"> </span>--env<span class="w"> </span>.env
 </code></pre></div>
 <hr />
 <h2 id="step-5-explore-the-local-bus">Step 5 — Explore the local bus</h2>
 <p><code>hello-agent</code> also listens on <code>quickstart_subagent</code> for intra-group communication:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">local</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_subagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"peer"</span><span class="p">)</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">local</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"local-ping"</span><span class="p">})</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">local</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">][</span><span class="s2">"channel"</span><span class="p">])</span>  <span class="c1"># "quickstart_subagent"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">local</span> <span class="o">=</span> <span class="n">Messenger</span><span class="p">(</span><span class="s2">"quickstart_subagent"</span><span class="p">,</span> <span class="n">agentId</span><span class="o">=</span><span class="s2">"peer"</span><span class="p">)</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">local</span><span class="o">.</span><span class="n">Send</span><span class="p">(</span><span class="s2">"hello-agent_local"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"task"</span><span class="p">:</span> <span class="s2">"local-ping"</span><span class="p">})</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">reply</span> <span class="o">=</span> <span class="n">local</span><span class="o">.</span><span class="n">Receive</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">reply</span><span class="p">[</span><span class="s2">"body"</span><span class="p">][</span><span class="s2">"channel"</span><span class="p">])</span>  <span class="c1"># "quickstart_subagent"</span>
 </code></pre></div>
 <hr />
 <h2 id="step-6-tear-down">Step 6 — Tear down</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>down
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>down
 </code></pre></div>
 <hr />
 <h2 id="next-steps">Next steps</h2>
