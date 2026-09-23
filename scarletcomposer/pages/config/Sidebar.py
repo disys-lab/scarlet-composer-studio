@@ -1,5 +1,6 @@
 import streamlit as st
-import os, socket, pkg_resources, logging, json, yaml
+import os, socket, logging, json, yaml
+from importlib.metadata import version as _pkg_version
 
 
 def _make_logo_images():
@@ -196,7 +197,7 @@ def sidebarInit():
             logging.info(f"Settings saved. Composer: {sc_host}:{sc_port}, Redis: {redis_host}:{redis_port}")
 
         try:
-            VERSION = pkg_resources.require("ScarletComposer")[0].version
+            VERSION = _pkg_version("scarletcomposer")
         except Exception:
             VERSION = "dev"
 

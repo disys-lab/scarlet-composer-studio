@@ -3,11 +3,17 @@
 ## Install
 
 From this monorepo's root, the harness depends on two sibling packages
-built from the same checkout — `scarlets` and `data-connectors`:
+built from the same checkout — `scarlets` and `data-connectors`. Both
+need to land in the same venv *before* installing the harness itself —
+a plain `pip install -e .` inside `harness/` won't find them, since
+neither is published to PyPI:
 
 ```bash
+python3 -m venv harness/.venv && source harness/.venv/bin/activate
+pip install -e .                                            # scarlets
+python3 setup_connectors.py bdist_wheel                      # data-connectors
+pip install dist/data_connectors-*.whl
 cd harness/
-python3 -m venv .venv && source .venv/bin/activate
 pip install -e . -r requirements.txt
 ```
 

@@ -36,8 +36,14 @@ pip install scarlets scarletcomposer
 git clone https://github.com/disys-lab/scarlet-composer-studio
 cd scarlet-composer-studio
 
-# Install both packages in editable mode
+# Install scarlets in editable mode
 pip install -e .
+
+# scarletcomposer has its own setup file (setup_composer.py) with its own
+# console_scripts entry point - a plain `pip install -e .` above only
+# installs scarlets, not this
+python3 setup_composer.py bdist_wheel
+pip install dist/scarletcomposer-*.whl
 
 # Verify
 scarlet-composer --version

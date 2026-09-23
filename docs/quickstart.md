@@ -42,6 +42,16 @@ REDIS_AUTH_TOKEN=your-redis-password
 
 ## Step 2 — Start the stack
 
+`scarlet-composer`'s Dockerfile consumes pre-built wheels from the repo
+root's `dist/` rather than building them from source itself — build them
+once first:
+
+```bash
+cd ../.. && python3 setup.py bdist_wheel && python3 setup_composer.py bdist_wheel && cd examples/quickstart
+```
+
+Then start the stack:
+
 ```bash
 docker compose up --build -d
 ```

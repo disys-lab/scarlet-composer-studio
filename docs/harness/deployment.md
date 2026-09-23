@@ -14,9 +14,12 @@ from the exact `scarlet-agent-base` image the same run just pushed.
 
 Build locally (context must be the monorepo root, not `harness/` itself —
 this Dockerfile needs sibling access to `dist/` for the pre-built
-`data-connectors` wheel):
+`data-connectors` wheel — `scarlets` comes from the `scarlet-agent-base`
+image itself, not from `dist/`):
 
 ```bash
+python3 setup_connectors.py bdist_wheel
+
 docker build \
   --build-arg BASE_VERSION=0.5.0 \
   -f harness/Dockerfile \
