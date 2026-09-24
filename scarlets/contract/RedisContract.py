@@ -171,8 +171,8 @@ class RedisContract(ContractBase):
         key = str(key)
         r, status, exception = self.loadRedis()
         if status:
-            if not r.exists(self.contractName + "_key-value"+":"+key):
-                r.set(self.contractName + "_key-value"+":"+key,"exists")
+            if not r.sismember(self.contractName + "_key-list", key):
+                r.sadd(self.contractName + "_key-list", key)
                 return True
             else:
                 if self.debug:
@@ -233,19 +233,21 @@ class RedisContract(ContractBase):
 
         r, status, exception = self.loadRedis()
         if status:
-            r.hset(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk), mapping={
+            pipe = r.pipeline()
+            pipe.hset(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk), mapping={
                                                                                     "updater":address,
                                                                                     "content":chunk_content,
                                                                                     "lastUpdatedTime":time.time()
                                                                                 })
-            r.expire(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk), self.scarletDataExpiry)
+            pipe.expire(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk), self.scarletDataExpiry)
+            pipe.execute()
             return True,None
         else:
             return status,exception
 
-    def clearChunk(self, key, chunk):
+    def clearKey(self, key, chunk):
         """
-        Delete one chunk, and its parent key entry if present.
+        Delete a chunk and its parent key from the key-list Set.
 
         Parameters
         ----------
@@ -263,17 +265,11 @@ class RedisContract(ContractBase):
 
         r, status, exception = self.loadRedis()
         if status:
-            key_scarlet_name = f"{self.contractName}_key-value:{str(key)}".encode('utf-8')
             key_scarlet_chunk_name = f"{self.contractName}_key-value:{str(key)}:{str(chunk)}".encode('utf-8')
             try:
-                if r.exists(key_scarlet_name):
-                    r.delete(key_scarlet_name)
-                    logging.info(f"{key_scarlet_name} deleted from redis")
-                    #return True, None
-                else:
-                    logging.error(f"{key_scarlet_name} does not exist on redis")
-                    #return False, f"{key_scarlet_name} does not exist on redis"
-
+                r.srem(self.contractName + "_key-list", key)
+                logging.info(f"{key} removed from key-list Set")
+                
                 if r.exists(key_scarlet_chunk_name):
                     r.delete(key_scarlet_chunk_name)
                     logging.info(f"{key_scarlet_chunk_name} deleted from redis")
@@ -283,7 +279,7 @@ class RedisContract(ContractBase):
                     return False, f"{key_scarlet_chunk_name} does not exist on redis"
 
             except Exception as e:
-                logging.error(f"Exception occured while deleting {key_scarlet_name}")
+                logging.error(f"Exception occured while deleting {key_scarlet_chunk_name}")
                 return False, str(e)
 
     def clearAll(self,):
@@ -312,6 +308,7 @@ class RedisContract(ContractBase):
                         r.delete(*keys)  # Delete the found keys
                     if cursor == 0:
                         break
+                r.delete(self.contractName + "_key-list")
                 return True, None
 
             except Exception as e:
@@ -359,8 +356,8 @@ class RedisContract(ContractBase):
         r, status, exception = self.loadRedis()
 
         if status:
-            if r.exists(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk)):
-                chunkDict = r.hgetall(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk))
+            chunkDict = r.hgetall(self.contractName+"_key-value"+":"+str(key)+":"+str(chunk))
+            if chunkDict:
                 return chunkDict[b'content']
         return b''
 
@@ -383,8 +380,8 @@ class RedisContract(ContractBase):
 
         r, status, exception = self.loadRedis()
         if status:
-            if r.exists(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk)):
-                chunkDict = r.hgetall(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk))
+            chunkDict = r.hgetall(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk))
+            if chunkDict:
                 return chunkDict[b'updater']
         return None
 
@@ -409,8 +406,8 @@ class RedisContract(ContractBase):
         """
         r, status, exception = self.loadRedis()
         if status:
-            if r.exists(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk)):
-                chunkDict = r.hgetall(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk))
+            chunkDict = r.hgetall(self.contractName + "_key-value" + ":" + str(key) + ":" + str(chunk))
+            if chunkDict:
                 return chunkDict[b'lastUpdatedTime'], None
         return ""
 
@@ -430,15 +427,27 @@ class RedisContract(ContractBase):
 
         r, status, exception = self.loadRedis()
         if status:
-
-            comprehensive_keys_list = r.keys(self.contractName + "_key-value:*")
-
-            self.key_list = [key.decode("utf-8").split(":")[1] for key in comprehensive_keys_list]
-
+            self.key_list = list(r.smembers(self.contractName + "_key-list"))
+            self.key_list = [key.decode("utf-8") for key in self.key_list]
+            
+            # Lazy cleanup: remove keys from Set that have no chunks
+            keys_to_remove = []
+            for key in self.key_list:
+                if not r.exists(self.contractName + "_key-value" + ":" + str(key) + ":" + str(0)):
+                    keys_to_remove.append(key)
+            
+            if keys_to_remove:
+                r.srem(self.contractName + "_key-list", *keys_to_remove)
+                for key in keys_to_remove:
+                    logging.info(f"{key} removed from key-list Set (chunk expired)")
+            
+            # Filter key_list to only include valid keys
+            self.key_list = [key for key in self.key_list if key not in keys_to_remove]
+            
             if not len(self.key_list):
                 logging.warning("getMapperLength yielded 0 keys for mapper:{}".format(self.contractName))
             return len(self.key_list)
-
+        
         else:
             return 0
 

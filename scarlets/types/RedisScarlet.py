@@ -150,7 +150,7 @@ class RedisScarlet(ScarletBase):
         # check if any debug values have been sent in wait4Tx
 
 
-        status, exception = self.contract.clearChunk(
+        status, exception = self.contract.clearKey(
             key, 0
         )
 
