@@ -84,25 +84,32 @@ class Mapper(RedisScarlet):
             Whether the operation succeeded.
         exception : Exception or None
             The exception raised, if any; `None` on success.
+
+        Raises
+        ------
+        Exception
+            If `key` contains "@" or ":" - both are reserved for this
+            storage layer's own key-value:key:time:chunk convention
+            (RedisContract's marker/chunk keys, and this method's own
+            "#" timestamp suffix relies on "@"/":" never appearing in a
+            caller-supplied key). Never previously enforced - a key
+            violating this before would have been silently misread back
+            rather than rejected up front.
         """
+
+        if "@" in str(key) or ":" in str(key):
+            logging.error("{}.Map failed - key {!r} contains a reserved character ('@' or ':')".format(self.super.scarletName, key))
+            raise Exception("Map key {!r} contains a reserved character ('@' or ':') - both are reserved for this storage layer's own key convention".format(key))
 
         if timeseries:
             timestamp = int(time.time())
-            # "#", not ":" - RedisContract's own key-value keys are already
-            # ":"-delimited (contractName_key-value:key, and
-            # contractName_key-value:key:chunk underneath it), so a ":" here
-            # would make a timeseries key indistinguishable from its own
-            # chunk key once both get scanned in getMapperLength - see that
-            # function's own comment for the read side of this.
             key = f"{key}#{timestamp}"
-
-            self.super.loadContract()  # _registerNewKey(key)
-            self._registerNewKey(key)
 
         successChunksList = []
         try:
             if not self.super.debug:
                 self.refresh()
+            self._registerNewKey(key)
             successChunksList = self.super.Push(modelLocal, key, [])
         except Exception as exception:
             logging.error("{}.Map failed".format(self.super.scarletName))

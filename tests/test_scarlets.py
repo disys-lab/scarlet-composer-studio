@@ -72,6 +72,7 @@ def scarlet_name(redis_client):
     name = _unique("scarlet")
     yield name
     _cleanup(redis_client, f"{name}_key-value:*")
+    _cleanup(redis_client, f"{name}_key-list")
 
 
 # ── Mapper tests ──────────────────────────────────────────────────────────────
