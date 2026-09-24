@@ -88,7 +88,13 @@ class Mapper(RedisScarlet):
 
         if timeseries:
             timestamp = int(time.time())
-            key = f"{key}:{timestamp}"
+            # "#", not ":" - RedisContract's own key-value keys are already
+            # ":"-delimited (contractName_key-value:key, and
+            # contractName_key-value:key:chunk underneath it), so a ":" here
+            # would make a timeseries key indistinguishable from its own
+            # chunk key once both get scanned in getMapperLength - see that
+            # function's own comment for the read side of this.
+            key = f"{key}#{timestamp}"
 
             self.super.loadContract()  # _registerNewKey(key)
             self._registerNewKey(key)

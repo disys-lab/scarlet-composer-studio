@@ -433,7 +433,21 @@ class RedisContract(ContractBase):
 
             comprehensive_keys_list = r.keys(self.contractName + "_key-value:*")
 
-            self.key_list = [key.decode("utf-8").split(":")[1] for key in comprehensive_keys_list]
+            # This glob can match two different things per logical key: the
+            # chunk setChunk always writes (contractName_key-value:key:0 -
+            # chunk is hardcoded to 0 everywhere in this codebase, never
+            # anything else) and, only for timeseries=True keys, a marker
+            # registerNewKey additionally writes (contractName_key-value:key,
+            # no chunk suffix). A plain (non-timeseries) Map call never
+            # registers a marker at all - the chunk key is the only thing
+            # guaranteed to exist for every key - so this enumerates off
+            # chunk keys, not markers, and ignores any marker key entirely.
+            # Mapper.Map's own "#" (not ":") between a timeseries key and
+            # its timestamp keeps that value from ever containing a ":" of
+            # its own and colliding with the chunk-index separator below.
+            chunk_keys = [key for key in comprehensive_keys_list if key.endswith(b":0")]
+
+            self.key_list = [key.decode("utf-8")[:-len(":0")].split(":", 1)[1] for key in chunk_keys]
 
             if not len(self.key_list):
                 logging.warning("getMapperLength yielded 0 keys for mapper:{}".format(self.contractName))
