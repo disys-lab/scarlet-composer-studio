@@ -47,5 +47,6 @@ jobs:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
           REDIS_AUTH_TOKEN: ""
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest tests/ -v --tb=short
