@@ -43,7 +43,7 @@ Continuation lines (`#scarlet+`) must immediately follow the opening `#scarlet` 
 `ScarletInterpreter.interpret_file(path)` uses Python's `tokenize` module to walk the token stream. It is **not eval-based** — it reads comment tokens only and extracts declarations without executing any code.
 
 ```python
-from scarletcomposer.interpreter.ScarletInterpreter import ScarletInterpreter
+from scarletcomposer.composer.ScarletInterpreter import ScarletInterpreter
 
 si = ScarletInterpreter()
 scarlets = si.interpret_file("agents/hello_agent.py")

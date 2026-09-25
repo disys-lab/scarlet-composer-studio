@@ -87,7 +87,7 @@ Each hash field name is the data source name; the value is a JSON string.
 
 | Key | Type | Description |
 |---|---|---|
-| `node-aliases` | Hash | Maps hostname → Nebula overlay IP. Written by Gustavo at node enrollment. |
+| `node-aliases` | String (JSON) | Maps hostname → Nebula overlay IP, as a single JSON-encoded string - not a Hash. Written by Gustavo at node enrollment. |
 
 Read by `BackgroundServer.NodeInfoHandler` to resolve the caller's overlay IP.
 
@@ -125,7 +125,7 @@ Data sources
   data-sources:local:{NODE_ADDRESS}   Hash    node tier
 
 Node aliases
-  node-aliases                        Hash    hostname→Nebula IP
+  node-aliases                        String  JSON hostname→Nebula IP map
 
 Logging
   logs_{uuid}                         Hash    one entry: time/app/node/level/msg/file/line

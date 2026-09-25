@@ -62,7 +62,8 @@ total, ok, _ = m.Reduce(np.zeros(3), op=Mapper.SUM)
 
 ```python
 m.Map(sensor_reading, key="sensor_1", timeseries=True)
-# stored as "sensor_1:{unix_timestamp}"
+# stored as "sensor_1#{unix_timestamp}" - "#", not ":", since ":" is
+# already used as the key/chunk-index separator in this storage layer
 ```
 
 Multiple time-ordered readings under the same logical key, each with its own TTL.

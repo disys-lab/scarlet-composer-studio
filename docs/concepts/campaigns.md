@@ -11,7 +11,7 @@ Isolation is purely namespace-based. All Redis keys for a campaign are prefixed 
 ```
 {HEAD_BUS}:msg:tail:{agentId}
 {HEAD_BUS}:reg:{agentId}
-{scarletName}_key-value:{key}
+{scarletName}_key-value:{key}:0
 ```
 
 Two campaigns with different `APP_ID` values produce non-overlapping key prefixes. No extra configuration is required.
