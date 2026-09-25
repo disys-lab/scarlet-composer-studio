@@ -86,15 +86,6 @@ jobs:
           WITH_V: true
           DEFAULT_BUMP: patch
           PRERELEASE: true
-          # This repo currently has zero tags (confirmed via the GitHub
-          # API, not just local git) even though 0.5.0 is already the
-          # published baseline (ghcr.io/disys-lab/scarlet-agent-base:0.5.0
-          # and scarlet-composer:0.5.0 already exist, and setup.py/
-          # setup_composer.py's own fallback_version is "0.5.0"). Without
-          # this, the action's own default INITIAL_VERSION (0.0.0) would
-          # make the very first bump produce v0.0.1 - disconnected from
-          # what's already published. No "v" prefix here even though
-          # WITH_V is true - the action adds that separately.
           INITIAL_VERSION: "0.5.0"
 
   # ── shared wheel build (scarlets, scarletcomposer, data-connectors) ──────
