@@ -6929,12 +6929,12 @@ not a permanent design choice.</p>
 
         <p>safe_eval — restricted arithmetic expression evaluator for CombineSkill.</p>
 <p>CombineSkill lets the head's LLM request a numeric expression (e.g.
-"s2/n - (s1/n)<em><em>2" for variance) evaluated against a set of named variables,
+"s2/n - (s1/n)*<em>2" for variance) evaluated against a set of named variables,
 almost always outputs from earlier skill invocations (sum's <code>result</code>/<code>n</code>,
 etc.). That expression comes from the model, not a trusted operator, and it
 runs on a worker (see combine.py - "head never computes" is a hard
 constraint here) - so this can't just be Python's eval() with a restricted
-namespace. A restricted </em>namespace</em> still lets eval() reach <strong>builtins</strong>,
+namespace. A restricted </em>namespace* still lets eval() reach <strong>builtins</strong>,
 attribute access, comprehensions, and everything else Python's grammar
 allows; the globals/locals dicts alone don't guard against that.</p>
 <p>This instead walks the parsed AST and allow-lists exactly the node types a
