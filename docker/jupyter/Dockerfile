@@ -12,7 +12,7 @@
 # with CI):
 #   docker build \
 #     --build-arg BASE_VERSION=0.5.0 \
-#     -f docker/notebooks/Dockerfile \
+#     -f docker/jupyter/Dockerfile \
 #     -t scarlet-notebooks:latest .
 #
 # Run standalone (for local testing without compose - see
@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.source="https://github.com/disys-lab/scarlet-comp
 RUN pip install --no-cache-dir jupyterlab pandas matplotlib
 
 WORKDIR /notebooks
-COPY docker/notebooks/notebooks/ /notebooks/
+COPY docker/jupyter/notebooks/ /notebooks/
 
 EXPOSE 8888
 
