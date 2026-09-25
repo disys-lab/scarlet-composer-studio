@@ -1,0 +1,36 @@
+version: '3.9'
+
+# Scarlet Composer Studio — notebook tutorials
+#
+# Starts one service: a JupyterLab environment preloaded with runnable
+# tutorials for the scarlets SDK (Messenger, Mapper, Federator, data
+# sources), against an external Redis instance.
+#
+# Unlike examples/quickstart's scarlet-composer service, docker/notebooks/
+# Dockerfile extends the already-published ghcr.io/disys-lab/scarlet-agent-base
+# image directly - no local wheel build needed first.
+#
+# Usage:
+#   cp .env.example .env          # fill in REDIS_HOST, REDIS_AUTH_TOKEN
+#   docker compose up --build -d
+#
+# Then open http://localhost:8888 for JupyterLab - the six tutorial
+# notebooks are in the file browser's root.
+
+services:
+
+  # ─── Scarlet SDK tutorials ──────────────────────────────────────────────────
+  # Built locally from this repo's own docker/notebooks/Dockerfile (build
+  # context is the repo root, two levels up) - see deployment/docker.md for
+  # the CI-published image, once a release has been tagged.
+  scarlet-notebooks:
+    build:
+      context: ../..
+      dockerfile: docker/notebooks/Dockerfile
+    container_name: scarlet-notebooks
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

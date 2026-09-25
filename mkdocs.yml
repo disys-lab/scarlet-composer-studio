@@ -41,6 +41,7 @@ nav:
     - Campaign Isolation: concepts/campaigns.md
     - Node Identity: concepts/identity.md
   - Guides:
+    - Interactive Notebooks: guides/notebooks.md
     - Federated Aggregation: guides/federation.md
     - LLM / MCP Integration: guides/llm-integration.md
     - Scarlet Declarations: guides/declarations.md
