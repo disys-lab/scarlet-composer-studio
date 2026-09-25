@@ -1721,7 +1721,7 @@
 <hr />
 <h2 id="parsing">Parsing</h2>
 <p><code>ScarletInterpreter.interpret_file(path)</code> uses Python's <code>tokenize</code> module to walk the token stream. It is <strong>not eval-based</strong> — it reads comment tokens only and extracts declarations without executing any code.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarletcomposer.interpreter.ScarletInterpreter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScarletInterpreter</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">scarletcomposer.composer.ScarletInterpreter</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScarletInterpreter</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">si</span> <span class="o">=</span> <span class="n">ScarletInterpreter</span><span class="p">()</span>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">scarlets</span> <span class="o">=</span> <span class="n">si</span><span class="o">.</span><span class="n">interpret_file</span><span class="p">(</span><span class="s2">"agents/hello_agent.py"</span><span class="p">)</span>

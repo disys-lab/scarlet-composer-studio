@@ -1717,10 +1717,15 @@ for the interface, and <code>skills/median.py</code> for the smallest complete
 reference implementation. Nothing in <code>head.py</code>/<code>worker.py</code> needs to
 change — <code>skills/registry.py</code> discovers it automatically.</p>
 <h2 id="give-a-worker-local-data-sources">Give a worker local data sources</h2>
-<p>Create <code>~/.scarlet/config.yaml</code> on the node (see
+<p>Create <code>~/.scarlet/config.yaml</code> (see
 <a href="../concepts/#local-first-data-access">Local-First Data Access</a> for the file
 shape) — no restart-free hot reload is required to try it, since a worker
 rebuilds its tag cache from this file periodically as well as at startup.</p>
+<p>Running the harness directly (not in a container), that's literally your
+own home directory. Running it as <code>scarlet-agents</code> in Docker — the normal
+case — the file has to be mounted <em>into</em> the container; see
+<a href="../deployment/#local-data-sources-scarletconfigyaml">Deployment: Local data sources</a>
+for exactly how.</p>
 <h2 id="next-steps">Next steps</h2>
 <p><a href="../deployment/">Deployment</a> covers the Docker image and running alongside
 Gustavo/composer.</p>

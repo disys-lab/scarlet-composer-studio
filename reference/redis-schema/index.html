@@ -1704,27 +1704,28 @@
 </thead>
 <tbody>
 <tr>
-<td><code>{scarletName}_key-value:{key}</code></td>
-<td>String</td>
-<td>Presence marker for a Map entry (value = <code>"1"</code>)</td>
+<td><code>{scarletName}_key-list</code></td>
+<td>Set</td>
+<td>Registry of every currently-live logical key. One member added per <code>Map</code> call - plain and <code>timeseries=True</code> both, unconditionally.</td>
 </tr>
 <tr>
 <td><code>{scarletName}_key-value:{key}:0</code></td>
 <td>Hash</td>
-<td>Map entry: fields <code>updater</code>, <code>content</code> (pickle+zlib bytes), <code>lastUpdatedTime</code></td>
-</tr>
-<tr>
-<td><code>{scarletName}_key-value:{key}:{timestamp}</code></td>
-<td>Hash</td>
-<td>Timeseries entry (when <code>timeseries=True</code>): same fields as <code>:0</code></td>
+<td>Map entry: fields <code>updater</code>, <code>content</code> (pickle+zlib bytes), <code>lastUpdatedTime</code>. Chunk index is always <code>0</code> - there's no per-key chunking currently.</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Example (scarletName="gradient_bus", key="worker_osu1"):</strong>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>gradient_bus_key-value:worker_osu1       → "1"
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>gradient_bus_key-value:worker_osu1:0     → {updater, content, lastUpdatedTime}
+<p>A <code>timeseries=True</code> call appends a <code>#{timestamp}</code> suffix to <code>key</code> before writing, so each tick becomes its own independent registry member and chunk hash rather than overwriting the last one.</p>
+<p><strong>Example (scarletName="gradient_bus"):</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a># plain Map("worker_osu1", ...)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>gradient_bus_key-list                          → {"worker_osu1", "worker_osu2#1758649200"}
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>gradient_bus_key-value:worker_osu1:0           → {updater, content, lastUpdatedTime}
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a># timeseries Map("worker_osu2", timeseries=True) at time.time() == 1758649200
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>gradient_bus_key-value:worker_osu2#1758649200:0 → {updater, content, lastUpdatedTime}
 </code></pre></div></p>
-<p>TTL: <code>SCARLET_DATA_EXPIRY</code> seconds (default 3600) set on each write.</p>
+<p><code>@</code> and <code>:</code> are rejected outright in a caller-supplied <code>key</code> (raises <code>Exception</code>) - both are reserved by this scheme's own delimiters (<code>:</code> between key/chunk, <code>#</code> between a timeseries key and its timestamp).</p>
+<p>TTL: chunk hashes get <code>SCARLET_DATA_EXPIRY</code> seconds (default 3600) on each write. <strong><code>{scarletName}_key-list</code> itself has no TTL</strong> - a member whose chunk has already expired is only pruned lazily, the next time <code>getMapperLength()</code> runs (it checks each member's chunk with <code>EXISTS</code> and <code>SREM</code>s any that are gone). Until something calls <code>getMapperLength()</code> again, an expired key can still appear as "registered" with nothing behind it.</p>
 <hr />
 <h2 id="federator">Federator</h2>
 <p><code>Federator("model_sync")</code> creates two internal Mappers:</p>
@@ -1737,12 +1738,12 @@
 </thead>
 <tbody>
 <tr>
-<td><code>model_sync_mapper_reducer_key-value:*</code></td>
-<td>Per-worker local contributions</td>
+<td><code>model_sync_mapper_reducer_key-list</code> / <code>model_sync_mapper_reducer_key-value:{worker_key}:0</code></td>
+<td>Per-worker local contributions - an ordinary Mapper underneath, see above</td>
 </tr>
 <tr>
-<td><code>model_sync_mapper_global_key-value:global</code></td>
-<td>Aggregated global result (written by <code>Aggregate</code>)</td>
+<td><code>model_sync_mapper_global_key-list</code> / <code>model_sync_mapper_global_key-value:global:0</code></td>
+<td>Aggregated global result (written by <code>Aggregate</code>, always under the fixed key <code>"global"</code>)</td>
 </tr>
 </tbody>
 </table>
@@ -1809,8 +1810,8 @@
 <tbody>
 <tr>
 <td><code>node-aliases</code></td>
-<td>Hash</td>
-<td>Maps hostname → Nebula overlay IP. Written by Gustavo at node enrollment.</td>
+<td>String (JSON)</td>
+<td>Maps hostname → Nebula overlay IP, as a single JSON-encoded string - not a Hash. Written by Gustavo at node enrollment.</td>
 </tr>
 </tbody>
 </table>
@@ -1837,8 +1838,8 @@
 <hr />
 <h2 id="summary-table">Summary Table</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Mapper
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  {name}_key-value:{key}              String  presence marker
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  {name}_key-value:{key}:0            Hash    serialized value
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  {name}_key-list                     Set     registry of live logical keys (no TTL)
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  {name}_key-value:{key}:0            Hash    serialized value (TTL'd)
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>Messenger
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  {name}:msg:tail:{id}                String  write cursor
@@ -1855,7 +1856,7 @@
 <a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>  data-sources:local:{NODE_ADDRESS}   Hash    node tier
 <a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
 <a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>Node aliases
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  node-aliases                        Hash    hostname→Nebula IP
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  node-aliases                        String  JSON hostname→Nebula IP map
 <a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>Logging
 <a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>  logs_{uuid}                         Hash    one entry: time/app/node/level/msg/file/line

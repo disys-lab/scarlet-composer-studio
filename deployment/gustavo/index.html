@@ -920,10 +920,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installing-gustavo" class="md-nav__link">
+  <a href="#installing-the-gustavo-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Installing Gustavo
+        Installing the Gustavo CLI
       
     </span>
   </a>
@@ -960,23 +960,6 @@
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Device Groups">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#adding-a-node-to-a-device-group" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Adding a node to a device group
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1719,7 +1702,7 @@
 
 
 <h1 id="gustavo-integration">Gustavo Integration</h1>
-<p><a href="https://github.com/disys-lab/gustavo">Gustavo</a> is the Nebula-based edge orchestrator used to deploy and manage Scarlet agents on distributed nodes. It handles node enrollment, Docker image distribution, device group management, and the Nebula overlay network.</p>
+<p><a href="https://github.com/disys-lab/gustavo">Gustavo</a> is the Nebula-based edge orchestrator used to deploy and manage Scarlet agents on distributed nodes. It's a web platform (Next.js UI + FastAPI backend) with a companion CLI for the same operations - node enrollment, Docker image distribution, device group management, and the Nebula overlay network all go through one of these two surfaces.</p>
 <hr />
 <h2 id="concepts">Concepts</h2>
 <table>
@@ -1736,11 +1719,11 @@
 </tr>
 <tr>
 <td><strong>Device group</strong></td>
-<td>A Messenger bus namespace — all nodes in a group run the same app</td>
+<td>A Messenger bus namespace — all nodes in a group run the same set of apps</td>
 </tr>
 <tr>
-<td><strong>Node enrollment</strong></td>
-<td>A physical machine joining the Nebula overlay and one or more device groups</td>
+<td><strong>Worker</strong></td>
+<td>The <code>gustavo worker</code> process running on a physical edge node - self-registers with the manager, then pulls whatever apps its device group assigns it</td>
 </tr>
 <tr>
 <td><strong>Manager</strong></td>
@@ -1748,133 +1731,149 @@
 </tr>
 </tbody>
 </table>
+<p>Enrollment is <strong>pull-based</strong>, not push-based: an admin never tells the manager "add node X to group Y." A node joins a group by running the worker <em>on that node itself</em>, configured with <code>DEVICE_GROUP=&lt;name&gt;</code>.</p>
 <hr />
-<h2 id="installing-gustavo">Installing Gustavo</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>gustavo
+<h2 id="installing-the-gustavo-cli">Installing the Gustavo CLI</h2>
+<p>Optional - only needed if you want to drive Gustavo from a terminal instead of the web UI. It's published on a private Gemfury feed, not public PyPI:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip3<span class="w"> </span>install<span class="w"> </span>--no-cache-dir<span class="w"> </span>--extra-index-url<span class="w"> </span>https://pypi.fury.io/osu-home-stri/<span class="w"> </span>gustavo
 </code></pre></div>
 <p>Verify:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>gustavo<span class="w"> </span>--help
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>gustavo<span class="w"> </span>--version
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>gustavo<span class="w"> </span>--help
+</code></pre></div></p>
+<p>It reads all configuration from one <code>KEY=VALUE</code> env file, pointed to by <code>GUSTAVO_CONFIG_FILE</code>:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GUSTAVO_CONFIG_FILE</span><span class="o">=</span>/path/to/your.env
 </code></pre></div></p>
 <hr />
 <h2 id="starting-the-manager">Starting the Manager</h2>
-<p>The manager runs MongoDB (for app/group config) and the Nebula certificate authority as Docker containers on the host:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>mongo<span class="w">      </span><span class="c1"># start MongoDB</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># wait ~15 s for MongoDB to initialize</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>manager<span class="w">    </span><span class="c1"># start Nebula manager + Gustavo API</span>
+<p>The manager runs five services: Registry, Redis, MongoDB, the Nebula Manager, and Syncer.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>mongo<span class="w">      </span><span class="c1"># SERVICE is a positional argument, not a flag</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>manager
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># or bring up everything at once:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>all
 </code></pre></div>
-<p><strong>Health check</strong> (always exits 0 — parse the output):
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"Manager Up"</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Ready"</span>
+<p><strong>Health check:</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check<span class="w">   </span><span class="c1"># pings http://{MANAGER_HOST}:{MANAGER_PORT}/api/v2/status</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>gustavo<span class="w"> </span>ping<span class="w">             </span><span class="c1"># same idea, platform-wide</span>
 </code></pre></div></p>
-<p>This is the pattern used in <code>gustavo_init.sh</code> to wait for the manager before registering apps.</p>
 <hr />
 <h2 id="app-configuration-yaml">App Configuration YAML</h2>
 <p>Register an app by providing a YAML config that describes the Docker image and its environment:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># hello_agent_config.yaml</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nt">hello-agent</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">docker_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-registry.io/hello-agent:latest</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">env_vars</span><span class="p">:</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">        </span><span class="nt">APP_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello-agent</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="nt">REDIS_HOST</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your-redis-host&gt;</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">        </span><span class="nt">REDIS_PORT</span><span class="p">:</span><span class="w"> </span><span class="s">"6379"</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">        </span><span class="nt">REDIS_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your-password&gt;</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">        </span><span class="nt">NODE_ADDRESS</span><span class="p">:</span><span class="w"> </span><span class="s">""</span><span class="w">          </span><span class="c1"># leave empty — Nebula alias resolution fills this in</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">        </span><span class="nt">DEVICE_GROUP</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quickstart_subagent</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">        </span><span class="nt">MANAGER_HOST</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;manager-ip&gt;</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">        </span><span class="nt">MANAGER_PORT</span><span class="p">:</span><span class="w"> </span><span class="s">"8080"</span>
-<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
-<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/:/tmp/</span>
-<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">    </span><span class="nt">running</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">    </span><span class="nt">rolling_restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
-<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">    </span><span class="nt">containers_per</span><span class="p">:</span>
-<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">        </span><span class="nt">server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">               </span><span class="c1"># 1 container per enrolled node</span>
-<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">    </span><span class="nt">privileged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
-<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="nt">devices</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># hello_agent_config.yaml</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nt">hello-agent</span><span class="p">:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">docker_image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-registry.io/hello-agent:latest</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">env_vars</span><span class="p">:</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">        </span><span class="nt">APP_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hello-agent</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="nt">REDIS_HOST</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your-redis-host&gt;</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">        </span><span class="nt">REDIS_PORT</span><span class="p">:</span><span class="w"> </span><span class="s">"6379"</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">        </span><span class="nt">REDIS_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your-password&gt;</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">        </span><span class="nt">NODE_ADDRESS</span><span class="p">:</span><span class="w"> </span><span class="s">""</span><span class="w">          </span><span class="c1"># leave empty — Nebula alias resolution fills this in</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="nt">DEVICE_GROUP</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quickstart_subagent</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="nt">MANAGER_HOST</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;manager-ip&gt;</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">        </span><span class="nt">MANAGER_PORT</span><span class="p">:</span><span class="w"> </span><span class="s">"8080"</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/tmp/:/tmp/</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="nt">running</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">    </span><span class="nt">rolling_restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">    </span><span class="nt">containers_per</span><span class="p">:</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="nt">server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">               </span><span class="c1"># 1 container per enrolled node</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">    </span><span class="nt">privileged</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">False</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">    </span><span class="nt">devices</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
 </code></pre></div>
 <p>Register it:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>hello-agent<span class="w"> </span>-f<span class="w"> </span>hello_agent_config.yaml<span class="w"> </span>-d<span class="w"> </span>quickstart_subagent
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>hello-agent<span class="w"> </span>-f<span class="w"> </span>hello_agent_config.yaml
 </code></pre></div></p>
-<p><code>-d quickstart_subagent</code> sets the default device group for new nodes that enroll with this app.</p>
+<p><code>-n</code>/<code>-f</code> are the only options <code>apps create</code> takes - there's no flag to set a default device group on the app itself. Group membership is set on the <em>device group</em>, not the app (see below).</p>
 <hr />
 <h2 id="device-groups">Device Groups</h2>
-<p>Device groups map to Messenger bus namespaces. The quickstart creates two:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Global coordination bus (Pattern A head)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_headagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Local worker bus</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_subagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
+<p>Device groups map to Messenger bus namespaces, and are what actually associates an app with the nodes that should run it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Global coordination bus (Pattern A head)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_headagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Local worker bus</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_subagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
 </code></pre></div>
-<p><code>-a hello-agent</code> associates the group with the <code>hello-agent</code> app so nodes in this group receive that Docker image.</p>
-<h3 id="adding-a-node-to-a-device-group">Adding a node to a device group</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>add-node<span class="w"> </span>-n<span class="w"> </span>quickstart_subagent<span class="w"> </span>--node<span class="w"> </span><span class="m">10</span>.0.1.42
-</code></pre></div>
-<p>Once added, Gustavo pushes the <code>hello-agent</code> image to that node and starts the container.</p>
+<p><code>-a</code> (repeatable) is what assigns apps to the group - nodes that self-enroll into it receive every app listed here.</p>
 <hr />
 <h2 id="node-enrollment">Node Enrollment</h2>
-<p>On each edge node, run the Gustavo agent:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Download the enrollment script from the manager</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>curl<span class="w"> </span>http://&lt;manager-ip&gt;:8080/enroll.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>bash
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Or manually</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>gustavo<span class="w"> </span>node<span class="w"> </span>enroll<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span>--manager<span class="w"> </span>&lt;manager-ip&gt;:8080<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span>--groups<span class="w"> </span>quickstart_subagent
+<p>Enrollment happens <strong>on the node itself</strong> - nothing runs <code>add-node</code> from the manager side; that command doesn't exist. Three ways to get a worker running, in order of how much you need installed on the node:</p>
+<p><strong>1. <code>gustavo worker up</code> (CLI installed on the node)</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>up
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="c1"># or, on hardware with an actual GPU nvidia-container-toolkit can expose:</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>up<span class="w"> </span>--gpu
 </code></pre></div>
-<p>After enrollment, the node:
-1. Joins the Nebula overlay network and receives an overlay IP
+<p>Reads <code>GUSTAVO_CONFIG_FILE</code> (<code>MANAGER_HOST</code>, <code>REDIS_HOST</code>, <code>REGISTRY_HOST</code>, <code>DEVICE_GROUP</code>, Nebula credentials, ...) and registers this node with the manager. Rather than hand-writing that file, download one scoped to your own identity and the target group directly from a running Gustavo instance:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>curl<span class="w"> </span>-u<span class="w"> </span>&lt;username&gt;:&lt;secret&gt;<span class="w"> </span>http://&lt;gustavo-host&gt;:&lt;port&gt;/api/device-groups/&lt;group-name&gt;/worker-env<span class="w"> </span>-o<span class="w"> </span>worker.env
+</code></pre></div></p>
+<p><strong>2. <code>docker-compose.yml</code> (no CLI needed)</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>curl<span class="w"> </span>-u<span class="w"> </span>&lt;username&gt;:&lt;secret&gt;<span class="w"> </span>http://&lt;gustavo-host&gt;:&lt;port&gt;/api/device-groups/&lt;group-name&gt;/worker-compose<span class="w"> </span>-o<span class="w"> </span>docker-compose.yml
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+</code></pre></div></p>
+<p><strong>3. A self-contained launcher script (no CLI, no companion file)</strong>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>curl<span class="w"> </span>-u<span class="w"> </span>&lt;username&gt;:&lt;secret&gt;<span class="w"> </span>http://&lt;gustavo-host&gt;:&lt;port&gt;/api/device-groups/&lt;group-name&gt;/worker-script<span class="w"> </span>-o<span class="w"> </span>worker.sh
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>bash<span class="w"> </span>worker.sh
+</code></pre></div>
+(<code>worker-script-windows</code> for a <code>.bat</code> equivalent on Windows nodes.)</p>
+<p>All three are also available as download buttons on that device group's page in the web UI - the API routes above are what those buttons call.</p>
+<p>After the worker starts, the node:
+1. Registers with the Nebula Manager and receives an overlay IP
 2. Writes its overlay IP to the <code>node-aliases</code> Redis key
-3. Receives the <code>hello-agent</code> Docker image and starts the container</p>
+3. Pulls every app assigned to <code>DEVICE_GROUP</code> and starts the containers</p>
 <hr />
 <h2 id="gustavo_initsh-quickstart">gustavo_init.sh (quickstart)</h2>
 <p>The file at <code>examples/quickstart/gustavo_init.sh</code> automates the full bootstrap for a single-machine deployment:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="ch">#!/bin/sh</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="c1"># Full bootstrap: MongoDB → manager → hello-agent app → two device groups</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">set</span><span class="w"> </span>-e
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>mongo
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>sleep<span class="w"> </span><span class="m">15</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>manager
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="k">until</span><span class="w"> </span>gustavo<span class="w"> </span>manager<span class="w"> </span>check<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"Manager Up"</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"[quickstart] Manager not ready, retrying in 5 s..."</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span>sleep<span class="w"> </span><span class="m">5</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="k">done</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="c1"># Register hello-agent app (reads REDIS_HOST etc from env)</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>hello-agent<span class="w"> </span>-f<span class="w"> </span>/tmp/hello_agent_config.yaml<span class="w"> </span>-d<span class="w"> </span>quickstart_subagent
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="c1"># Two device groups — one per Messenger bus</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_headagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_subagent<span class="w">  </span>-a<span class="w"> </span>hello-agent
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>tail<span class="w"> </span>-f<span class="w"> </span>/dev/null<span class="w">   </span><span class="c1"># keep container alive for CLI access</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="ch">#!/bin/sh</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="c1"># Full bootstrap: MongoDB → manager → hello-agent app → two device groups</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nb">set</span><span class="w"> </span>-e
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>mongo
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>sleep<span class="w"> </span><span class="m">15</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>manager
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="k">until</span><span class="w"> </span>gustavo<span class="w"> </span>manager<span class="w"> </span>check<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">"Manager Up"</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"[quickstart] Manager not ready, retrying in 5 s..."</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span>sleep<span class="w"> </span><span class="m">5</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="k">done</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="c1"># Register hello-agent app (reads REDIS_HOST etc from env)</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>hello-agent<span class="w"> </span>-f<span class="w"> </span>/tmp/hello_agent_config.yaml
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="c1"># Two device groups — one per Messenger bus, each granted the app</span>
+<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_headagent<span class="w"> </span>-a<span class="w"> </span>hello-agent
+<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>quickstart_subagent<span class="w">  </span>-a<span class="w"> </span>hello-agent
+<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a>
+<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a>tail<span class="w"> </span>-f<span class="w"> </span>/dev/null<span class="w">   </span><span class="c1"># keep container alive for CLI access</span>
 </code></pre></div>
 <hr />
 <h2 id="common-cli-commands">Common CLI Commands</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># App management</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>list
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-f<span class="w"> </span>&lt;yaml&gt;<span class="w"> </span>-d<span class="w"> </span>&lt;default-group&gt;
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>delete<span class="w"> </span>-n<span class="w"> </span>&lt;name&gt;
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># Device groups</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>list
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;<span class="w"> </span>-a<span class="w"> </span>&lt;app&gt;
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>add-node<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;<span class="w"> </span>--node<span class="w"> </span>&lt;ip&gt;
-<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>remove-node<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;<span class="w"> </span>--node<span class="w"> </span>&lt;ip&gt;
-<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>delete<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;
-<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>
-<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="c1"># Nodes</span>
-<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>gustavo<span class="w"> </span>node<span class="w"> </span>list
-<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>gustavo<span class="w"> </span>node<span class="w"> </span>status<span class="w"> </span>--node<span class="w"> </span>&lt;ip&gt;
-<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>
-<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="c1"># Manager</span>
-<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>mongo
-<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>manager
-<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check
-<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>down
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># App management</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>list
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-f<span class="w"> </span>&lt;yaml&gt;
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>delete<span class="w"> </span>-n<span class="w"> </span>&lt;name&gt;
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="c1"># Device groups</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>list
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;<span class="w"> </span><span class="o">[</span>-a<span class="w"> </span>&lt;app&gt;<span class="o">]</span>...
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>update<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;<span class="w"> </span>-a<span class="w"> </span>&lt;app&gt;
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>delete<span class="w"> </span>-n<span class="w"> </span>&lt;group&gt;
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="c1"># Worker (run on the edge node itself)</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>up<span class="w"> </span><span class="o">[</span>--gpu<span class="o">]</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>remove
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>recreate
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a><span class="c1"># Manager</span>
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>&lt;registry<span class="p">|</span>redis<span class="p">|</span>mongo<span class="p">|</span>manager<span class="p">|</span>syncer<span class="p">|</span>all&gt;
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>stop<span class="w"> </span>&lt;service&gt;
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>gustavo<span class="w"> </span>ping
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a><span class="c1"># Live metrics from enrolled workers</span>
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>gustavo<span class="w"> </span>cache<span class="w"> </span>vitals
 </code></pre></div>
+<p>There is no <code>gustavo node</code> command group - node-level operations happen by running <code>gustavo worker</code> commands <em>on that node</em>, not by an admin targeting a node's IP from elsewhere.</p>
 <hr />
 <h2 id="node-identity-and-alias-resolution">Node Identity and Alias Resolution</h2>
 <p>When <code>NODE_ADDRESS</code> is not set (and <code>MANAGER_HOST</code>/<code>MANAGER_PORT</code> point at
@@ -1883,7 +1882,7 @@ resolves the <em>caller's own IP</em> against the <code>node-aliases</code> Redi
 single JSON-encoded string, not a Hash (<code>json.loads(r.get("node-aliases"))</code>,
 matched by scanning for the entry whose <code>hostname</code> equals the caller's IP -
 not a direct <code>HGET</code> by hostname).</p>
-<p>Gustavo populates this during enrollment. As long as <code>MANAGER_HOST</code>/
+<p>Gustavo populates this during worker enrollment. As long as <code>MANAGER_HOST</code>/
 <code>MANAGER_PORT</code> correctly point at the BackgroundServer, agents get the
 correct Nebula IP without any static configuration.</p>
 <p>See <a href="../../concepts/identity/">Node Identity</a> for the full resolution chain.</p>

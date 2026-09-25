@@ -1786,7 +1786,8 @@
 </table>
 <h3 id="timeseries-mode">Timeseries mode</h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">m</span><span class="o">.</span><span class="n">Map</span><span class="p">(</span><span class="n">sensor_reading</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="s2">"sensor_1"</span><span class="p">,</span> <span class="n">timeseries</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># stored as "sensor_1:{unix_timestamp}"</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># stored as "sensor_1#{unix_timestamp}" - "#", not ":", since ":" is</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># already used as the key/chunk-index separator in this storage layer</span>
 </code></pre></div>
 <p>Multiple time-ordered readings under the same logical key, each with its own TTL.</p>
 <hr />

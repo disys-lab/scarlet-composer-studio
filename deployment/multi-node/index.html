@@ -1742,7 +1742,7 @@
 <li>A Gustavo manager running and accessible on the network</li>
 <li>Redis reachable from all edge nodes</li>
 <li>Docker installed on all nodes</li>
-<li>Gustavo CLI installed on all nodes</li>
+<li>The <code>gustavo</code> CLI on the machine registering apps/device groups - edge nodes themselves don't need it installed (see <a href="#step-4-enroll-edge-nodes">Step 4</a>)</li>
 </ul>
 <hr />
 <h2 id="architecture-overview">Architecture Overview</h2>
@@ -1765,9 +1765,9 @@
 <hr />
 <h2 id="step-1-bootstrap-the-manager">Step 1 — Bootstrap the Manager</h2>
 <p>On the manager machine:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>mongo
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>mongo<span class="w">      </span><span class="c1"># SERVICE is positional, not a flag</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleep<span class="w"> </span><span class="m">15</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>-s<span class="w"> </span>manager
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>up<span class="w"> </span>manager
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>gustavo<span class="w"> </span>manager<span class="w"> </span>check<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s2">"Manager Up"</span>
 </code></pre></div>
 <p>Note the manager's IP address — nodes need it for enrollment.</p>
@@ -1795,8 +1795,9 @@
 <a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="s">    devices: []</span>
 <a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="s">EOF</span>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>my-agent<span class="w"> </span>-f<span class="w"> </span>/tmp/my_agent_config.yaml<span class="w"> </span>-d<span class="w"> </span>my-campaign_subagent
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>gustavo<span class="w"> </span>apps<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>my-agent<span class="w"> </span>-f<span class="w"> </span>/tmp/my_agent_config.yaml
 </code></pre></div>
+<p><code>apps create</code> only takes <code>-n</code>/<code>-f</code> - device group membership (and which nodes get this app) is set in Step 3 below, not here.</p>
 <hr />
 <h2 id="step-3-create-device-groups">Step 3 — Create Device Groups</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Global coordination bus</span>
@@ -1807,19 +1808,19 @@
 </code></pre></div>
 <hr />
 <h2 id="step-4-enroll-edge-nodes">Step 4 — Enroll Edge Nodes</h2>
-<p>On each edge node:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Pull and run the Gustavo agent (fetches Nebula certs from manager)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>gustavo<span class="w"> </span>node<span class="w"> </span>enroll<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>--manager<span class="w"> </span>&lt;manager-ip&gt;:8080<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--groups<span class="w"> </span>my-campaign_subagent
+<p>Enrollment is pull-based - it runs <strong>on the edge node itself</strong>, not from the manager targeting a node's IP (there's no <code>gustavo node</code> command). On each edge node:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Download a worker.env scoped to this device group (auth is your Nebula username/password)</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>curl<span class="w"> </span>-u<span class="w"> </span>&lt;username&gt;:&lt;password&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>http://&lt;manager-ip&gt;:8080/api/device-groups/my-campaign_subagent/worker-env<span class="w"> </span>-o<span class="w"> </span>worker.env
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GUSTAVO_CONFIG_FILE</span><span class="o">=</span>worker.env
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Verify enrollment</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>gustavo<span class="w"> </span>node<span class="w"> </span>status<span class="w"> </span>--node<span class="w"> </span><span class="k">$(</span>hostname<span class="w"> </span>-I<span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">'{print $1}'</span><span class="k">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>up
 </code></pre></div>
-<p>After enrollment:
-- Node receives a Nebula overlay IP (e.g., <code>10.42.0.2</code>)
+<p>If you'd rather not install the <code>gustavo</code> CLI on the edge node at all, download <code>.../worker-compose</code> (a self-contained <code>docker-compose.yml</code>, then <code>docker compose up -d</code>) or <code>.../worker-script</code> (a launcher you just run) instead - same three options documented in <a href="../gustavo/#node-enrollment">Gustavo Integration: Node Enrollment</a>.</p>
+<p>After the worker starts:
+- Node registers with the Nebula Manager and receives an overlay IP (e.g., <code>10.42.0.2</code>)
 - <code>node-aliases</code> Redis key is updated: <code>{"node-B-hostname": "10.42.0.2"}</code>
-- Gustavo pulls the agent image and starts the container</p>
+- The worker pulls <code>my-agent</code> (since it's assigned to <code>my-campaign_subagent</code>) and starts the container</p>
 <hr />
 <h2 id="step-5-verify-all-nodes-are-online">Step 5 — Verify All Nodes Are Online</h2>
 <p>From any machine with Redis access:</p>
@@ -1855,19 +1856,20 @@
 </code></pre></div>
 <hr />
 <h2 id="monitoring">Monitoring</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Watch live logs from all agents in a device group</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>logs<span class="w"> </span>-n<span class="w"> </span>my-campaign_subagent<span class="w"> </span>--follow
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Check a specific node</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>gustavo<span class="w"> </span>node<span class="w"> </span>logs<span class="w"> </span>--node<span class="w"> </span><span class="m">10</span>.42.0.2<span class="w"> </span>--follow
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Live CPU/memory/disk/container metrics for every enrolled worker</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>gustavo<span class="w"> </span>cache<span class="w"> </span>vitals
 </code></pre></div>
+<p>Per-node container logs aren't exposed through the <code>gustavo</code> CLI - use <code>docker logs</code> directly on the node, or check its containers via <code>docker ps</code> (there's no remote log-streaming command).</p>
 <hr />
 <h2 id="adding-a-head-agent-container">Adding a Head Agent Container</h2>
-<p>In production you may want to run the head agent as a container too (rather than from a laptop). Create a separate device group for it:</p>
+<p>In production you may want to run the head agent as a container too (rather than from a laptop). Create a separate device group for it, then enroll the coordinator machine <em>from that machine itself</em> - enrollment is pull-based, there's no way to push a node into a group from elsewhere:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>my-campaign_headagent<span class="w"> </span>-a<span class="w"> </span>my-head-agent
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># Enroll the coordinator machine into the head group</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>gustavo<span class="w"> </span>device-group<span class="w"> </span>add-node<span class="w"> </span>-n<span class="w"> </span>my-campaign_headagent<span class="w"> </span>--node<span class="w"> </span>&lt;coordinator-ip&gt;
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># On the coordinator machine:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>curl<span class="w"> </span>-u<span class="w"> </span>&lt;username&gt;:&lt;password&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>http://&lt;manager-ip&gt;:8080/api/device-groups/my-campaign_headagent/worker-env<span class="w"> </span>-o<span class="w"> </span>worker.env
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">GUSTAVO_CONFIG_FILE</span><span class="o">=</span>worker.env
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>gustavo<span class="w"> </span>worker<span class="w"> </span>up
 </code></pre></div>
 <p>The head container sets <code>HEAD_BUS=my-campaign_headagent</code> and <code>DEVICE_GROUP=my-campaign_headagent</code> — it only listens on the global bus and does not join the worker bus.</p>
 <hr />

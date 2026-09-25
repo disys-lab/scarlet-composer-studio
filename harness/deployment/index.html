@@ -1307,6 +1307,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#local-data-sources-scarletconfigyaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local data sources (~/.scarlet/config.yaml)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1657,6 +1668,50 @@ streamable-http</code>) is a genuine headless alternative for a head role — it
 needs no stdin at all — but isn't wired as this image's default <code>CMD</code>; run
 it as a separate <code>docker run</code>/supervisord program if you need an
 MCP-reachable head.</p>
+<h2 id="local-data-sources-scarletconfigyaml">Local data sources (<code>~/.scarlet/config.yaml</code>)</h2>
+<p><a href="../concepts/#local-first-data-access">Local-First Data Access</a> reads this
+file from <code>Path.home() / ".scarlet" / "config.yaml"</code> at runtime — inside a
+container that means the <strong>container's</strong> home directory, not the host's.
+Neither Dockerfile in this repo sets a <code>USER</code>, so <code>scarlet-agents</code> runs as
+root and <code>Path.home()</code> resolves to <code>/root</code>. The file has to actually be
+present at that path <em>inside the running container</em> — Gustavo/Docker won't
+put it there for you, and there's no push path from the Composer UI into
+this file by design (see <code>local_config.py</code>'s own docstring).</p>
+<p>Two ways to get it there, <code>docker run</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Option 1 — bind-mount to match the container's actual home (/root, since</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1"># neither Dockerfile sets USER). Breaks silently if a future USER directive</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># changes that.</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>-v<span class="w"> </span>~/.scarlet:/root/.scarlet:ro<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_HOST</span><span class="o">=</span>...<span class="w"> </span>-e<span class="w"> </span><span class="nv">REDIS_AUTH_TOKEN</span><span class="o">=</span>...<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>scarlet-agents:latest
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># Option 2 (recommended) — mount anywhere, point SCARLET_LOCAL_CONFIG at</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># it explicitly. local_config.py checks this env var before falling back</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="c1"># to Path.home(), so this doesn't depend on the container's home dir at all.</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span>-v<span class="w"> </span>~/.scarlet/config.yaml:/etc/scarlet/config.yaml:ro<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SCARLET_LOCAL_CONFIG</span><span class="o">=</span>/etc/scarlet/config.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">REDIS_HOST</span><span class="o">=</span>...<span class="w"> </span>-e<span class="w"> </span><span class="nv">REDIS_AUTH_TOKEN</span><span class="o">=</span>...<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">  </span>scarlet-agents:latest
+</code></pre></div>
+<p>Same idea in compose (add to <code>scarlet-agents</code>'s service definition in
+<code>harness/docker-compose.yml</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">~/.scarlet/config.yaml:/etc/scarlet/config.yaml:ro</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SCARLET_LOCAL_CONFIG=/etc/scarlet/config.yaml</span>
+</code></pre></div>
+<p>This only works if the file already exists at that path on <strong>whichever
+host the container actually runs on</strong>. For a Gustavo-managed remote worker
+node, that means it must already be on that node's disk before Gustavo
+starts the container — Gustavo's own app volume-mount field (host path →
+container path) assumes the host path exists, it doesn't create it.
+Getting the file onto a specific remote node in the first place is a
+separate, out-of-band step (e.g. <code>scp</code> at node enrollment) — deliberately
+not something either Gustavo or the Composer UI automates, consistent with
+<code>local_config.py</code>'s "no push path, ever" design.</p>
+<hr />
 <p>See <a href="../getting-started/">Getting Started</a> for running the harness (and its
 tests) outside Docker.</p>
 

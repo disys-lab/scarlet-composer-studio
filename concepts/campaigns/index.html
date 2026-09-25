@@ -1675,7 +1675,7 @@
 <p>Isolation is purely namespace-based. All Redis keys for a campaign are prefixed with the campaign's bus names:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>{HEAD_BUS}:msg:tail:{agentId}
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>{HEAD_BUS}:reg:{agentId}
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>{scarletName}_key-value:{key}
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>{scarletName}_key-value:{key}:0
 </code></pre></div>
 <p>Two campaigns with different <code>APP_ID</code> values produce non-overlapping key prefixes. No extra configuration is required.</p>
 <hr />
