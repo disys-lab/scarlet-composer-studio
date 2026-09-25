@@ -53,5 +53,59 @@ needs no stdin at all — but isn't wired as this image's default `CMD`; run
 it as a separate `docker run`/supervisord program if you need an
 MCP-reachable head.
 
+## Local data sources (`~/.scarlet/config.yaml`)
+
+[Local-First Data Access](concepts.md#local-first-data-access) reads this
+file from `Path.home() / ".scarlet" / "config.yaml"` at runtime — inside a
+container that means the **container's** home directory, not the host's.
+Neither Dockerfile in this repo sets a `USER`, so `scarlet-agents` runs as
+root and `Path.home()` resolves to `/root`. The file has to actually be
+present at that path *inside the running container* — Gustavo/Docker won't
+put it there for you, and there's no push path from the Composer UI into
+this file by design (see `local_config.py`'s own docstring).
+
+Two ways to get it there, `docker run`:
+
+```bash
+# Option 1 — bind-mount to match the container's actual home (/root, since
+# neither Dockerfile sets USER). Breaks silently if a future USER directive
+# changes that.
+docker run --rm \
+  -v ~/.scarlet:/root/.scarlet:ro \
+  -e REDIS_HOST=... -e REDIS_AUTH_TOKEN=... \
+  scarlet-agents:latest
+
+# Option 2 (recommended) — mount anywhere, point SCARLET_LOCAL_CONFIG at
+# it explicitly. local_config.py checks this env var before falling back
+# to Path.home(), so this doesn't depend on the container's home dir at all.
+docker run --rm \
+  -v ~/.scarlet/config.yaml:/etc/scarlet/config.yaml:ro \
+  -e SCARLET_LOCAL_CONFIG=/etc/scarlet/config.yaml \
+  -e REDIS_HOST=... -e REDIS_AUTH_TOKEN=... \
+  scarlet-agents:latest
+```
+
+Same idea in compose (add to `scarlet-agents`'s service definition in
+`harness/docker-compose.yml`):
+
+```yaml
+    volumes:
+      - ~/.scarlet/config.yaml:/etc/scarlet/config.yaml:ro
+    environment:
+      - SCARLET_LOCAL_CONFIG=/etc/scarlet/config.yaml
+```
+
+This only works if the file already exists at that path on **whichever
+host the container actually runs on**. For a Gustavo-managed remote worker
+node, that means it must already be on that node's disk before Gustavo
+starts the container — Gustavo's own app volume-mount field (host path →
+container path) assumes the host path exists, it doesn't create it.
+Getting the file onto a specific remote node in the first place is a
+separate, out-of-band step (e.g. `scp` at node enrollment) — deliberately
+not something either Gustavo or the Composer UI automates, consistent with
+`local_config.py`'s "no push path, ever" design.
+
+---
+
 See [Getting Started](getting-started.md) for running the harness (and its
 tests) outside Docker.

@@ -67,10 +67,16 @@ change — `skills/registry.py` discovers it automatically.
 
 ## Give a worker local data sources
 
-Create `~/.scarlet/config.yaml` on the node (see
+Create `~/.scarlet/config.yaml` (see
 [Local-First Data Access](concepts.md#local-first-data-access) for the file
 shape) — no restart-free hot reload is required to try it, since a worker
 rebuilds its tag cache from this file periodically as well as at startup.
+
+Running the harness directly (not in a container), that's literally your
+own home directory. Running it as `scarlet-agents` in Docker — the normal
+case — the file has to be mounted *into* the container; see
+[Deployment: Local data sources](deployment.md#local-data-sources-scarletconfigyaml)
+for exactly how.
 
 ## Next steps
 
