@@ -14,7 +14,7 @@ Every class, method, and function below links to a page generated directly from 
 
 | Class / Function | Module | Purpose |
 |---|---|---|
-| `ScarletInterpreter` | `scarletcomposer.interpreter.ScarletInterpreter` | Parse `#scarlet` declarations from source files |
+| `ScarletInterpreter` | `scarletcomposer.composer.ScarletInterpreter` | Parse `#scarlet` declarations from source files |
 | `BackgroundServer` | `scarletcomposer.pages.config.BackgroundServer` | Tornado server: `/api/v2/getNodeInfo`, `/api/v2/getNodeIp` |
 | `scarletDriver` CLI | `scarletcomposer.composer.scarletDriver` | `scarlet-composer` CLI entry point — see [CLI Reference](cli.md) |
 

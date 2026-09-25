@@ -10,8 +10,11 @@ Contributions are welcome — bug reports, documentation improvements, new examp
 git clone https://github.com/disys-lab/scarlet-composer-studio
 cd scarlet-composer-studio
 
-# Install both packages in editable mode
-pip install -e .
+# Install both packages in editable mode - `pip install -e .` alone only
+# picks up ./setup.py (scarlets); scarletcomposer needs its own setup file
+# named explicitly.
+python3 setup.py develop
+python3 setup_composer.py develop
 
 # Install test dependencies
 pip install pytest requests
@@ -61,7 +64,7 @@ All 20+ e2e tests must pass before opening a pull request.
 
 ```
 scarlet_composer_studio_open_source/
-├── scarlets/               # pip package: scarlets (agent primitives)
+├── scarlets/                # pip package: scarlets (agent primitives)
 │   ├── core/Mapper.py
 │   ├── formulations/Federator.py
 │   ├── messaging/Messenger.py
@@ -73,12 +76,14 @@ scarlet_composer_studio_open_source/
 │       ├── ScarletUtils.py
 │       └── RedisLogger.py
 │
-├── scarletcomposer/        # pip package: scarletcomposer (UI + CLI)
+├── scarletcomposer/         # pip package: scarletcomposer (CLI + legacy Streamlit pages)
 │   ├── composer/
 │   │   ├── scarletDriver.py    # CLI entry point
 │   │   ├── ScarletHandler.py   # deploy pipeline
 │   │   └── ScarletInterpreter.py
-│   └── pages/
+│   └── pages/                  # Streamlit-era - not the deployed UI (see composer-ui/ below),
+│       │                       # kept because docker/composer-app/background_server.py still
+│       │                       # imports from here
 │       ├── Agents.py
 │       ├── DataSources.py
 │       ├── Logging.py
@@ -86,29 +91,32 @@ scarlet_composer_studio_open_source/
 │           ├── BackgroundServer.py
 │           └── Sidebar.py
 │
+├── composer-api/            # FastAPI backend for the deployed Composer UI
+├── composer-ui/             # Next.js frontend for the deployed Composer UI
+│
+├── harness/                 # scarlet_agentic_harness - decentralized agentic Skill runtime
+├── data_connectors/         # pip package: data-connectors (mssql/postgres/pi/influx/csv/...)
+├── broker/                  # standalone broker process for mode: broker data sources
+│
 ├── docker/
-│   ├── agent-base/Dockerfile   # scarlet-agent-base image
-│   └── composer/Dockerfile     # scarlet-composer image
+│   ├── agent-base/Dockerfile    # scarlet-agent-base image
+│   └── composer-app/Dockerfile  # scarlet-composer image (composer-api + composer-ui combined)
 │
 ├── examples/
-│   ├── quickstart/             # Docker Compose quickstart with hello-agent
-│   └── *.py                    # Standalone Mapper / Federator examples
+│   └── quickstart/          # Docker Compose quickstart with hello-agent
 │
 ├── tests/
 │   ├── conftest.py
-│   ├── docker-compose.yml      # test infrastructure (Redis + mock manager)
+│   ├── docker-compose.yml   # test infrastructure (Redis + mock manager)
 │   ├── mock_manager/
 │   ├── test_e2e.py
 │   └── ...
 │
-├── docs/
-│   ├── architecture.md
-│   ├── api.md
-│   ├── deployment.md
-│   └── contributing.md
+├── docs/                    # this site - see docs/reference/api.md for the full page map
 │
-├── setup.py           # scarlets package
-├── setup_composer.py  # scarletcomposer package
+├── setup.py             # scarlets package
+├── setup_composer.py    # scarletcomposer package
+├── setup_connectors.py  # data-connectors package
 └── requirements.txt
 ```
 
@@ -120,7 +128,7 @@ scarlet_composer_studio_open_source/
 - Match the coding style of the file you are modifying.
 - Add or update tests for any changed behaviour. All existing tests must continue to pass.
 - Keep commits focused. One logical change per commit.
-- Do not modify `docs/DESIGN_v*.md` files — these are internal working documents. User-facing documentation lives in `docs/architecture.md`, `docs/api.md`, and `docs/deployment.md`.
+- User-facing documentation lives under `docs/` (nested by topic — `concepts/`, `guides/`, `deployment/`, `composer/`, `harness/`, `reference/`) - see `mkdocs.yml`'s `nav` for the full page map.
 
 ---
 
