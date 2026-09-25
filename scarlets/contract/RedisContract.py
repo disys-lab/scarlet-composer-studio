@@ -284,7 +284,7 @@ class RedisContract(ContractBase):
 
     def clearAll(self,):
         """
-        Delete every chunk/key entry belonging to this contract.
+        Delete every chunk/key entry belonging to this contract. Also clear the key-list.
 
         Returns
         -------
