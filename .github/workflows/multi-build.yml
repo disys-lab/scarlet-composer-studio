@@ -361,7 +361,7 @@ jobs:
 
   notebooks-dockerbuild:
     # Needs agent-dockerbuild specifically - a real Docker FROM dependency
-    # (docker/notebooks/Dockerfile extends scarlet-agent-base), same
+    # (docker/jupyter/Dockerfile extends scarlet-agent-base), same
     # reasoning as harness-dockerbuild above. Does NOT need build-wheels,
     # unlike harness-dockerbuild - this image installs jupyterlab/pandas/
     # matplotlib straight from PyPI and never touches a scarlets/
@@ -395,7 +395,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/notebooks/Dockerfile
+          file: docker/jupyter/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |

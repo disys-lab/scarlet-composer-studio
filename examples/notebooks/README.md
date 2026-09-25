@@ -64,7 +64,7 @@ docker compose logs -f scarlet-notebooks
 
 Visit [http://localhost:8888](http://localhost:8888) and open any of the six
 notebooks in the file browser. No token/login is required - see
-`docker/notebooks/Dockerfile` if you need to run this somewhere less
+`docker/jupyter/Dockerfile` if you need to run this somewhere less
 trusted than a private network.
 
 ---

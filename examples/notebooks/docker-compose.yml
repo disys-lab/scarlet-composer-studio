@@ -20,13 +20,13 @@ version: '3.9'
 services:
 
   # ─── Scarlet SDK tutorials ──────────────────────────────────────────────────
-  # Built locally from this repo's own docker/notebooks/Dockerfile (build
+  # Built locally from this repo's own docker/jupyter/Dockerfile (build
   # context is the repo root, two levels up) - see deployment/docker.md for
   # the CI-published image, once a release has been tagged.
   scarlet-notebooks:
     build:
       context: ../..
-      dockerfile: docker/notebooks/Dockerfile
+      dockerfile: docker/jupyter/Dockerfile
     container_name: scarlet-notebooks
     restart: unless-stopped
     ports:

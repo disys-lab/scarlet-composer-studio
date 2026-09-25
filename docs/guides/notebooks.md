@@ -33,7 +33,7 @@ for the full walkthrough.
 
 ## The image
 
-`docker/notebooks/Dockerfile` extends `scarlet-agent-base` directly — the
+`docker/jupyter/Dockerfile` extends `scarlet-agent-base` directly — the
 `scarlets` SDK is already baked in; the only additions are `jupyterlab`,
 `pandas`, and `matplotlib`, installed from PyPI. Unlike `scarlet-composer`
 or the [harness](../harness/index.md), it doesn't need a locally-built
@@ -41,7 +41,7 @@ wheel — pull access to `ghcr.io/disys-lab/scarlet-agent-base` is enough:
 
 ```bash
 docker build --build-arg BASE_VERSION=0.5.0 \
-  -f docker/notebooks/Dockerfile -t scarlet-notebooks:dev .
+  -f docker/jupyter/Dockerfile -t scarlet-notebooks:dev .
 ```
 
 Published as `ghcr.io/disys-lab/scarlet-notebooks` by the same CI pipeline
