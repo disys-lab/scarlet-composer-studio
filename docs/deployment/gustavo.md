@@ -1,6 +1,6 @@
 # Gustavo Integration
 
-[Gustavo](https://github.com/disys-lab/gustavo) is the Nebula-based edge orchestrator used to deploy and manage Scarlet agents on distributed nodes. It handles node enrollment, Docker image distribution, device group management, and the Nebula overlay network.
+[Gustavo](https://github.com/disys-lab/gustavo) is the Nebula-based edge orchestrator used to deploy and manage Scarlet agents on distributed nodes. It's a web platform (Next.js UI + FastAPI backend) with a companion CLI for the same operations - node enrollment, Docker image distribution, device group management, and the Nebula overlay network all go through one of these two surfaces.
 
 ---
 
@@ -9,42 +9,51 @@
 | Gustavo concept | Scarlet equivalent |
 |---|---|
 | **App** | A named Docker image + environment configuration |
-| **Device group** | A Messenger bus namespace — all nodes in a group run the same app |
-| **Node enrollment** | A physical machine joining the Nebula overlay and one or more device groups |
+| **Device group** | A Messenger bus namespace — all nodes in a group run the same set of apps |
+| **Worker** | The `gustavo worker` process running on a physical edge node - self-registers with the manager, then pulls whatever apps its device group assigns it |
 | **Manager** | The Nebula certificate authority + Gustavo API server |
+
+Enrollment is **pull-based**, not push-based: an admin never tells the manager "add node X to group Y." A node joins a group by running the worker *on that node itself*, configured with `DEVICE_GROUP=<name>`.
 
 ---
 
-## Installing Gustavo
+## Installing the Gustavo CLI
+
+Optional - only needed if you want to drive Gustavo from a terminal instead of the web UI. It's published on a private Gemfury feed, not public PyPI:
 
 ```bash
-pip install gustavo
+pip3 install --no-cache-dir --extra-index-url https://pypi.fury.io/osu-home-stri/ gustavo
 ```
 
 Verify:
 ```bash
+gustavo --version
 gustavo --help
-gustavo manager check
+```
+
+It reads all configuration from one `KEY=VALUE` env file, pointed to by `GUSTAVO_CONFIG_FILE`:
+```bash
+export GUSTAVO_CONFIG_FILE=/path/to/your.env
 ```
 
 ---
 
 ## Starting the Manager
 
-The manager runs MongoDB (for app/group config) and the Nebula certificate authority as Docker containers on the host:
+The manager runs five services: Registry, Redis, MongoDB, the Nebula Manager, and Syncer.
 
 ```bash
-gustavo manager up -s mongo      # start MongoDB
-# wait ~15 s for MongoDB to initialize
-gustavo manager up -s manager    # start Nebula manager + Gustavo API
+gustavo manager up mongo      # SERVICE is a positional argument, not a flag
+gustavo manager up manager
+# or bring up everything at once:
+gustavo manager up all
 ```
 
-**Health check** (always exits 0 — parse the output):
+**Health check:**
 ```bash
-gustavo manager check 2>&1 | grep -q "Manager Up" && echo "Ready"
+gustavo manager check   # pings http://{MANAGER_HOST}:{MANAGER_PORT}/api/v2/status
+gustavo ping             # same idea, platform-wide
 ```
-
-This is the pattern used in `gustavo_init.sh` to wait for the manager before registering apps.
 
 ---
 
@@ -79,16 +88,16 @@ hello-agent:
 
 Register it:
 ```bash
-gustavo apps create -n hello-agent -f hello_agent_config.yaml -d quickstart_subagent
+gustavo apps create -n hello-agent -f hello_agent_config.yaml
 ```
 
-`-d quickstart_subagent` sets the default device group for new nodes that enroll with this app.
+`-n`/`-f` are the only options `apps create` takes - there's no flag to set a default device group on the app itself. Group membership is set on the *device group*, not the app (see below).
 
 ---
 
 ## Device Groups
 
-Device groups map to Messenger bus namespaces. The quickstart creates two:
+Device groups map to Messenger bus namespaces, and are what actually associates an app with the nodes that should run it:
 
 ```bash
 # Global coordination bus (Pattern A head)
@@ -98,36 +107,46 @@ gustavo device-group create -n quickstart_headagent -a hello-agent
 gustavo device-group create -n quickstart_subagent -a hello-agent
 ```
 
-`-a hello-agent` associates the group with the `hello-agent` app so nodes in this group receive that Docker image.
-
-### Adding a node to a device group
-
-```bash
-gustavo device-group add-node -n quickstart_subagent --node 10.0.1.42
-```
-
-Once added, Gustavo pushes the `hello-agent` image to that node and starts the container.
+`-a` (repeatable) is what assigns apps to the group - nodes that self-enroll into it receive every app listed here.
 
 ---
 
 ## Node Enrollment
 
-On each edge node, run the Gustavo agent:
+Enrollment happens **on the node itself** - nothing runs `add-node` from the manager side; that command doesn't exist. Three ways to get a worker running, in order of how much you need installed on the node:
+
+**1. `gustavo worker up` (CLI installed on the node)**
 
 ```bash
-# Download the enrollment script from the manager
-curl http://<manager-ip>:8080/enroll.sh | sudo bash
-
-# Or manually
-gustavo node enroll \
-    --manager <manager-ip>:8080 \
-    --groups quickstart_subagent
+gustavo worker up
+# or, on hardware with an actual GPU nvidia-container-toolkit can expose:
+gustavo worker up --gpu
 ```
 
-After enrollment, the node:
-1. Joins the Nebula overlay network and receives an overlay IP
+Reads `GUSTAVO_CONFIG_FILE` (`MANAGER_HOST`, `REDIS_HOST`, `REGISTRY_HOST`, `DEVICE_GROUP`, Nebula credentials, ...) and registers this node with the manager. Rather than hand-writing that file, download one scoped to your own identity and the target group directly from a running Gustavo instance:
+```bash
+curl -u <username>:<secret> http://<gustavo-host>:<port>/api/device-groups/<group-name>/worker-env -o worker.env
+```
+
+**2. `docker-compose.yml` (no CLI needed)**
+```bash
+curl -u <username>:<secret> http://<gustavo-host>:<port>/api/device-groups/<group-name>/worker-compose -o docker-compose.yml
+docker compose up -d
+```
+
+**3. A self-contained launcher script (no CLI, no companion file)**
+```bash
+curl -u <username>:<secret> http://<gustavo-host>:<port>/api/device-groups/<group-name>/worker-script -o worker.sh
+bash worker.sh
+```
+(`worker-script-windows` for a `.bat` equivalent on Windows nodes.)
+
+All three are also available as download buttons on that device group's page in the web UI - the API routes above are what those buttons call.
+
+After the worker starts, the node:
+1. Registers with the Nebula Manager and receives an overlay IP
 2. Writes its overlay IP to the `node-aliases` Redis key
-3. Receives the `hello-agent` Docker image and starts the container
+3. Pulls every app assigned to `DEVICE_GROUP` and starts the containers
 
 ---
 
@@ -140,9 +159,9 @@ The file at `examples/quickstart/gustavo_init.sh` automates the full bootstrap f
 # Full bootstrap: MongoDB → manager → hello-agent app → two device groups
 set -e
 
-gustavo manager up -s mongo
+gustavo manager up mongo
 sleep 15
-gustavo manager up -s manager
+gustavo manager up manager
 
 until gustavo manager check 2>&1 | grep -q "Manager Up"; do
     echo "[quickstart] Manager not ready, retrying in 5 s..."
@@ -150,9 +169,9 @@ until gustavo manager check 2>&1 | grep -q "Manager Up"; do
 done
 
 # Register hello-agent app (reads REDIS_HOST etc from env)
-gustavo apps create -n hello-agent -f /tmp/hello_agent_config.yaml -d quickstart_subagent
+gustavo apps create -n hello-agent -f /tmp/hello_agent_config.yaml
 
-# Two device groups — one per Messenger bus
+# Two device groups — one per Messenger bus, each granted the app
 gustavo device-group create -n quickstart_headagent -a hello-agent
 gustavo device-group create -n quickstart_subagent  -a hello-agent
 
@@ -166,26 +185,31 @@ tail -f /dev/null   # keep container alive for CLI access
 ```bash
 # App management
 gustavo apps list
-gustavo apps create -n <name> -f <yaml> -d <default-group>
+gustavo apps create -n <name> -f <yaml>
 gustavo apps delete -n <name>
 
 # Device groups
 gustavo device-group list
-gustavo device-group create -n <group> -a <app>
-gustavo device-group add-node -n <group> --node <ip>
-gustavo device-group remove-node -n <group> --node <ip>
+gustavo device-group create -n <group> [-a <app>]...
+gustavo device-group update -n <group> -a <app>
 gustavo device-group delete -n <group>
 
-# Nodes
-gustavo node list
-gustavo node status --node <ip>
+# Worker (run on the edge node itself)
+gustavo worker up [--gpu]
+gustavo worker remove
+gustavo worker recreate
 
 # Manager
-gustavo manager up -s mongo
-gustavo manager up -s manager
+gustavo manager up <registry|redis|mongo|manager|syncer|all>
+gustavo manager stop <service>
 gustavo manager check
-gustavo manager down
+gustavo ping
+
+# Live metrics from enrolled workers
+gustavo cache vitals
 ```
+
+There is no `gustavo node` command group - node-level operations happen by running `gustavo worker` commands *on that node*, not by an admin targeting a node's IP from elsewhere.
 
 ---
 
@@ -198,7 +222,7 @@ single JSON-encoded string, not a Hash (`json.loads(r.get("node-aliases"))`,
 matched by scanning for the entry whose `hostname` equals the caller's IP -
 not a direct `HGET` by hostname).
 
-Gustavo populates this during enrollment. As long as `MANAGER_HOST`/
+Gustavo populates this during worker enrollment. As long as `MANAGER_HOST`/
 `MANAGER_PORT` correctly point at the BackgroundServer, agents get the
 correct Nebula IP without any static configuration.
 
