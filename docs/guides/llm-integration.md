@@ -55,7 +55,7 @@ for td in tool_defs:
         )
     )
 
-llm   = ChatAnthropic(model="claude-sonnet-4-6").bind_tools(lc_tools)
+llm   = ChatAnthropic(model="claude-sonnet-5").bind_tools(lc_tools)
 reply = llm.invoke("Check which agents are online and send a ping to each of them.")
 ```
 
@@ -113,7 +113,7 @@ messages = [{"role": "user", "content": "Who is online? Ping hello-agent_local w
 
 while True:
     resp = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=1024,
         tools=tool_defs,        # pass MCP tool_defs directly
         messages=messages,

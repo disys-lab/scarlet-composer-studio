@@ -8,17 +8,24 @@ All Redis keys used by Scarlet Composer Studio, in one place.
 
 | Key pattern | Type | Description |
 |---|---|---|
-| `{scarletName}_key-value:{key}` | String | Presence marker for a Map entry (value = `"1"`) |
-| `{scarletName}_key-value:{key}:0` | Hash | Map entry: fields `updater`, `content` (pickle+zlib bytes), `lastUpdatedTime` |
-| `{scarletName}_key-value:{key}:{timestamp}` | Hash | Timeseries entry (when `timeseries=True`): same fields as `:0` |
+| `{scarletName}_key-list` | Set | Registry of every currently-live logical key. One member added per `Map` call - plain and `timeseries=True` both, unconditionally. |
+| `{scarletName}_key-value:{key}:0` | Hash | Map entry: fields `updater`, `content` (pickle+zlib bytes), `lastUpdatedTime`. Chunk index is always `0` - there's no per-key chunking currently. |
 
-**Example (scarletName="gradient_bus", key="worker_osu1"):**
+A `timeseries=True` call appends a `#{timestamp}` suffix to `key` before writing, so each tick becomes its own independent registry member and chunk hash rather than overwriting the last one.
+
+**Example (scarletName="gradient_bus"):**
 ```
-gradient_bus_key-value:worker_osu1       → "1"
-gradient_bus_key-value:worker_osu1:0     → {updater, content, lastUpdatedTime}
+# plain Map("worker_osu1", ...)
+gradient_bus_key-list                          → {"worker_osu1", "worker_osu2#1758649200"}
+gradient_bus_key-value:worker_osu1:0           → {updater, content, lastUpdatedTime}
+
+# timeseries Map("worker_osu2", timeseries=True) at time.time() == 1758649200
+gradient_bus_key-value:worker_osu2#1758649200:0 → {updater, content, lastUpdatedTime}
 ```
 
-TTL: `SCARLET_DATA_EXPIRY` seconds (default 3600) set on each write.
+`@` and `:` are rejected outright in a caller-supplied `key` (raises `Exception`) - both are reserved by this scheme's own delimiters (`:` between key/chunk, `#` between a timeseries key and its timestamp).
+
+TTL: chunk hashes get `SCARLET_DATA_EXPIRY` seconds (default 3600) on each write. **`{scarletName}_key-list` itself has no TTL** - a member whose chunk has already expired is only pruned lazily, the next time `getMapperLength()` runs (it checks each member's chunk with `EXISTS` and `SREM`s any that are gone). Until something calls `getMapperLength()` again, an expired key can still appear as "registered" with nothing behind it.
 
 ---
 
@@ -28,8 +35,8 @@ TTL: `SCARLET_DATA_EXPIRY` seconds (default 3600) set on each write.
 
 | Key pattern | Description |
 |---|---|
-| `model_sync_mapper_reducer_key-value:*` | Per-worker local contributions |
-| `model_sync_mapper_global_key-value:global` | Aggregated global result (written by `Aggregate`) |
+| `model_sync_mapper_reducer_key-list` / `model_sync_mapper_reducer_key-value:{worker_key}:0` | Per-worker local contributions - an ordinary Mapper underneath, see above |
+| `model_sync_mapper_global_key-list` / `model_sync_mapper_global_key-value:global:0` | Aggregated global result (written by `Aggregate`, always under the fixed key `"global"`) |
 
 ---
 
@@ -80,7 +87,7 @@ Each hash field name is the data source name; the value is a JSON string.
 
 | Key | Type | Description |
 |---|---|---|
-| `node-aliases` | Hash | Maps hostname → Nebula overlay IP. Written by Gustavo at node enrollment. |
+| `node-aliases` | String (JSON) | Maps hostname → Nebula overlay IP, as a single JSON-encoded string - not a Hash. Written by Gustavo at node enrollment. |
 
 Read by `BackgroundServer.NodeInfoHandler` to resolve the caller's overlay IP.
 
@@ -100,8 +107,8 @@ Written by `RedisLogger.setRedisLog()`. Keys expire after `RedisLogger.expiry_ti
 
 ```
 Mapper
-  {name}_key-value:{key}              String  presence marker
-  {name}_key-value:{key}:0            Hash    serialized value
+  {name}_key-list                     Set     registry of live logical keys (no TTL)
+  {name}_key-value:{key}:0            Hash    serialized value (TTL'd)
 
 Messenger
   {name}:msg:tail:{id}                String  write cursor
@@ -118,7 +125,7 @@ Data sources
   data-sources:local:{NODE_ADDRESS}   Hash    node tier
 
 Node aliases
-  node-aliases                        Hash    hostname→Nebula IP
+  node-aliases                        String  JSON hostname→Nebula IP map
 
 Logging
   logs_{uuid}                         Hash    one entry: time/app/node/level/msg/file/line

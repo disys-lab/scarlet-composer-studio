@@ -9,7 +9,7 @@ This guide walks through deploying Scarlet agents across multiple physical machi
 - A Gustavo manager running and accessible on the network
 - Redis reachable from all edge nodes
 - Docker installed on all nodes
-- Gustavo CLI installed on all nodes
+- The `gustavo` CLI on the machine registering apps/device groups - edge nodes themselves don't need it installed (see [Step 4](#step-4-enroll-edge-nodes))
 
 ---
 
@@ -40,9 +40,9 @@ This guide walks through deploying Scarlet agents across multiple physical machi
 On the manager machine:
 
 ```bash
-gustavo manager up -s mongo
+gustavo manager up mongo      # SERVICE is positional, not a flag
 sleep 15
-gustavo manager up -s manager
+gustavo manager up manager
 gustavo manager check 2>&1 | grep "Manager Up"
 ```
 
@@ -75,8 +75,10 @@ my-agent:
     devices: []
 EOF
 
-gustavo apps create -n my-agent -f /tmp/my_agent_config.yaml -d my-campaign_subagent
+gustavo apps create -n my-agent -f /tmp/my_agent_config.yaml
 ```
+
+`apps create` only takes `-n`/`-f` - device group membership (and which nodes get this app) is set in Step 3 below, not here.
 
 ---
 
@@ -94,22 +96,23 @@ gustavo device-group create -n my-campaign_subagent -a my-agent
 
 ## Step 4 — Enroll Edge Nodes
 
-On each edge node:
+Enrollment is pull-based - it runs **on the edge node itself**, not from the manager targeting a node's IP (there's no `gustavo node` command). On each edge node:
 
 ```bash
-# Pull and run the Gustavo agent (fetches Nebula certs from manager)
-gustavo node enroll \
-    --manager <manager-ip>:8080 \
-    --groups my-campaign_subagent
+# Download a worker.env scoped to this device group (auth is your Nebula username/password)
+curl -u <username>:<password> \
+    http://<manager-ip>:8080/api/device-groups/my-campaign_subagent/worker-env -o worker.env
+export GUSTAVO_CONFIG_FILE=worker.env
 
-# Verify enrollment
-gustavo node status --node $(hostname -I | awk '{print $1}')
+gustavo worker up
 ```
 
-After enrollment:
-- Node receives a Nebula overlay IP (e.g., `10.42.0.2`)
+If you'd rather not install the `gustavo` CLI on the edge node at all, download `.../worker-compose` (a self-contained `docker-compose.yml`, then `docker compose up -d`) or `.../worker-script` (a launcher you just run) instead - same three options documented in [Gustavo Integration: Node Enrollment](gustavo.md#node-enrollment).
+
+After the worker starts:
+- Node registers with the Nebula Manager and receives an overlay IP (e.g., `10.42.0.2`)
 - `node-aliases` Redis key is updated: `{"node-B-hostname": "10.42.0.2"}`
-- Gustavo pulls the agent image and starts the container
+- The worker pulls `my-agent` (since it's assigned to `my-campaign_subagent`) and starts the container
 
 ---
 
@@ -164,24 +167,28 @@ gustavo apps update -n my-agent -f updated_config.yaml
 ## Monitoring
 
 ```bash
-# Watch live logs from all agents in a device group
-gustavo device-group logs -n my-campaign_subagent --follow
-
-# Check a specific node
-gustavo node logs --node 10.42.0.2 --follow
+# Live CPU/memory/disk/container metrics for every enrolled worker
+gustavo cache vitals
 ```
+
+Per-node container logs aren't exposed through the `gustavo` CLI - use `docker logs` directly on the node, or check its containers via `docker ps` (there's no remote log-streaming command).
 
 ---
 
 ## Adding a Head Agent Container
 
-In production you may want to run the head agent as a container too (rather than from a laptop). Create a separate device group for it:
+In production you may want to run the head agent as a container too (rather than from a laptop). Create a separate device group for it, then enroll the coordinator machine *from that machine itself* - enrollment is pull-based, there's no way to push a node into a group from elsewhere:
 
 ```bash
 gustavo device-group create -n my-campaign_headagent -a my-head-agent
+```
 
-# Enroll the coordinator machine into the head group
-gustavo device-group add-node -n my-campaign_headagent --node <coordinator-ip>
+```bash
+# On the coordinator machine:
+curl -u <username>:<password> \
+    http://<manager-ip>:8080/api/device-groups/my-campaign_headagent/worker-env -o worker.env
+export GUSTAVO_CONFIG_FILE=worker.env
+gustavo worker up
 ```
 
 The head container sets `HEAD_BUS=my-campaign_headagent` and `DEVICE_GROUP=my-campaign_headagent` — it only listens on the global bus and does not join the worker bus.
