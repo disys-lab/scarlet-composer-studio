@@ -1,12 +1,13 @@
 # Docker Images
 
-Three images are built from this repository and published to `ghcr.io/disys-lab/`:
+Four images are built from this repository and published to `ghcr.io/disys-lab/`:
 
 | Image | Base | Contents |
 |---|---|---|
 | `scarlet-agent-base` | `python:3.11-slim` | `scarlets` package, `supervisor` — the base every agent container extends |
 | `scarlet-composer` | `ubuntu:24.04` | `composer-api` (FastAPI) + `composer-ui` (Next.js) operator dashboard, combined in one container |
 | `scarlet-agents` | `scarlet-agent-base` | The [harness](../harness/index.md) — decentralized agentic `Skill` runtime |
+| `scarlet-notebooks` | `scarlet-agent-base` | JupyterLab + [interactive SDK tutorials](../guides/notebooks.md) |
 
 All three share one build pipeline (`.github/workflows/multi-build.yml`): `scarlets`, `scarletcomposer`, and `data-connectors` wheels are built exactly once per CI run from that run's own commit and consumed by every image that needs them — no image re-derives its own copy.
 
