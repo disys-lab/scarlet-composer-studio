@@ -1,6 +1,6 @@
 # Scarlet Composer Studio — SDK Tutorials
 
-A JupyterLab environment preloaded with six runnable tutorials for the
+A JupyterLab environment preloaded with five runnable tutorials for the
 `scarlets` SDK - not a deployable agent, an exploration/teaching environment
 for learning `Messenger`, `Mapper`, and `Federator` interactively.
 
@@ -11,7 +11,6 @@ for learning `Messenger`, `Mapper`, and `Federator` interactively.
 | `03_federator_aggregation.ipynb` | Federated aggregation across simulated workers |
 | `04_timeseries_with_mapper.ipynb` | `Map(..., timeseries=True)` - accumulating a time series under one key |
 | `05_federated_linear_regression.ipynb` | A toy FedAvg-style gradient descent, end to end |
-| `06_data_sources.ipynb` | The three-tier data source registry (global/worker/local) |
 
 Every notebook uses fixed scarlet/agent names and starts with a cleanup
 cell, so re-running one from the top is always safe - no leftover state
