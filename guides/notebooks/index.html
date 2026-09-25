@@ -1712,13 +1712,13 @@ required by default. See <a href="https://github.com/disys-lab/scarlet-composer-
 for the full walkthrough.</p>
 <hr />
 <h2 id="the-image">The image</h2>
-<p><code>docker/notebooks/Dockerfile</code> extends <code>scarlet-agent-base</code> directly — the
+<p><code>docker/jupyter/Dockerfile</code> extends <code>scarlet-agent-base</code> directly — the
 <code>scarlets</code> SDK is already baked in; the only additions are <code>jupyterlab</code>,
 <code>pandas</code>, and <code>matplotlib</code>, installed from PyPI. Unlike <code>scarlet-composer</code>
 or the <a href="../../harness/">harness</a>, it doesn't need a locally-built
 wheel — pull access to <code>ghcr.io/disys-lab/scarlet-agent-base</code> is enough:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>build<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">BASE_VERSION</span><span class="o">=</span><span class="m">0</span>.5.0<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-f<span class="w"> </span>docker/notebooks/Dockerfile<span class="w"> </span>-t<span class="w"> </span>scarlet-notebooks:dev<span class="w"> </span>.
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-f<span class="w"> </span>docker/jupyter/Dockerfile<span class="w"> </span>-t<span class="w"> </span>scarlet-notebooks:dev<span class="w"> </span>.
 </code></pre></div>
 <p>Published as <code>ghcr.io/disys-lab/scarlet-notebooks</code> by the same CI pipeline
 as the other three images (see <a href="../../deployment/docker/">Docker Images</a>) —
