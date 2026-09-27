@@ -30,11 +30,50 @@ FROM ghcr.io/disys-lab/scarlet-agent-base:${BASE_VERSION}
 
 WORKDIR /app
 
-# scarlet-agent-base already provides the scarlets API (redis/numpy/requests
-# or the real scarlets wheel, per its own LOCAL build-arg) - openai and mcp
-# are the extra runtime dependencies this harness adds on top
-# (scarlet_agentic_harness/llm/client.py, mcp_server.py).
-RUN pip install --no-cache-dir openai>=1.0.0 mcp>=2.0.0
+# System dependencies for pyodbc (mssql) and requests-kerberos/pi's gssapi
+# build - mirrors broker/Dockerfile's own already-proven install
+# (msodbcsql18 + krb5-user/keyutils/libkrb5-dev + unixodbc), adapted for
+# this image's actual base (python:3.11-slim / Debian, not broker's
+# ubuntu:24.04): no software-properties-common/deadsnakes ppa needed here,
+# Python 3.11 is already scarlet-agent-base's own system Python.
+# build-essential is purged after all pip installs below (pyodbc/gssapi
+# may need to compile from source if no prebuilt wheel matches this exact
+# Debian/Python combination), same discipline as broker/Dockerfile.
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get -y update && apt-get -y upgrade && \
+    apt-get -y install --no-install-recommends build-essential curl \
+        ca-certificates krb5-user keyutils libkrb5-dev unixodbc unixodbc-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# msodbcsql18 - Microsoft's own repo, not Debian's. broker/Dockerfile
+# fetches keys/microsoft.asc directly and `apt-key add`s it (fine on its
+# ubuntu:24.04 base) - verified directly (this session) that this doesn't
+# work here: this base's Debian 13 (trixie) has dropped apt-key entirely,
+# AND keys/microsoft.asc turns out to be the wrong key regardless - the
+# trixie repo's InRelease is actually signed by a newer key
+# ("Microsoft Corporation - General GPG Signer", 2023) that endpoint
+# doesn't contain. Microsoft's own officially-documented bootstrap
+# (packages-microsoft-prod.deb) carries the correct key and sources list
+# together and is what actually works - confirmed directly against this
+# exact base image.
+RUN curl -sSL -O https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb && \
+    dpkg -i packages-microsoft-prod.deb && \
+    rm packages-microsoft-prod.deb && \
+    apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Every pip package this image's runtime code needs beyond what
+# scarlet-agent-base already provides - centralized in
+# harness/requirements-image.txt (not inline pip installs, not
+# harness/setup.py's own install_requires) specifically because both the
+# data_connectors wheel below and the harness package itself further down
+# are installed --no-deps, so nothing pulls these in automatically. See
+# that file's own header comment for why it's separate from
+# harness/requirements.txt (the dev/test install file) and the full
+# breakdown of what needs what.
+COPY harness/requirements-image.txt /tmp/requirements-image.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-image.txt && \
+    rm /tmp/requirements-image.txt
 
 # data_connectors (setup_connectors.py, monorepo root) - local_config.py's
 # build_connector() constructs these same connector classes in-process for
@@ -44,6 +83,16 @@ RUN pip install --no-cache-dir openai>=1.0.0 mcp>=2.0.0
 # re-derived here. --no-deps for the same reason as the harness package
 # install below: data-connectors' own dependency resolution shouldn't
 # clobber what's already pinned in this image.
+#
+# Includes the pi connector's real `pitalk` package, vendored at
+# data_connectors/pitalk/ (a byte-for-byte copy of the actual package
+# source) and built into this same wheel by setup_connectors.py, rather
+# than `pip install git+https://github.com/blockalytics/PITalk.git` the
+# way broker/Dockerfile's identical-looking (and currently broken) line
+# still does - verified directly (this session) that
+# github.com/blockalytics/PITalk is actually a private repo: cloning it
+# from a clean environment with no GitHub credentials cached fails
+# outright. No GitHub access needed here, ever.
 COPY dist/data_connectors-*.whl /tmp/dist/
 RUN pip install --no-cache-dir --no-deps /tmp/dist/data_connectors-*.whl && \
     rm -rf /tmp/dist
@@ -61,6 +110,10 @@ COPY harness/scarlet_agentic_harness/ /app/scarlet_agentic_harness/
 # and could clobber the exact wheels this build already pinned. openai/mcp
 # are already installed explicitly above.
 RUN pip install --no-cache-dir --no-deps .
+
+RUN apt-get -y purge build-essential && \
+    apt-get -y autoremove && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY harness/supervisord.conf /etc/supervisor/conf.d/scarlet_agents.conf
 

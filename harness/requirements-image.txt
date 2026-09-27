@@ -1,0 +1,58 @@
+# harness/requirements-image.txt — every pip package the scarlet-agents
+# DOCKER IMAGE needs beyond what scarlet-agent-base already provides.
+#
+# Deliberately separate from harness/requirements.txt (that one is for a
+# from-source dev/test environment - `pip install -e . -r requirements.txt`,
+# see harness/README.md - and lists bare `scarlets`/`data-connectors` names
+# meant to resolve from Gemfury for that use case). This file is what the
+# Dockerfile actually installs: `scarlets` comes from scarlet-agent-base
+# already, and `data_connectors` is installed from a pre-built wheel with
+# --no-deps (see Dockerfile's own comment) - neither belongs here, and
+# putting them here would break the Docker build (no Gemfury access at
+# that build step, and re-resolving `scarlets` from PyPI would clobber the
+# exact wheel scarlet-agent-base already pinned).
+#
+# Both the data_connectors wheel and the harness package itself (this
+# same Dockerfile, further down) are installed --no-deps - so everything
+# either of them actually needs at runtime has to be listed and installed
+# explicitly, in this one place, before those --no-deps steps run.
+
+# scarlet_agentic_harness itself (llm/client.py, mcp_server.py)
+openai>=1.0.0
+mcp>=2.0.0
+
+# local_config.py (scarlet_agentic_harness) - imported at module level via
+# buses.py on every process startup, any ROLE. Previously missing
+# entirely from this image.
+pyyaml>=6.0
+
+# data_connectors' own drivers (setup_connectors.py's install_requires) -
+# the wheel itself is installed --no-deps, so every one of these is
+# listed here instead:
+pandas>=2.0.0              # csv/excel (duckdb's DataFrame) + pi (pitalk's own dep)
+duckdb>=1.0.0               # csv/excel - runs the caller's SQL against the DataFrame
+openpyxl>=3.1.0             # excel - pandas' own .xlsx read engine
+psycopg2-binary>=2.9.0      # postgres - bundles its own libpq, no system package needed
+pymysql>=1.1.0              # mysql - pure Python, no system package needed
+influxdb>=5.3.0             # influx - 1.x DataFrameClient (InfluxQL), not the 2.x client
+redis>=5.0.0                # redis connector (scarlets already ships redis-py >= this)
+requests>=2.28.0            # shared by every connector's query()
+pyodbc>=5.1.0               # mssql - also needs unixodbc + msodbcsql18 at the OS
+                            # level, see Dockerfile's apt-get block
+requests-kerberos>=0.15.0   # pi's gssapi/Kerberos auth path (PIServer.py imports
+                            # HTTPKerberosAuth unconditionally) - also needs
+                            # libkrb5-dev at the OS level, see the same apt-get block
+
+# requests-kerberos's own transitive dependency (via pyspnego), pinned
+# explicitly - verified directly (this session) that cryptography>=47.0.0
+# crashes on import with "Fatal Python error: Illegal instruction" on
+# this Debian 13/ARM64 combination (its Rust backend hitting a CPU
+# instruction this environment doesn't support); binary-searched the
+# exact boundary - 46.0.7 is the newest version confirmed still working.
+# Never declared directly anywhere else in this file - would otherwise
+# resolve to whatever's newest at build time.
+cryptography<47.0.0
+
+# pi connector's real `pitalk` package is installed from a vendored wheel
+# (setup_pitalk.py, monorepo root), not listed here - see Dockerfile's
+# own comment on why (github.com/blockalytics/PITalk is a private repo).
