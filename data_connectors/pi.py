@@ -30,11 +30,17 @@ be needed.
 
 PITalk's own setup.py pins pandas==1.3.2/pyYAML==5.4.1/etc. - versions
 with no installable wheel for a modern Python (confirmed this session).
-This connector installs the real `pitalk` package itself with --no-deps
-(mirroring PITalk's own Dockerfile, which already does exactly this) and
-lets broker/requirements.txt supply modern, compatible versions instead -
-verified (this session) that PIAttribute/PIServer/PITalk import and run
-unchanged against pandas 3.x/pyyaml 6.x/requests-kerberos 0.15.x.
+github.com/blockalytics/PITalk is also a private repo (confirmed this
+session: a clean clone with no cached GitHub credentials fails outright),
+so rather than `pip install`ing it (from git, or from PyPI - it's on
+neither), its source is vendored directly at data_connectors/pitalk/ -
+a byte-for-byte copy of the real package, built into this same
+data_connectors wheel by setup_connectors.py rather than as its own
+separate package/wheel. broker/requirements.txt (and
+harness/requirements-image.txt) supply modern, compatible versions of
+its actual runtime deps instead of its own stale pins - verified (this
+session) that PIAttribute/PIServer/PITalk import and run unchanged
+against pandas 3.x/pyyaml 6.x/requests-kerberos 0.15.x.
 """
 import os
 
@@ -113,7 +119,7 @@ class PiConnector(Connector):
         # broker's own construction, unchanged) just uses whatever
         # PITALK_CONFIG_FILE is already set process-wide, exactly as
         # before.
-        from pitalk.PITalk import PITalk
+        from data_connectors.pitalk.PITalk import PITalk
 
         pitalk_config_file = (config or {}).get("pitalk_config_file")
         if pitalk_config_file:
