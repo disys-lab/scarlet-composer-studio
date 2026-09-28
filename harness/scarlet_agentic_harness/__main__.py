@@ -55,7 +55,19 @@ def main() -> None:
         # hasn't ticked yet. Per-source failures are already caught inside
         # build_tag_cache() itself - one bad source never blocks this.
         tag_cache: dict[str, list] = local_config.build_tag_cache()
-        buses.report_status(capabilities=list(skills.keys()))
+        # activity_mapper rides along in the status record so a reader
+        # never has to know (or be told) this name out of band: it gathers
+        # agents from the one bus it already has, and each agent's record
+        # says where its activity lives. That keeps working when a fleet
+        # is split across Gustavo apps and the names differ per app - see
+        # config.activity_mapper's own comment. Must be passed at BOTH
+        # report_status call sites (here and in the refresh loop below):
+        # report_status builds the record from scratch each call, so a
+        # re-report without it would silently overwrite the field away.
+        buses.report_status(
+            capabilities=list(skills.keys()),
+            extra={"activity_mapper": config.activity_mapper},
+        )
 
         # report_status() above (and the tag cache build before it) only
         # ever run once, at startup - data_sources/tags would otherwise
@@ -79,7 +91,14 @@ def main() -> None:
                 time.sleep(config.data_source_refresh_interval)
                 try:
                     tag_cache = local_config.build_tag_cache()
-                    buses.report_status(capabilities=list(skills.keys()))
+                    # extra= must match the startup call above - see its
+                    # comment: report_status rebuilds the record each
+                    # time, so omitting it here would drop activity_mapper
+                    # from the record on the first refresh.
+                    buses.report_status(
+                        capabilities=list(skills.keys()),
+                        extra={"activity_mapper": config.activity_mapper},
+                    )
                 except Exception as exc:
                     RedisLogger.warning(f"[{config.agent_id}] data source refresh cycle failed: {exc}")
 
@@ -94,7 +113,8 @@ def main() -> None:
         # grounding data to draw on: the registry's own in-flight
         # request_ids, not a placeholder.
         registry = CancellationRegistry(
-            activity_mapper=observability.activity_mapper(config.app_id), agent_id=config.agent_id,
+            activity_mapper=observability.activity_mapper(config.activity_mapper),
+            agent_id=config.agent_id,
         )
         # One LLMClient, reused for both agent_message conversations
         # (dialogue) and ctx.mint_scarlet() (see worker.start_dispatch) -

@@ -22,23 +22,39 @@ specific request still alive", which is what CancellationRegistry answers.
 from scarlets.core.Mapper import Mapper
 
 
-def activity_mapper(app_id: str) -> Mapper:
+def activity_mapper(name: str) -> Mapper:
     """
     Build the shared `Mapper` every agent in a campaign publishes activity to.
 
-    Scoped consistently by `app_id` so every agent in the same campaign
-    publishes to (and reads from) the same place.
+    Takes the already-resolved name (`HarnessConfig.activity_mapper`)
+    rather than deriving it from `app_id` here. Deriving it made a
+    campaign's scope a function of `app_id`, which is not always the
+    deployer's to choose: Gustavo overwrites ``APP_ID`` with the app's own
+    name (see ``gustavo/api/routers/apps.py``), so a fleet split across
+    several Gustavo apps got one mapper per app rather than one per
+    campaign, with no way to override it. `HarnessConfig` still falls back
+    to ``f"{app_id}_activity"`` when ``ACTIVITY_MAPPER`` is unset, so this
+    resolves to the same name as before for any deployment that doesn't
+    set one.
+
+    Note that fragmenting this way loses nothing by itself - each agent
+    advertises its own mapper name in its status record (see
+    ``__main__.py``'s ``report_status`` calls), so a reader that gathers
+    the union of those names still sees the whole fleet. It matters
+    because `snapshot` below takes a single `Mapper`: anything written
+    against that signature sees only the agents sharing one name.
 
     Parameters
     ----------
-    app_id : str
+    name : str
+        The mapper's scarlet name, already resolved.
 
     Returns
     -------
     Mapper
     """
     return Mapper(
-        f"{app_id}_activity",
+        name,
         description="Live per-agent in-flight request snapshot - see observability.py.",
     )
 

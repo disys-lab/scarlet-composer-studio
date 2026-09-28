@@ -2,7 +2,19 @@
 Two-channel Messenger setup, per scarlet-composer-studio's own documented
 pattern (docs/concepts/two-channel.md): every agent opens exactly two
 Messenger buses - a global bus (head <-> all agents in the campaign) and a
-local bus (peer-to-peer within one device group, no head involved).
+local bus (peer-to-peer within one device group).
+
+"No head involved", as the local bus is often described, is true of its
+*traffic* but not of its *membership* - a distinction worth being exact
+about, since the registry reflects membership. Every agent constructs both
+buses below regardless of role, so a head is a registered, heartbeating
+member of the local bus and does appear in a GatherStatus() of it. It
+simply never sends or receives there: head.py references neither
+local_bus nor local_router anywhere, and the only head write to that bus
+is its own report_status(). Anything reading the local bus's registry
+should therefore filter by role rather than assume every member is a
+worker - gather_workers() below already does, and surveys the global bus
+regardless.
 
 This module only wires the two Messenger instances together with a shared
 capability-reporting call - it deliberately does not add a third bus or
@@ -110,7 +122,9 @@ class Buses:
     local_bus : scarlets.messaging.Messenger
         Device-group-local peer bus: contributor<->coordinator
         handshakes for a skill invocation, without routing through the
-        head.
+        head. Constructed for every role, so a head is a registered
+        member here too - it just never sends or receives on it (see this
+        module's own docstring).
     global_router : MessageRouter
     local_router : MessageRouter
     """

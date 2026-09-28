@@ -7,36 +7,59 @@
 #   gustavo apps create -f gustavo-app.yaml -n <app-name> -d <device-group>
 #
 # One top-level key per app - Gustavo treats each as its own deployable
-# unit, so you can place the workers on different device groups than the
-# head if you want the data to stay where it is.
+# unit, so the workers can sit on different device groups than the head.
 #
-# ─── What changes versus the compose path ──────────────────────────────────
+# ─── Why every name here is spelled out ─────────────────────────────────────
 #
-# GUSTAVO_MANAGED_AGENTS=true on the jupyter app is the whole difference.
-# Notebook 06 reads it and skips both its launch step and its teardown
-# step, waiting for the agents on the bus instead of starting them. Nothing
-# else in the notebook changes - the identity variables below are the same
-# ones the compose file interpolates, so the notebook finds the fleet the
-# same way either way.
+# Gustavo OVERWRITES APP_ID with the app's own name, unconditionally:
 #
-# Redis is NOT declared here: Gustavo already runs it as a platform service,
-# and every app below picks it up from the platform config. That is also
-# why there is no REDIS_AUTH_TOKEN in this file - Gustavo injects it.
+#     env_vars = dict(config.get("env_vars") or {})
+#     env_vars["APP_ID"] = req.name          # gustavo/api/routers/apps.py
+#
+# It is the only key Gustavo touches - everything else here passes through
+# untouched. So APP_ID is not yours to set, and anything the harness
+# *derives* from it differs per app:
+#
+#     device_group    = DEVICE_GROUP    or f"{app_id}_subagent"
+#     head_bus        = HEAD_BUS        or f"{app_id}_headagent"
+#     activity_mapper = ACTIVITY_MAPPER or f"{app_id}_activity"
+#
+# Left to the defaults, a head app and a worker app land on *different*
+# buses and never see each other - the head broadcasts into one namespace
+# while the worker listens on another, with no error anywhere to say so.
+# Setting HEAD_BUS and DEVICE_GROUP to the same values on every app below
+# is what makes them one fleet. Do not omit them.
+#
+# NODE_ADDRESS is also set explicitly. Left unset it is resolved from
+# Nebula at boot (config.py's _resolve_node_address), so agent ids would
+# be whatever the overlay assigns - unpredictable, and impossible to list
+# in EXPECTED_AGENT_IDS below.
+#
+# Redis is not declared here: Gustavo runs it as a platform service and
+# injects the connection settings, which is also why no REDIS_AUTH_TOKEN
+# appears in this file.
 
 # ─── JupyterLab ─────────────────────────────────────────────────────────────
 scarlet-notebooks:
     docker_image: "ghcr.io/disys-lab/scarlet-notebooks:latest"
     env_vars:
-        # The flag that tells notebook 06 it does not own the fleet.
+        # Tells notebook 06 that Gustavo owns the fleet's lifecycle: it
+        # waits for the agents to appear on the bus rather than starting
+        # them, and its teardown cell leaves them alone.
         GUSTAVO_MANAGED_AGENTS: "true"
-        # Must match the agent apps below - together these are the agent ids
-        # ("{APP_ID}_{NODE_ADDRESS}") the notebook waits for on the bus.
-        APP_ID: "tutorial_stats"
-        HEAD_NODE_ADDRESS: "head"
-        WORKER_NODE_ADDRESSES: "worker1,worker2"
-        # Where the head's MCP server is reachable. Under compose this is a
-        # service name; here it is however your deployment resolves the head
-        # container - a Nebula network address or a DNS name.
+
+        # The agent ids to wait for, verbatim. These cannot be composed
+        # from a single APP_ID here the way they can under compose,
+        # because each app below has its own Gustavo-assigned APP_ID.
+        # Each entry is "{that app's name}_{its NODE_ADDRESS}".
+        EXPECTED_AGENT_IDS: "scarlet-agent-head_head,scarlet-agent-worker1_worker1,scarlet-agent-worker2_worker2"
+
+        # Must match the agent apps below.
+        HEAD_BUS: "scarlet-agent-tutorial_headagent"
+
+        # Where the head's MCP server is reachable - a service name under
+        # compose, here whatever resolves to the head container on your
+        # Nebula network.
         HEAD_HOST: "scarlet-agent-head"
         HEAD_MCP_PORT: "8090"
     networks:
@@ -52,9 +75,9 @@ scarlet-notebooks:
     devices: []
 
 # ─── Agent head ─────────────────────────────────────────────────────────────
-# Runs mcp_server.py explicitly: scarlet-agents' default CMD (supervisord ->
-# __main__.py) never exposes MCP, and __main__.py's ROLE=head branch is an
-# interactive stdin REPL that would crash-loop detached. See
+# Runs mcp_server.py explicitly: scarlet-agents' default CMD (supervisord
+# -> __main__.py) never exposes MCP, and __main__.py's ROLE=head branch is
+# an interactive stdin REPL that would crash-loop detached. See
 # harness/Dockerfile's own comment on both.
 scarlet-agent-head:
     docker_image: "ghcr.io/disys-lab/scarlet-agents:latest"
@@ -63,16 +86,22 @@ scarlet-agent-head:
         - "-m"
         - "scarlet_agentic_harness.mcp_server"
     env_vars:
-        APP_ID: "tutorial_stats"
         ROLE: "head"
         NODE_ADDRESS: "head"
+        HEAD_BUS: "scarlet-agent-tutorial_headagent"
+        DEVICE_GROUP: "scarlet-agent-tutorial_subagent"
         MCP_TRANSPORT: "streamable-http"
         MCP_HOST: "0.0.0.0"
         MCP_PORT: "8090"
-        # The head is the only container that ever sees the LLM credential.
+        # The head is the only container that ever sees the LLM
+        # credential; workers never need one to run sum/median.
         LLM_BASE_URL: "https://your-llm-endpoint/v1"
         LLM_API_KEY: "replace-me"
         LLM_MODEL: "your-model-name"
+        # No ACTIVITY_MAPPER: the head publishes no activity at all (it
+        # builds no CancellationRegistry - see mcp_server.py), so it has
+        # nothing to advertise and the field is correctly absent from its
+        # status record.
     networks:
         - "nebula"
     volumes: []
@@ -86,19 +115,24 @@ scarlet-agent-head:
     devices: []
 
 # ─── Workers ────────────────────────────────────────────────────────────────
-# Default command unchanged (ROLE=worker is already the image default).
+# Default command unchanged - ROLE=worker is already the image default.
 #
-# CSV_PATH points at each worker's own data. Unlike the compose path - where
-# notebook 06 generates both CSVs into a shared volume - here the data is
-# whatever already exists on the edge node, which is rather the point of
-# deploying through Gustavo: the data does not move, the agent goes to it.
-# Mount the real path on each node through `volumes` below.
+# CSV_PATH points at data that already exists on the node. Unlike the
+# compose path, where notebook 06 generates both CSVs into a shared
+# volume, here the data does not move - which is rather the point of
+# deploying through Gustavo: the agent goes to the data.
+#
+# ACTIVITY_MAPPER is identical on both workers so their in-flight activity
+# lands in one Mapper. Omit it and each worker derives its own from its
+# own app name, fragmenting the fleet's activity into one Mapper per app.
 scarlet-agent-worker1:
     docker_image: "ghcr.io/disys-lab/scarlet-agents:latest"
     env_vars:
-        APP_ID: "tutorial_stats"
         ROLE: "worker"
         NODE_ADDRESS: "worker1"
+        HEAD_BUS: "scarlet-agent-tutorial_headagent"
+        DEVICE_GROUP: "scarlet-agent-tutorial_subagent"
+        ACTIVITY_MAPPER: "scarlet-agent-tutorial_activity"
         CSV_PATH: "/data/readings.csv"
     networks:
         - "nebula"
@@ -114,9 +148,11 @@ scarlet-agent-worker1:
 scarlet-agent-worker2:
     docker_image: "ghcr.io/disys-lab/scarlet-agents:latest"
     env_vars:
-        APP_ID: "tutorial_stats"
         ROLE: "worker"
         NODE_ADDRESS: "worker2"
+        HEAD_BUS: "scarlet-agent-tutorial_headagent"
+        DEVICE_GROUP: "scarlet-agent-tutorial_subagent"
+        ACTIVITY_MAPPER: "scarlet-agent-tutorial_activity"
         CSV_PATH: "/data/readings.csv"
     networks:
         - "nebula"

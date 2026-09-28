@@ -144,6 +144,12 @@ class HarnessConfig:
         Local/intra-group Messenger bus name.
     head_bus : str
         Global/coordination Messenger bus name.
+    activity_mapper : str
+        Name of the shared `Mapper` this agent publishes in-flight
+        activity to (`observability.activity_mapper`). Defaults to
+        ``f"{app_id}_activity"`` when not given; set it explicitly
+        (``ACTIVITY_MAPPER``) wherever `app_id` differs across a fleet
+        that should share one.
     llm_base_url : str or None
         OpenAI-compatible chat completions endpoint (vLLM, LiteLLM,
         etc.). `None` means no LLM backend configured - the harness must
@@ -231,6 +237,35 @@ class HarnessConfig:
     # reflected on the Agents page until the process restarts.
     data_source_refresh_interval: float = 300.0
 
+    # The shared Mapper every agent publishes in-flight activity to (see
+    # observability.py). Same override-or-derive shape as device_group and
+    # head_bus above; the only difference is that those two are required
+    # fields resolved in from_env(), while this one is defaulted and
+    # resolved in __post_init__ instead, so the existing direct
+    # HarnessConfig(...) constructions across the test suite keep working
+    # without having to pass it.
+    #
+    # Setting this explicitly matters wherever app_id is not under your
+    # control. Gustavo overwrites APP_ID with the app's own name (see
+    # gustavo/api/routers/apps.py), so a fleet whose agents are separate
+    # Gustavo apps derives a different mapper name per app and fragments
+    # into one mapper each. That alone loses nothing - every agent
+    # advertises its own mapper name in its status record (see
+    # __main__.py's report_status calls), so a reader gathering the union
+    # still sees the whole fleet - but observability.snapshot() takes a
+    # single Mapper, so anything written against that signature would see
+    # only the agents sharing one name.
+    activity_mapper: str | None = None
+
+    def __post_init__(self):
+        # object.__setattr__ because this dataclass is frozen - the
+        # standard idiom for a derived default. Done here rather than in
+        # from_env() so a directly-constructed HarnessConfig (every test)
+        # resolves the same way a real deployment does, keeping the
+        # derive-from-app_id rule in exactly one place.
+        if not self.activity_mapper:
+            object.__setattr__(self, "activity_mapper", f"{self.app_id}_activity")
+
     @property
     def agent_id(self) -> str:
         """
@@ -284,6 +319,11 @@ class HarnessConfig:
         # var should still win over that.
         device_group = _env("DEVICE_GROUP") or f"{app_id}_subagent"
         head_bus = _env("HEAD_BUS") or f"{app_id}_headagent"
+        # Passed through as None when unset so the derive-from-app_id
+        # fallback stays in __post_init__ alone rather than being spelled
+        # out a second time here (unlike device_group/head_bus above,
+        # which are required fields and so must resolve at this point).
+        activity_mapper = _env("ACTIVITY_MAPPER") or None
 
         return HarnessConfig(
             role=role,
@@ -291,6 +331,7 @@ class HarnessConfig:
             node_address=node_address,
             device_group=device_group,
             head_bus=head_bus,
+            activity_mapper=activity_mapper,
             llm_base_url=_env("LLM_BASE_URL"),
             llm_api_key=_env("LLM_API_KEY"),
             llm_model=_env("LLM_MODEL"),
