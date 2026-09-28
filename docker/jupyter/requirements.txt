@@ -1,0 +1,50 @@
+# docker/jupyter/requirements.txt — every pip package the scarlet-notebooks
+# IMAGE needs beyond what scarlet-agent-base already provides.
+#
+# Pinned to exact versions rather than floors: this image is a teaching
+# environment, and a tutorial that worked last month should still work
+# today. A floor (>=) lets a future release of any of these silently
+# change notebook behaviour or break an API the notebooks call; an exact
+# pin makes that a deliberate, reviewed bump instead.
+#
+# Deliberately NOT listed here (already in scarlet-agent-base, and
+# re-resolving them from PyPI would clobber the exact wheels that image
+# pinned): scarlets and its own runtime deps - redis, numpy, requests.
+
+# JupyterLab itself - the environment every notebook runs in.
+jupyterlab==4.6.4
+
+# Notebooks 04/05 (timeseries, federated linear regression) - plotting and
+# DataFrame work done in the kernel, not by any agent.
+pandas==3.0.6
+matplotlib==3.11.2
+
+# Notebook 06 only. The kernel acts as an MCP *client*, calling the agent
+# head's streamable-http MCP server to dispatch skills. This is the sole
+# dependency notebook 06 needs that the other five don't - and the only
+# reason that notebook ever extended scarlet-agents instead of
+# scarlet-agent-base. It's a plain pip package, so it belongs here, and
+# one image now serves all six notebooks.
+#
+# Note there is no `docker` SDK pin here on purpose: notebook 06 drives
+# `docker compose` through the CLI (installed via apt in the Dockerfile,
+# see its own comment), not through the Python SDK. Nothing in this image
+# imports `docker`.
+mcp==2.2.0
+
+# mcp's own transitive dependency, by way of pyjwt - pinned because newer
+# releases crash this image outright.
+#
+# Verified directly (this session) on the ARM64/Debian 13 base: with
+# cryptography 50.0.1 (what pip resolves unpinned), `import mcp` dies with
+# "Illegal instruction" - its Rust backend hits a CPU instruction this
+# environment doesn't support. Note `import cryptography` alone appears to
+# succeed, because the top-level package is lazy; the crash is in
+# cryptography.hazmat.bindings._rust, which pyjwt loads and mcp then pulls
+# in. That makes this fail at notebook-run time rather than build time, so
+# a passing `docker build` proves nothing here.
+#
+# Same root cause, same boundary, and same fix as
+# harness/requirements-image.txt's own cryptography pin - 46.0.7 is the
+# newest release confirmed working on this platform.
+cryptography==46.0.7
