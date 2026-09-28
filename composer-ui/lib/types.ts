@@ -22,6 +22,21 @@ export interface AgentDataSource {
   description: string;
 }
 
+// One in-flight request on an agent, as published to its activity Mapper
+// (see the harness's cancellation.py). progress_snapshot() merges extra
+// per-skill fields in, so this is deliberately open-ended beyond the two
+// that are always present.
+export interface AgentInFlight {
+  skill: string;
+  elapsed_seconds: number;
+  [key: string]: unknown;
+}
+
+export interface AgentActivity {
+  in_flight: Record<string, AgentInFlight>;
+  count: number;
+}
+
 export interface Agent {
   agent_id: string;
   instance_id: string | null;
@@ -30,12 +45,21 @@ export interface Agent {
   health: "online" | "stale" | "unknown";
   capabilities: string[];
   data_sources: AgentDataSource[];
+  // null on an agent that publishes no activity at all - a head, or an
+  // agent on an image predating activity_mapper reporting. An agent that
+  // publishes but is idle has count 0 and an empty in_flight, which is a
+  // different thing and renders differently.
+  activity: AgentActivity | null;
   raw: Record<string, unknown>;
 }
 
 export interface AgentsResponse {
   bus: string;
   agents: Agent[];
+  // True when no scarlet_definition_ entry exists for this bus, i.e.
+  // nobody has ever created it - distinct from a real bus that currently
+  // has no agents on it. Lets the UI say which of the two it is.
+  unknown_bus: boolean;
 }
 
 export interface AuthStatus {
