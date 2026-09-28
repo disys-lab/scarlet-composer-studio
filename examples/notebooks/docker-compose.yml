@@ -1,36 +1,254 @@
-version: '3.9'
-
 # Scarlet Composer Studio — notebook tutorials
 #
-# Starts one service: a JupyterLab environment preloaded with runnable
-# tutorials for the scarlets SDK (Messenger, Mapper, Federator, data
-# sources), against an external Redis instance.
+# The single compose file for all six notebooks. Every service runs a
+# published ghcr.io image - nothing is built locally, so this file works
+# on its own with no repo checkout beyond itself and .env.
 #
-# Unlike examples/quickstart's scarlet-composer service, docker/notebooks/
-# Dockerfile extends the already-published ghcr.io/disys-lab/scarlet-agent-base
-# image directly - no local wheel build needed first.
+# ─── Two groups of services ────────────────────────────────────────────────
 #
-# Usage:
-#   cp .env.example .env          # fill in REDIS_HOST, REDIS_AUTH_TOKEN
-#   docker compose up --build -d
+#   default    redis, scarlet-composer, jupyter   - the tutorial environment
+#   "agents"   agent-head, agent-worker1/2        - notebook 06's fleet
 #
-# Then open http://localhost:8888 for JupyterLab - the six tutorial
-# notebooks are in the file browser's root.
+# The agent services carry `profiles: ["agents"]`, so plain `docker compose
+# up` skips them entirely. Notebook 06 brings them in on demand by running
+# `docker compose --profile agents up -d` against this same file, which it
+# can see because the jupyter service bind-mounts it in at /workspace (see
+# that service's volumes below).
+#
+# ─── Usage ─────────────────────────────────────────────────────────────────
+#
+#   cp .env.example .env     # fill in REDIS_AUTH_TOKEN and the LLM_* values
+#   docker compose up -d
+#
+# Then http://localhost:8888 for JupyterLab and http://localhost:8501 for
+# the Composer UI, where you can watch agents register in real time as
+# notebook 06 brings its fleet up.
+#
+# Notebooks 01-05 need nothing beyond the default services. Only notebook
+# 06 uses the agents profile, and only it needs the LLM_* values - so you
+# can leave those blank if you're not running it.
+#
+# ─── Deploying through Gustavo instead ─────────────────────────────────────
+#
+# This file is the *local* path. To run the same tutorial on real edge
+# nodes, deploy gustavo-app.yaml (next to this file) instead - it declares
+# the same six containers and sets GUSTAVO_MANAGED_AGENTS=true, which tells
+# notebook 06 that Gustavo owns the fleet's lifecycle and the notebook
+# should wait for agents rather than launch them. See README.md.
+
+# Pinned so that the `docker compose --profile agents up` notebook 06 runs
+# from inside the jupyter container joins THIS project - same network, same
+# running redis - instead of starting a second, isolated stack. Compose
+# derives the project name from the directory name by default, and that
+# directory is /workspace inside the container but examples/notebooks on
+# the host; without this they would not agree.
+name: scarlet-notebooks
+
+# ─── A note on the repetition below ─────────────────────────────────────────
+# The three agent services share most of their configuration and would be
+# an obvious candidate for a YAML anchor (x-agent-common: &agent_common,
+# then <<: *agent_common on each). Verified directly (this session) that
+# this does NOT work here: the Compose build shipped inside the jupyter
+# image fails to resolve anchors declared under a top-level x- field,
+# rejecting the file with "unknown anchor 'agen' referenced" - while the
+# Compose on the host parses the very same file fine.
+#
+# Since notebook 06 runs `docker compose` from INSIDE that container, the
+# stricter parser is the binding constraint, so these services are written
+# out in full instead. The duplication is deliberate: a file that only
+# works depending on which Compose reads it is worse than a repetitive one.
+#
+# LLM_* are interpolated from the environment of whatever runs compose -
+# the jupyter container when notebook 06 brings the fleet up, which got
+# them from the host's .env in turn. One chain, so the values the notebook
+# was configured with are the ones the agents get.
 
 services:
 
-  # ─── Scarlet SDK tutorials ──────────────────────────────────────────────────
-  # Built locally from this repo's own docker/jupyter/Dockerfile (build
-  # context is the repo root, two levels up) - see deployment/docker.md for
-  # the CI-published image, once a release has been tagged.
-  scarlet-notebooks:
-    build:
-      context: ../..
-      dockerfile: docker/jupyter/Dockerfile
-    container_name: scarlet-notebooks
+  # ─── Redis ─────────────────────────────────────────────────────────────────
+  # The Scarlets messaging backbone, self-hosted here so the tutorial needs
+  # nothing external. Host port is offset from the default 6379 on purpose,
+  # so this doesn't collide with a real Redis already running locally -
+  # inside the compose network everything still talks to it on 6379.
+  redis:
+    image: redis:7.4-alpine
+    container_name: scarlet-notebooks-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_AUTH_TOKEN}"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_AUTH_TOKEN}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── Composer UI ───────────────────────────────────────────────────────────
+  # AUTH_ENABLED=false - a local tutorial stack, not a multi-user
+  # deployment. Watch the Agents tab here while notebook 06 brings its
+  # fleet up; agents appear as they register on the bus.
+  scarlet-composer:
+    image: ghcr.io/disys-lab/scarlet-composer:${COMPOSER_VERSION:-latest}
+    container_name: scarlet-notebooks-composer
+    restart: unless-stopped
+    ports:
+      - "8501:3000"
+    environment:
+      AUTH_ENABLED: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ─── JupyterLab ────────────────────────────────────────────────────────────
+  # All six tutorial notebooks are baked into the image at /notebooks.
+  #
+  # The two mounts exist solely so notebook 06 can bring the agents profile
+  # up from inside this container:
+  #   - the Docker socket, so the CLI here drives the host's daemon
+  #   - this compose file itself, so there is something to point -f at
+  # Notebooks 01-05 use neither.
+  jupyter:
+    image: ghcr.io/disys-lab/scarlet-notebooks:${NOTEBOOKS_VERSION:-latest}
+    container_name: scarlet-notebooks-jupyter
     restart: unless-stopped
     ports:
       - "8888:8888"
-    env_file: .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # Deliberately NOT `env_file: .env`, even though that would be the
+    # obvious way to get the LLM_* values in. Compose resolves env_file
+    # relative to the compose file's own directory, and notebook 06 runs
+    # `docker compose -f /workspace/docker-compose.yml` from INSIDE this
+    # container, where that path is /workspace/.env - not mounted, so
+    # every agent bring-up would die with "env file not found".
+    #
+    # Explicit ${...} interpolation works in both directions instead: on
+    # the host Compose fills these from the implicit ./.env, and from
+    # inside this container they come from this process's own environment
+    # (which is where Compose inherits them). Same values either way, and
+    # nothing extra to mount.
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      # Notebook 06's parameter cell reads these, and so does the compose
+      # invocation it makes - the same values name the agents on the bus
+      # and configure the containers, so the liveness check and the
+      # launched fleet agree by construction rather than by convention.
+      APP_ID: ${APP_ID:-tutorial_stats}
+      HEAD_NODE_ADDRESS: ${HEAD_NODE_ADDRESS:-head}
+      WORKER_NODE_ADDRESSES: ${WORKER_NODE_ADDRESSES:-worker1,worker2}
+      # false here: this compose file is the local path, so the notebook
+      # owns the fleet's lifecycle. gustavo-app.yaml sets this true.
+      GUSTAVO_MANAGED_AGENTS: "false"
+      COMPOSE_FILE_PATH: /workspace/docker-compose.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # This whole directory, not just docker-compose.yml on its own.
+      # Bind-mounting a single FILE pins its inode, and any editor that
+      # writes by replace-and-rename (most of them) then leaves the
+      # container looking at a stale or truncated copy - verified directly
+      # (this session): after an edit, Compose inside the container read a
+      # file that ended mid-line and rejected it with a baffling
+      # "invalid interpolation format" pointing at a variable that is
+      # perfectly well-formed on disk. Mounting the directory tracks edits
+      # correctly, and brings .env along for anything that wants it.
+      - ./:/workspace:ro
+      # Read-write here (the workers mount it read-only): notebook 06
+      # generates each worker's private CSV into this volume before
+      # bringing the agents profile up.
+      - csv-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ─── Notebook 06's agent fleet (profile: agents) ───────────────────────────
+  # Not started by `docker compose up`. Notebook 06 brings these in with
+  # `docker compose --profile agents up -d`.
+
+  # The head runs mcp_server.py explicitly: scarlet-agents' own default CMD
+  # (supervisord -> __main__.py) never exposes MCP at all, and __main__.py's
+  # ROLE=head branch is an interactive stdin REPL that would crash-loop in a
+  # detached container - see harness/Dockerfile's own comment on both.
+  agent-head:
+    image: ghcr.io/disys-lab/scarlet-agents:${AGENTS_VERSION:-latest}
+    container_name: scarlet-notebooks-agent-head
+    restart: unless-stopped
+    profiles: ["agents"]
+    command: ["python", "-m", "scarlet_agentic_harness.mcp_server"]
+    environment:
+      APP_ID: ${APP_ID:-tutorial_stats}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      ROLE: head
+      NODE_ADDRESS: ${HEAD_NODE_ADDRESS:-head}
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8090"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Workers use the image's default command unchanged - ROLE=worker is
+  # already the default. CSV_PATH points at the file notebook 06 generates
+  # into the shared csv-data volume before bringing this profile up.
+  agent-worker1:
+    image: ghcr.io/disys-lab/scarlet-agents:${AGENTS_VERSION:-latest}
+    container_name: scarlet-notebooks-agent-worker1
+    restart: unless-stopped
+    profiles: ["agents"]
+    environment:
+      APP_ID: ${APP_ID:-tutorial_stats}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      ROLE: worker
+      NODE_ADDRESS: ${WORKER1_NODE_ADDRESS:-worker1}
+      CSV_PATH: /data/worker1.csv
+    volumes:
+      - csv-data:/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  agent-worker2:
+    image: ghcr.io/disys-lab/scarlet-agents:${AGENTS_VERSION:-latest}
+    container_name: scarlet-notebooks-agent-worker2
+    restart: unless-stopped
+    profiles: ["agents"]
+    environment:
+      APP_ID: ${APP_ID:-tutorial_stats}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      ROLE: worker
+      NODE_ADDRESS: ${WORKER2_NODE_ADDRESS:-worker2}
+      CSV_PATH: /data/worker2.csv
+    volumes:
+      - csv-data:/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+# Each worker's private CSV lives here. Notebook 06 generates both files
+# into this volume at runtime (it's mounted read-write on jupyter, read-only
+# on the workers) rather than shipping them as repo files or baking them
+# into an image - the tutorial's data is a property of the tutorial, not of
+# any container, and generating it keeps the published images free of
+# example payloads.
+volumes:
+  csv-data:
