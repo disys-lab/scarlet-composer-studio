@@ -8,9 +8,10 @@ subprocesses (see helpers.py's spawn_worker) - a monkeypatch in the test
 process's own memory would never see a subprocess worker's in-process
 Send() calls at all. Redis is the one place every Send(), from every
 process, actually lands (scarlets.messaging.Messenger writes each message
-as its own key: "<scarletName>:msg:<targetAgentId>:<seq>"), so scanning it
-after a run is a complete, process-agnostic record - no code under test
-needs to know it's being observed.
+as a field in the recipient's inbox hash, "<scarletName>:msg:<targetAgentId>",
+keyed by sequence number), so scanning it after a run is a complete,
+process-agnostic record - no code under test needs to know it's being
+observed.
 """
 import json
 from pathlib import Path
@@ -33,21 +34,20 @@ def capture_transcript(bus_names: dict[str, str]) -> list[dict]:
     entries: list[dict] = []
     for label, scarlet_name in bus_names.items():
         prefix = f"{scarlet_name}:msg:"
+        # One hash per recipient ("<scarletName>:msg:<agentId>"), whose
+        # fields are sequence numbers plus the two reserved cursor fields -
+        # so this is one HGETALL per agent rather than a GET per message.
         for key in r.scan_iter(match=f"{prefix}*"):
-            remainder = key[len(prefix):]
-            parts = remainder.split(":")
-            if len(parts) != 2 or parts[0] in ("tail", "head"):
-                continue  # cursor key (.../msg/tail/<agentId> or .../msg/head/<agentId>), not a message
-            raw = r.get(key)
-            if raw is None:
-                continue
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            payload["_bus"] = label
-            payload["_redis_key"] = key
-            entries.append(payload)
+            for field, raw in (r.hgetall(key) or {}).items():
+                if field in ("__head__", "__tail__"):
+                    continue  # cursor, not a message
+                try:
+                    payload = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                payload["_bus"] = label
+                payload["_redis_key"] = f"{key}[{field}]"
+                entries.append(payload)
     entries.sort(key=lambda m: (m.get("ts", 0), m.get("seq", 0)))
     return entries
 
