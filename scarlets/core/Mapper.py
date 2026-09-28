@@ -1,6 +1,6 @@
 from scarlets.types.RedisScarlet import RedisScarlet
 from scarlets.utils.RedisLogger import RedisLogger as logging
-from scarlets.utils.ScarletUtils import register_scarlet_definition
+from scarlets.utils.ScarletUtils import register_scarlet_definition, touch_scarlet_definition
 import time
 
 
@@ -31,6 +31,10 @@ class Mapper(RedisScarlet):
 
     def __init__(self, scarletName, description=""):
         self.super = RedisScarlet(scarletName)
+        # Kept for _touchDefinition()'s recreate path - a definition that
+        # has already expired has to be rebuilt from scratch, and its
+        # description would otherwise be lost on the first rebuild.
+        self._description = description
         register_scarlet_definition(
             scarlet_name=scarletName,
             scarlet_type="mapper",
@@ -42,6 +46,42 @@ class Mapper(RedisScarlet):
     def refresh(self):
         """Reload the Redis contract for the next operation."""
         self.super.loadContract()
+
+    def _touchDefinition(self):
+        """
+        Renew this scarlet's definition TTL. Called from the write paths only.
+
+        The definition is registered with `scarletDataExpiry` in
+        `__init__`, the same TTL the data chunks carry
+        (`RedisContract.Push`). The difference was that a chunk's TTL is
+        reset every time it is rewritten, while the definition's was set
+        once and never renewed - so the definition expired on a timer
+        from construction regardless of use, and a Mapper written to
+        continuously for longer than `scarletDataExpiry` kept working
+        while disappearing from the Scarlets page, the dashboard count,
+        and any existence check built on that key.
+
+        Renewing here puts both on the same footing: written to, both
+        live; abandoned, both expire together `scarletDataExpiry` after
+        the last write.
+
+        Deliberately not called from `AllGather`/`Reduce` - a read is not
+        use for this purpose, and refreshing on read would let any
+        polling dashboard keep every Mapper it looks at alive forever,
+        which is the opposite of what the TTL is for. Also not called
+        from `clearAll`, which empties the scarlet: extending the
+        lifetime of a definition for something just emptied would be
+        backwards. `refresh()` is not the hook either, despite the name -
+        it reloads the local contract object and is called by the read
+        paths too.
+        """
+        touch_scarlet_definition(
+            scarlet_name=self.super.scarletName,
+            expiry=self.super.scarletDataExpiry,
+            scarlet_type="mapper",
+            description=self._description,
+            attributes={"mode": "redis-scarlet"},
+        )
 
     def _registerNewKey(self, key):
         """
@@ -114,6 +154,9 @@ class Mapper(RedisScarlet):
         except Exception as exception:
             logging.error("{}.Map failed".format(self.super.scarletName))
             return successChunksList, False, exception
+        # After the write succeeded, so a failed Map never extends the
+        # definition's life - see _touchDefinition().
+        self._touchDefinition()
         return successChunksList, True, None
 
     def AllGather(self, modelLocal=None):
@@ -222,6 +265,8 @@ class Mapper(RedisScarlet):
         except Exception as exception:
             logging.error("{}.resetAll failed".format(self.super.scarletName))
             return successChunksList, exception
+        # A write, so it renews the definition the same way Map does.
+        self._touchDefinition()
         return successChunksList, None
 
     def clearAll(self):

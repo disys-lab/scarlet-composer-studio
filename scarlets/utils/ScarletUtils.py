@@ -105,3 +105,66 @@ def register_scarlet_definition(
 
     except Exception as e:
         logging.warning(f"Could not register scarlet definition for '{scarlet_name}': {e}")
+
+
+def touch_scarlet_definition(
+    scarlet_name,
+    expiry,
+    scarlet_type=None,
+    description="",
+    attributes=None,
+):
+    """
+    Extend a scarlet definition's TTL, recreating it if it has already expired.
+
+    For a scarlet whose definition carries a TTL, `register_scarlet_definition`
+    alone sets that TTL once, at construction, and nothing renews it. The
+    definition therefore expires on a fixed timer from *creation* rather
+    than from last *use*, so a scarlet in continuous use loses its
+    definition - and with it its row on the Scarlets page, its place in
+    the dashboard's count, and any existence check - while still working
+    perfectly. Calling this on write instead ties the definition's
+    lifetime to activity: in use, it never expires; abandoned, it expires
+    `expiry` seconds after the last write, which is what the TTL was for.
+
+    The common path is a single `EXPIRE`. `scarlet_type` is only needed
+    for the recreate path, which runs when the key is already gone -
+    after a Redis outage longer than `expiry`, or if something deleted
+    it. Without a `scarlet_type` the recreate is skipped rather than
+    writing a definition with a null type.
+
+    Parameters
+    ----------
+    scarlet_name : str
+    expiry : int or None
+        TTL in seconds to (re)apply. Falsy means the definition is meant
+        to persist indefinitely, so there is nothing to renew and this is
+        a no-op.
+    scarlet_type : str or None, optional
+        ``"mapper"`` or ``"messaging"``. Required only to recreate an
+        already-expired definition.
+    description : str, optional
+        Used only on the recreate path.
+    attributes : dict, optional
+        Used only on the recreate path.
+    """
+    if not expiry:
+        return
+    try:
+        r = redisConnect(decode_responses=True)
+        key = f"scarlet_definition_{scarlet_name}"
+
+        # EXPIRE returns 1 if the key existed (TTL reset), 0 if it did not.
+        if r.expire(key, int(expiry)):
+            return
+
+        if scarlet_type:
+            register_scarlet_definition(
+                scarlet_name=scarlet_name,
+                scarlet_type=scarlet_type,
+                description=description,
+                attributes=attributes,
+                expiry=expiry,
+            )
+    except Exception as e:
+        logging.warning(f"Could not touch scarlet definition for '{scarlet_name}': {e}")
