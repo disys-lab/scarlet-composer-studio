@@ -747,6 +747,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The agent fleet">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gustavo-controls-app_id-name-the-buses-explicitly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gustavo controls APP_ID — name the buses explicitly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1740,6 +1757,44 @@ itself when you run it, then tears them down at the end.</p>
 the fleet's lifecycle: the notebook then waits for the agents on the bus
 rather than launching or removing anything itself. No notebook edits are
 needed to switch between the two modes.</p>
+<h3 id="gustavo-controls-app_id-name-the-buses-explicitly">Gustavo controls <code>APP_ID</code> — name the buses explicitly</h3>
+<p>Gustavo overwrites <code>APP_ID</code> with the app's own name before deploying it,
+unconditionally, discarding whatever you set in <code>env_vars</code>. Anything the
+harness derives from <code>APP_ID</code> therefore differs per app:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Derived default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEVICE_GROUP</code></td>
+<td><code>{APP_ID}_subagent</code></td>
+</tr>
+<tr>
+<td><code>HEAD_BUS</code></td>
+<td><code>{APP_ID}_headagent</code></td>
+</tr>
+<tr>
+<td><code>ACTIVITY_MAPPER</code></td>
+<td><code>{APP_ID}_activity</code></td>
+</tr>
+</tbody>
+</table>
+<p>Deploy a head and a worker as separate Gustavo apps without setting these,
+and they land on <strong>different buses</strong> — the head dispatching into one
+namespace while the worker listens on another, with nothing anywhere
+reporting an error. Set <code>HEAD_BUS</code> and <code>DEVICE_GROUP</code> to the same values on
+every app to make them one fleet, and <code>ACTIVITY_MAPPER</code> likewise so their
+activity lands in one place.</p>
+<p>For the same reason, agent ids come out as <code>{app name}_{NODE_ADDRESS}</code> and
+cannot be composed from a single <code>APP_ID</code> — so notebook 06 takes
+<code>EXPECTED_AGENT_IDS</code> (comma separated, full ids) to list them verbatim.
+Set <code>NODE_ADDRESS</code> explicitly too; left unset it is resolved from Nebula at
+boot, making the ids unpredictable.</p>
+<p><code>examples/notebooks/gustavo-app.yaml</code> spells all of this out.</p>
 <hr />
 <h2 id="the-image">The image</h2>
 <p><code>docker/jupyter/Dockerfile</code> extends <code>scarlet-agent-base</code> directly — the
