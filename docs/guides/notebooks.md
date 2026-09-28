@@ -49,6 +49,33 @@ the fleet's lifecycle: the notebook then waits for the agents on the bus
 rather than launching or removing anything itself. No notebook edits are
 needed to switch between the two modes.
 
+### Gustavo controls `APP_ID` — name the buses explicitly
+
+Gustavo overwrites `APP_ID` with the app's own name before deploying it,
+unconditionally, discarding whatever you set in `env_vars`. Anything the
+harness derives from `APP_ID` therefore differs per app:
+
+| Setting | Derived default |
+|---|---|
+| `DEVICE_GROUP` | `{APP_ID}_subagent` |
+| `HEAD_BUS` | `{APP_ID}_headagent` |
+| `ACTIVITY_MAPPER` | `{APP_ID}_activity` |
+
+Deploy a head and a worker as separate Gustavo apps without setting these,
+and they land on **different buses** — the head dispatching into one
+namespace while the worker listens on another, with nothing anywhere
+reporting an error. Set `HEAD_BUS` and `DEVICE_GROUP` to the same values on
+every app to make them one fleet, and `ACTIVITY_MAPPER` likewise so their
+activity lands in one place.
+
+For the same reason, agent ids come out as `{app name}_{NODE_ADDRESS}` and
+cannot be composed from a single `APP_ID` — so notebook 06 takes
+`EXPECTED_AGENT_IDS` (comma separated, full ids) to list them verbatim.
+Set `NODE_ADDRESS` explicitly too; left unset it is resolved from Nebula at
+boot, making the ids unpredictable.
+
+`examples/notebooks/gustavo-app.yaml` spells all of this out.
+
 ---
 
 ## The image
