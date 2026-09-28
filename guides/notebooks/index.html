@@ -739,6 +739,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-agent-fleet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The agent fleet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-image" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1666,7 +1677,7 @@
 
 
 <h1 id="interactive-notebooks">Interactive Notebooks</h1>
-<p>A JupyterLab environment preloaded with five runnable tutorials for the
+<p>A JupyterLab environment preloaded with six runnable tutorials for the
 <code>scarlets</code> SDK — the fastest way to get a feel for <code>Messenger</code>, <code>Mapper</code>,
 and <code>Federator</code> without writing a full agent first.</p>
 <table>
@@ -1697,19 +1708,38 @@ and <code>Federator</code> without writing a full agent first.</p>
 <td><code>05_federated_linear_regression.ipynb</code></td>
 <td>A toy FedAvg-style gradient descent, end to end</td>
 </tr>
+<tr>
+<td><code>06_llm_agent_variance.ipynb</code></td>
+<td>A real 3-container agent fleet, asked a question in plain English</td>
+</tr>
 </tbody>
 </table>
-<p>Every notebook uses fixed scarlet/agent names and starts with a cleanup
-cell, so re-running one from the top is always safe.</p>
+<p>Notebooks 01–05 run entirely inside the JupyterLab kernel and start with a
+cleanup cell, so re-running one from the top is always safe. Notebook 06
+works against real, separate <code>scarlet-agents</code> containers — see
+<a href="#the-agent-fleet">The agent fleet</a> below.</p>
 <hr />
 <h2 id="running-it">Running it</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>examples/notebooks
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>cp<span class="w"> </span>.env.example<span class="w"> </span>.env<span class="w">    </span><span class="c1"># fill in REDIS_HOST, REDIS_AUTH_TOKEN</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>-d
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>cp<span class="w"> </span>.env.example<span class="w"> </span>.env<span class="w">    </span><span class="c1"># fill in REDIS_AUTH_TOKEN (plus LLM_* for notebook 06)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
-<p>Then open <a href="http://localhost:8888">http://localhost:8888</a> — no token/login
+<p>Redis is started by that compose file — you don't need your own instance.
+Then open <a href="http://localhost:8888">http://localhost:8888</a> — no token/login
 required by default. See <a href="https://github.com/disys-lab/scarlet-composer-studio/blob/main/examples/notebooks/README.md">examples/notebooks/README.md</a>
 for the full walkthrough.</p>
+<hr />
+<h2 id="the-agent-fleet">The agent fleet</h2>
+<p>Notebook 06 needs three more containers (one agent head, two workers).
+They live in the <strong>same</strong> <code>docker-compose.yml</code> under an <code>agents</code> profile,
+which <code>docker compose up</code> deliberately skips — the notebook brings them up
+itself when you run it, then tears them down at the end.</p>
+<p>To run the same tutorial across real edge nodes instead of one host, deploy
+<code>examples/notebooks/gustavo-app.yaml</code> through Gustavo. It sets
+<code>GUSTAVO_MANAGED_AGENTS=true</code>, which tells notebook 06 that Gustavo owns
+the fleet's lifecycle: the notebook then waits for the agents on the bus
+rather than launching or removing anything itself. No notebook edits are
+needed to switch between the two modes.</p>
 <hr />
 <h2 id="the-image">The image</h2>
 <p><code>docker/jupyter/Dockerfile</code> extends <code>scarlet-agent-base</code> directly — the
