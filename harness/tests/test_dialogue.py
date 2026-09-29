@@ -203,3 +203,47 @@ def test_forget_clears_tracked_state():
     assert "conv-1" in dialogue_a._waiting
     dialogue_a.forget("conv-1")
     assert "conv-1" not in dialogue_a._waiting
+
+
+def test_context_rides_on_the_message_and_cannot_clobber_reserved_keys():
+    """
+    An agent_message carries its own conversation_id but nothing about what
+    the conversation is *about*. For a check-in that context - the
+    request_id being discussed - exists only in the head's memory, so a
+    reader seeing the exchange on the bus has no way to connect it to the
+    dispatch that prompted it. `context` puts it on the wire.
+
+    Reserved keys are set after the spread, so a caller cannot accidentally
+    (or deliberately) rewrite the message's own identity through it.
+    """
+    class _CapturingBus:
+        def __init__(self):
+            self.sent = []
+
+        def Send(self, target, message):
+            self.sent.append((target, message))
+
+    bus = _CapturingBus()
+    d = AgentDialogue(bus, llm_client=None)
+
+    conv_id = d.start("worker-1", "still working?", lambda c, s: None,
+                      context={"request_id": "req-99"})
+    _, body = bus.sent[0]
+    assert body["request_id"] == "req-99"
+    assert body["conversation_id"] == conv_id
+    assert body["type"] == "agent_message"
+
+    # Follow-up turns carry it too - otherwise only the opening message of
+    # an exchange would be threadable and the replies would float free.
+    d.reply("worker-1", conv_id, "any update?", lambda c, s: None,
+            context={"request_id": "req-99"})
+    _, body2 = bus.sent[1]
+    assert body2["request_id"] == "req-99"
+    assert body2["conversation_id"] == conv_id
+
+    # A caller cannot hijack the envelope through context.
+    d.start("worker-1", "hello", lambda c, s: None,
+            context={"type": "not_agent_message", "content": "spoofed"})
+    _, body3 = bus.sent[2]
+    assert body3["type"] == "agent_message"
+    assert body3["content"] == "hello"

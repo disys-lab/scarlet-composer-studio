@@ -595,7 +595,13 @@ def run_skill(
                     turns_used[0] += 1
                     question = decision["question"]
                     transcript.append({"speaker": "head", "content": question})
-                    dialogue.reply(coordinator, conv_id, question, on_checkin_reply)
+                    # request_id rides along so the whole exchange is
+                    # threadable to the dispatch it is about - see
+                    # AgentDialogue.start's `context`.
+                    dialogue.reply(
+                        coordinator, conv_id, question, on_checkin_reply,
+                        context={"request_id": request_id},
+                    )
                 elif decision["action"] == "wait":
                     resolve_once(wait_for_reply)
                 else:
@@ -610,7 +616,15 @@ def run_skill(
             )
             transcript.append({"speaker": "head", "content": opening_question})
             turns_used[0] += 1
-            conv_id = dialogue.start(coordinator, opening_question, on_checkin_reply)
+            conv_id = dialogue.start(
+                coordinator, opening_question, on_checkin_reply,
+                # Without this an agent_message carries only its own
+                # conversation_id, and what it concerns lives solely in
+                # this process's memory - a reader would see the head and
+                # a worker talking with no way to tell which dispatch
+                # prompted it.
+                context={"request_id": request_id},
+            )
 
         wait_for_reply()
 
