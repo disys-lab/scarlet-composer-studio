@@ -359,6 +359,7 @@ def run_skill(
     max_check_ins: int | None = None,
     check_in_timeout: float | None = None,
     check_in_max_turns: int | None = None,
+    on_dispatch: Callable[[str, int], None] | None = None,
 ) -> None:
     """
     Dispatch one invocation of `skill` across currently-registered workers.
@@ -443,6 +444,18 @@ def run_skill(
             return
 
         request_id = str(uuid.uuid4())
+        # Reported before dispatch so a caller can attribute bus traffic to
+        # whatever caused this call. A retry mints a *new* request_id here,
+        # so one logical invocation can span several - which is exactly why
+        # a caller cannot infer the mapping and has to be told it. Failures
+        # are swallowed: this is observability, and it must never be able
+        # to stop a dispatch.
+        if on_dispatch is not None:
+            try:
+                on_dispatch(request_id, attempt_num)
+            except Exception as exc:
+                RedisLogger.warning(f"[{config.agent_id}] on_dispatch failed: {exc}")
+
         coordinator = skill.coordinator_for(ctx, workers)
 
         request = {
@@ -744,6 +757,11 @@ def converse(
           a turn carries non-empty content alongside tool calls.
         - ``{"type": "tool_call", "turn": i, "call_id", "skill", "params"}``
           right before dispatch.
+        - ``{"type": "dispatch", "turn": i, "call_id", "skill",
+          "request_id", "attempt"}`` each time `run_skill` mints a
+          request id for this call - once per attempt, so a retried call
+          emits several. This is the only link between a tool call and
+          the bus traffic it caused; nothing downstream can derive it.
         - ``{"type": "tool_result", "turn": i, "call_id", "skill", "result"}``
           right after a reply arrives.
         - ``{"type": "final", "content": ...}`` when the loop concludes.
@@ -762,7 +780,13 @@ def converse(
 
     def emit(event: dict) -> None:
         if on_event is not None:
-            on_event(event)
+            # conv_id is stamped here rather than left to the caller
+            # because it is minted inside this function - a caller cannot
+            # know it before calling, and without it concurrent
+            # conversations are indistinguishable in a shared event
+            # stream. Every event carries it so any consumer can group a
+            # whole exchange without tracking state of its own.
+            on_event({"conv_id": conv_id, **event})
 
     def finish(result: ConverseResult | None, error: Exception | None) -> None:
         store.forget(conv_id)
@@ -813,6 +837,25 @@ def converse(
                 def on_result(result: dict, call=call) -> None:
                     emit({"type": "tool_result", "turn": turn_index, "call_id": call["id"], "skill": call["name"], "result": result})
                     joiner.submit(call["id"], result)
-                run_skill(skill, call["arguments"], config, buses, on_result, dialogue=dialogue, llm_client=llm_client)
+
+                # The only place the mapping from a tool call to the
+                # request_id(s) it produced is knowable. run_skill mints a
+                # fresh request_id per *attempt*, so a single call can span
+                # several - and nothing downstream can reconstruct which
+                # dispatch belonged to which call without being told. A
+                # reader correlating by timestamp instead would get it
+                # wrong the moment two calls overlap, which is the normal
+                # case here: the model routinely issues several tool calls
+                # in one turn.
+                def on_dispatch(request_id: str, attempt: int, call=call) -> None:
+                    emit({
+                        "type": "dispatch", "turn": turn_index, "call_id": call["id"],
+                        "skill": call["name"], "request_id": request_id, "attempt": attempt,
+                    })
+
+                run_skill(
+                    skill, call["arguments"], config, buses, on_result,
+                    dialogue=dialogue, llm_client=llm_client, on_dispatch=on_dispatch,
+                )
 
     do_turn(0)

@@ -46,6 +46,7 @@ from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
+from scarlet_agentic_harness import reasoning
 
 
 def main() -> None:
@@ -95,11 +96,17 @@ def main() -> None:
             box["error"] = error
             loop.call_soon_threadsafe(done.set)
 
-        def on_event(event: dict) -> None:
+        def log_event(event: dict) -> None:
             # Real-time audit trail, same as __main__.py's stdin REPL -
             # goes to stderr since MCP's stdio transport uses stdout for
             # protocol framing.
             print(event, file=sys.stderr)
+
+        # Wrapped so the same events also reach the bus, where something
+        # other than this process can read them. stderr is visible only to
+        # whoever is attached to this container and is gone once the
+        # request ends - see reasoning.py.
+        on_event = reasoning.publishing_on_event(buses, inner=log_event)
 
         head_mod.converse(
             message, config, buses, skills, llm_client, on_done, on_event=on_event, dialogue=dialogue,
