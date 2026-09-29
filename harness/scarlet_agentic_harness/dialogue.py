@@ -146,7 +146,13 @@ class AgentDialogue:
         self._waiting: dict[str, Callable[[str, str], None]] = {}  # conv_id -> reply handler (I'm the initiator)
         self._sessions: dict[str, list[dict]] = {}  # conv_id -> transcript (I'm the responder)
 
-    def start(self, target_agent_id: str, opening_message: str, on_reply: Callable[[str, str], None]) -> str:
+    def start(
+        self,
+        target_agent_id: str,
+        opening_message: str,
+        on_reply: Callable[[str, str], None],
+        context: dict | None = None,
+    ) -> str:
         """
         Send the first message of a new conversation. Non-blocking.
 
@@ -159,6 +165,16 @@ class AgentDialogue:
             when the other side answers. Call `start`/`reply` again from
             inside it to continue, or don't, to let the conversation end
             there.
+        context : dict or None, optional
+            Extra fields merged into the message body, naming whatever
+            this conversation is *about*. A check-in carries the
+            ``request_id`` it concerns, which is what lets a reader thread
+            the exchange against the dispatch that prompted it - without
+            it an `agent_message` only carries its own
+            ``conversation_id``, and the connection to the work being
+            discussed exists solely in the head's memory. Reserved keys
+            (``type``/``conversation_id``/``content``) cannot be
+            overridden.
 
         Returns
         -------
@@ -169,11 +185,19 @@ class AgentDialogue:
         with self._lock:
             self._waiting[conv_id] = on_reply
         self._bus.Send(target_agent_id, {
+            **(context or {}),
             "type": "agent_message", "conversation_id": conv_id, "content": opening_message,
         })
         return conv_id
 
-    def reply(self, target_agent_id: str, conv_id: str, message: str, on_reply: Callable[[str, str], None]) -> None:
+    def reply(
+        self,
+        target_agent_id: str,
+        conv_id: str,
+        message: str,
+        on_reply: Callable[[str, str], None],
+        context: dict | None = None,
+    ) -> None:
         """
         Continue a conversation you started, after hearing back.
 
@@ -187,10 +211,15 @@ class AgentDialogue:
         message : str
         on_reply : callable
             ``(content, sender) -> None``.
+        context : dict or None, optional
+            As `start` - carried on follow-up turns too, so every message
+            in the exchange names what it is about rather than only the
+            first.
         """
         with self._lock:
             self._waiting[conv_id] = on_reply
         self._bus.Send(target_agent_id, {
+            **(context or {}),
             "type": "agent_message", "conversation_id": conv_id, "content": message,
         })
 
