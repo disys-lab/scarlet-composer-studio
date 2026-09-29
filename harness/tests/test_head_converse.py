@@ -166,10 +166,15 @@ def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
     # this is exactly the case that used to vanish (a turn with both content
     # and tool_calls only ever surfaced its tool_calls before).
     event_types = [e["type"] for e in events]
-    assert event_types == ["narration", "tool_call", "tool_result", "final"]
-    assert events[0]["content"] == "I'll call dummy to check something first."
-    assert events[2]["result"] == {"status": "ok", "result": 7}
-    assert events[3]["content"] == "the answer is 7"
+    # "question" comes first and carries the message that started the
+    # conversation - converse keeps that only in its in-process store, so
+    # without this event a consumer sees the reasoning and the answer but
+    # never what was asked.
+    assert event_types == ["question", "narration", "tool_call", "tool_result", "final"]
+    assert events[0]["content"] == "what's dummy?"
+    assert events[1]["content"] == "I'll call dummy to check something first."
+    assert events[3]["result"] == {"status": "ok", "result": 7}
+    assert events[4]["content"] == "the answer is 7"
 
     # Every event carries the conversation id. converse mints it, so no
     # caller can know it up front, and without it a shared event stream
@@ -178,7 +183,7 @@ def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
     conv_ids = {e["conv_id"] for e in events}
     assert len(conv_ids) == 1 and next(iter(conv_ids))
 
-    assert {k: v for k, v in events[1].items() if k != "conv_id"} == {
+    assert {k: v for k, v in events[2].items() if k != "conv_id"} == {
         "type": "tool_call", "turn": 0, "call_id": "call_1", "skill": "dummy", "params": {},
     }
 

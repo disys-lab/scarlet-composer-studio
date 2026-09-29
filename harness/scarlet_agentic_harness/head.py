@@ -767,6 +767,9 @@ def converse(
         If given, called synchronously (on whichever thread is running
         that turn, in order for that turn) for:
 
+        - ``{"type": "question", "content": ...}`` once, first, carrying
+          the message that started the conversation.
+
         - ``{"type": "narration", "turn": i, "content": ...}`` whenever
           a turn carries non-empty content alongside tool calls.
         - ``{"type": "tool_call", "turn": i, "call_id", "skill", "params"}``
@@ -801,6 +804,12 @@ def converse(
             # stream. Every event carries it so any consumer can group a
             # whole exchange without tracking state of its own.
             on_event({"conv_id": conv_id, **event})
+
+    # The question that started all this. Without it a consumer sees a
+    # conversation's reasoning and its answer but never what was asked -
+    # converse keeps the human message in its ConversationStore, which is
+    # in-process and forgotten when the conversation ends.
+    emit({"type": "question", "content": human_message})
 
     def finish(result: ConverseResult | None, error: Exception | None) -> None:
         store.forget(conv_id)
