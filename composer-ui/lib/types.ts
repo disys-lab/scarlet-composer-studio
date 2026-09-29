@@ -141,3 +141,84 @@ export interface DataSource {
 export interface DataSourcesResponse {
   data_sources: DataSource[];
 }
+
+// ─── Conversations ──────────────────────────────────────────────────────────
+// Reconstructed from the messages Redis already holds - see
+// composer-api/conversations.py for how a conversation is put back together
+// and why the "dispatch" event is the only thing that makes it possible.
+
+// One message on the bus, as shown inside an attempt.
+export interface ConversationMessage {
+  ts: number | null;
+  from: string | null;
+  to: string | null;
+  bus: string | null;
+  type: string | null;
+  // "dialogue" is the plain-English check-in traffic; "dispatch" is the
+  // coordinate/contribute/result envelope. Rendered differently.
+  kind: "reasoning" | "dialogue" | "dispatch" | "other";
+  content: string | null;
+  body: Record<string, unknown>;
+}
+
+// One run_skill attempt. A retried call has more than one, each with its
+// own request_id - which is why the correlation exists at all.
+export interface ConversationAttempt {
+  request_id: string | null;
+  attempt: number | null;
+  messages: ConversationMessage[];
+}
+
+export interface ConversationTurn {
+  kind: "narration" | "tool_call" | "final" | "orphan_dispatch";
+  ts: number | null;
+  content?: string | null;
+  call_id?: string | null;
+  skill?: string | null;
+  params?: Record<string, unknown> | null;
+  attempts?: ConversationAttempt[];
+  result?: unknown;
+  result_summary?: string | null;
+  request_id?: string | null;
+}
+
+export interface ConversationDetail {
+  conv_id: string;
+  question: string | null;
+  answer: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  status: "answered" | "incomplete";
+  turns: ConversationTurn[];
+}
+
+export interface ConversationSummary {
+  conv_id: string;
+  answer: string | null;
+  status: "answered" | "incomplete";
+  started_at: number | null;
+  ended_at: number | null;
+  duration: number | null;
+  skills: (string | null)[];
+  call_count: number;
+  // More attempts than calls means something was retried - the signal
+  // worth surfacing without opening the conversation.
+  attempt_count: number;
+}
+
+// Dispatch traffic belonging to no conversation we can see: a fleet with
+// PUBLISH_REASONING off, agents on an older image, or a skill invoked
+// outside a conversation. Shown rather than hidden.
+export interface UnattributedRequest {
+  request_id: string;
+  started_at: number | null;
+  message_count: number;
+  messages: ConversationMessage[];
+}
+
+export interface ConversationsResponse {
+  conversations: ConversationSummary[];
+  unattributed: UnattributedRequest[];
+  buses: string[];
+  unknown_bus: boolean;
+}
