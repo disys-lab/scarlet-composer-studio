@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
 import axios from "axios";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getDashboardStats } from "@/lib/api/dashboard";
+import { DEFAULT_BUS, readStoredBus } from "@/lib/busPreference";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -11,9 +13,27 @@ import { StatusPill } from "@/components/ui/StatusPill";
 // that actually exists for composer - no fabricated "platform services"
 // card (composer doesn't manage services the way Gustavo does).
 export default function DashboardPage() {
+  // The bus the operator selected on the Agents page. This card used to
+  // count a hardcoded "head-agent" instead, which no real deployment
+  // necessarily uses - so it reported 0 agents while the Agents page,
+  // looking at the chosen bus, listed the whole fleet correctly.
+  //
+  // Read in an effect rather than in useState's initializer: this page
+  // pre-renders on the server, where localStorage does not exist, and
+  // seeding from it would mismatch the first client render.
+  const [bus, setBus] = useState(DEFAULT_BUS);
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    setBus(readStoredBus());
+    setRestored(true);
+  }, []);
+
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["dashboard-stats"],
-    queryFn: getDashboardStats,
+    queryKey: ["dashboard-stats", bus],
+    queryFn: () => getDashboardStats(bus),
+    // Hold until localStorage has been consulted, or every page load would
+    // query the fallback bus once regardless of what was saved.
+    enabled: restored,
     refetchInterval: 30_000,
     staleTime: 25_000,
   });
