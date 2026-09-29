@@ -2,8 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, Users, Database, FileText, Settings,
-} from "lucide-react";
+  LayoutDashboard, Users, Database, FileText, Settings, MessagesSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/context/AuthContext";
 
@@ -13,6 +12,7 @@ import { useAuth } from "@/lib/context/AuthContext";
 const NAV = [
   { href: "/dashboard",        label: "Dashboard",        icon: LayoutDashboard },
   { href: "/agents",           label: "Agents",           icon: Users },
+  { href: "/conversations",    label: "Conversations",    icon: MessagesSquare },
   { href: "/scarlets",         label: "Scarlets",         icon: Database },
   { href: "/data-sources",     label: "Data Sources",     icon: Database },
   { href: "/logging",          label: "Logging",          icon: FileText },
