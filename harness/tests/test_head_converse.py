@@ -168,6 +168,66 @@ def test_converse_retains_full_transcript_and_emits_events(monkeypatch):
     event_types = [e["type"] for e in events]
     assert event_types == ["narration", "tool_call", "tool_result", "final"]
     assert events[0]["content"] == "I'll call dummy to check something first."
-    assert events[1] == {"type": "tool_call", "turn": 0, "call_id": "call_1", "skill": "dummy", "params": {}}
     assert events[2]["result"] == {"status": "ok", "result": 7}
     assert events[3]["content"] == "the answer is 7"
+
+    # Every event carries the conversation id. converse mints it, so no
+    # caller can know it up front, and without it a shared event stream
+    # cannot tell two concurrent conversations apart - reasoning.py relies
+    # on this to group a whole exchange.
+    conv_ids = {e["conv_id"] for e in events}
+    assert len(conv_ids) == 1 and next(iter(conv_ids))
+
+    assert {k: v for k, v in events[1].items() if k != "conv_id"} == {
+        "type": "tool_call", "turn": 0, "call_id": "call_1", "skill": "dummy", "params": {},
+    }
+
+    # No "dispatch" event appears here because run_skill is monkeypatched
+    # out above - that event is emitted from inside the real one, carrying
+    # the request_id minted per attempt.
+
+
+def test_dispatch_events_link_each_tool_call_to_its_request_ids(monkeypatch):
+    """
+    A tool call and the bus traffic it causes are only connectable through
+    the "dispatch" event.
+
+    run_skill mints a fresh request_id per *attempt*, inside itself, and
+    reports nothing back but the final result - so one tool call can span
+    several request_ids and nothing downstream can tell which dispatch
+    belonged to which call. Correlating by timestamp instead would be wrong
+    as soon as two calls overlap, which is the normal case: the model
+    routinely issues several tool calls in a single turn.
+
+    This fakes a retry (two attempts, two ids) and checks both are reported
+    against the call that caused them.
+    """
+    def fake_run_skill(skill, params, config, buses, on_result, **kwargs):
+        on_dispatch = kwargs.get("on_dispatch")
+        # Two attempts, as a real retry would produce.
+        on_dispatch("req-attempt-1", 1)
+        on_dispatch("req-attempt-2", 2)
+        on_result({"status": "ok", "result": 7})
+    monkeypatch.setattr(head_mod, "run_skill", fake_run_skill)
+
+    llm = ScriptedLLMClient([
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call_abc", "name": "dummy", "arguments": {}}],
+        },
+        assistant_final("done"),
+    ])
+
+    events = []
+    converse_sync(
+        "go", config=None, buses=None, skills={"dummy": _DummySkill()},
+        llm_client=llm, on_event=events.append,
+    )
+
+    dispatches = [e for e in events if e["type"] == "dispatch"]
+    assert [d["request_id"] for d in dispatches] == ["req-attempt-1", "req-attempt-2"]
+    assert {d["call_id"] for d in dispatches} == {"call_abc"}
+    assert [d["attempt"] for d in dispatches] == [1, 2]
+    # Ordered so a reader sees the call before anything attributed to it.
+    assert events.index(next(e for e in events if e["type"] == "tool_call")) < events.index(dispatches[0])

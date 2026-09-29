@@ -21,6 +21,7 @@ from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import head as head_mod
+from scarlet_agentic_harness import reasoning
 from scarlet_agentic_harness import worker as worker_mod
 
 
@@ -235,7 +236,14 @@ def main() -> None:
                         box["error"] = error
                         done.set()
 
-                    head_mod.converse(line, config, buses, skills, llm_client, on_done, on_event=_log_event, dialogue=dialogue)
+                    head_mod.converse(
+                        line, config, buses, skills, llm_client, on_done,
+                        # Wrapped so the REPL's own trace also reaches the
+                        # bus - see reasoning.py. Same events, one more
+                        # destination.
+                        on_event=reasoning.publishing_on_event(buses, inner=_log_event),
+                        dialogue=dialogue,
+                    )
                     done.wait()
                     if box["error"] is not None:
                         raise box["error"]
