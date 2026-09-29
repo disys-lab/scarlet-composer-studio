@@ -22,6 +22,7 @@ from auth_dep import verify_session
 from routers import agents as agents_router
 from routers import auth as auth_router
 from routers import config as config_router
+from routers import conversations as conversations_router
 from routers import dashboard as dashboard_router
 from routers import data_sources as data_sources_router
 from routers import logs as logs_router
@@ -64,6 +65,10 @@ app.include_router(
 )
 app.include_router(
     agents_router.router, prefix="/api/agents", tags=["agents"],
+    dependencies=[Depends(verify_session)],
+)
+app.include_router(
+    conversations_router.router, prefix="/api/conversations", tags=["conversations"],
     dependencies=[Depends(verify_session)],
 )
 app.include_router(
