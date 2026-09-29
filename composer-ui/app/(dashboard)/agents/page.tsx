@@ -7,17 +7,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DEFAULT_BUS, readStoredBus, storeBus } from "@/lib/busPreference";
 import type { Agent } from "@/lib/types";
 
 // Replaces scarletcomposer/pages/Agents.py. Auto-refresh via React Query's
 // refetchInterval (matches the old page's 15s cadence) instead of a
 // manual sleep()+st.rerun() loop.
 
-// Where the tracked bus is remembered between visits. Per-browser, which
-// is the right scope for "which bus am I looking at" - a view preference,
-// not deployment state, and it needs no API surface to store.
-const BUS_STORAGE_KEY = "scarlet-composer.agents.bus";
-const DEFAULT_BUS = "head-agent";
+// The storage key and default live in lib/busPreference so the Dashboard
+// reads the same value. They were local to this page before, which is how
+// the Dashboard ended up counting a different bus entirely and reporting
+// 0 agents against a healthy fleet.
 
 function ageLabel(ts: number | null) {
   if (!ts) return "unknown";
@@ -146,15 +146,9 @@ export default function AgentsPage() {
   // pre-renders on the server, where localStorage does not exist, and
   // seeding initial state from it would mismatch the first client render.
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(BUS_STORAGE_KEY);
-      if (saved) {
-        setBusInput(saved);
-        setActiveBus(saved);
-      }
-    } catch {
-      // Private browsing or storage disabled - fall back to the default.
-    }
+    const saved = readStoredBus();
+    setBusInput(saved);
+    setActiveBus(saved);
     setRestored(true);
   }, []);
 
@@ -164,11 +158,7 @@ export default function AgentsPage() {
     const next = busInput.trim();
     if (!next || next === activeBus) return;
     setActiveBus(next);
-    try {
-      window.localStorage.setItem(BUS_STORAGE_KEY, next);
-    } catch {
-      // Not fatal - the bus just won't be remembered next visit.
-    }
+    storeBus(next);
   }
 
   const { data, isLoading } = useQuery({

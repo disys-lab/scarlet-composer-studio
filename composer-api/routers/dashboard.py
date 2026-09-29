@@ -10,18 +10,27 @@ Gustavo's dashboard has one - composer doesn't manage services that way.
 """
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from scarlets.utils.ScarletUtils import redisConnect
 
 from bus_registry import AGENT_ID, bus_exists, get_messenger
+from status import agent_health
 
 router = APIRouter()
 
-DEFAULT_BUS = "head-agent"  # matches Agents.py's own default
+# Only a fallback for a caller that names no bus. It is a conventional name
+# from scarlets' own examples, not one any real deployment necessarily uses -
+# the harness derives its bus from HEAD_BUS, or f"{APP_ID}_headagent" when
+# that is unset, and neither produces this. Counting against it
+# unconditionally is why this card reported "0 agents on bus head-agent" on
+# deployments with a perfectly healthy fleet: it was counting a bus nobody
+# had ever joined. The Agents page knows the real bus - the operator chooses
+# it there and it persists - so the UI passes that value here.
+DEFAULT_BUS = "head-agent"
 
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(bus: str = Query(DEFAULT_BUS, description="Messenger bus to count agents on")):
     redis_ok = True
     redis_error = None
     try:
@@ -32,16 +41,25 @@ async def get_stats():
         redis_error = str(exc)
 
     agent_count = 0
-    # Gated on bus_exists for the same reason /api/agents is: DEFAULT_BUS is
-    # a hardcoded guess at a conventional name, and constructing a Messenger
-    # for it would *create* that bus - on any deployment that doesn't happen
-    # to use this exact name, the dashboard would mint a permanent, empty
-    # scarlet purely by being loaded. A bus nobody has created has no agents
-    # on it, so 0 is the honest answer.
-    if redis_ok and bus_exists(DEFAULT_BUS):
+    # Gated on bus_exists for the same reason /api/agents is: this name now
+    # arrives from a query parameter, and constructing a Messenger for an
+    # arbitrary string *creates* that bus - so an unrecognised name would
+    # mint a permanent, empty scarlet purely because someone loaded the
+    # dashboard. A bus nobody has created has no agents on it, so 0 is the
+    # honest answer.
+    if redis_ok and bus_exists(bus):
         try:
-            records = get_messenger(DEFAULT_BUS).GatherStatus()
-            agent_count = sum(1 for agent_id in records if agent_id != AGENT_ID)
+            records = get_messenger(bus).GatherStatus()
+            # Stale records are excluded, which this previously did not do -
+            # the Agents page has always applied the same rule via
+            # agent_health, so a dead fleet showed as greyed out there while
+            # still being counted as live here. status.py exists precisely so
+            # "what counts as stale" is defined once; this endpoint simply
+            # never used it.
+            agent_count = sum(
+                1 for agent_id, record in records.items()
+                if agent_id != AGENT_ID and agent_health(record) != "stale"
+            )
         except Exception as exc:
             logging.error(f"dashboard agent count failed: {exc}")
 
