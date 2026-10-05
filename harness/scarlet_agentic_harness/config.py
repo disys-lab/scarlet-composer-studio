@@ -168,6 +168,9 @@ class HarnessConfig:
         Deliberation check-in rounds allowed per attempt. Default `2`.
     check_in_timeout : float
         Bound on one check-in conversation itself, seconds. Default `10.0`.
+    converse_max_turns : int
+        Turns the head's `converse` loop may take before giving up.
+        Env ``CONVERSE_MAX_TURNS``, default 30.
     check_in_max_turns : int
         Max question/answer rounds within one check-in conversation.
         Default `3`.
@@ -214,6 +217,16 @@ class HarnessConfig:
     max_check_ins: int = 2  # run_skill() - how many deliberation check-in rounds per attempt
     check_in_timeout: float = 10.0  # run_skill() - bound on one check-in conversation itself
     check_in_max_turns: int = 3  # run_skill() - max question/answer rounds within one check-in conversation
+    # converse() - how many LLM turns the head gets to reach a final answer.
+    # Was hardcoded at 5, which fit a two-call conversation and nothing
+    # larger. A worker now generates its own SQL and the fleet negotiates a
+    # representation before aggregating, so a single realistic request can
+    # legitimately run: list_sources, agree_representation, two sums, then
+    # a combine per column. That is past 5 before the head has said
+    # anything, and the failure mode is a bare
+    # "model did not produce a final answer within 5 turns" after several
+    # minutes of real work has already succeeded.
+    converse_max_turns: int = 30
 
     # This agent's own Nebula identity + where to find composer-api - only
     # needed by a worker that calls ctx.query_data_source() (see context.py).
@@ -344,6 +357,7 @@ class HarnessConfig:
             max_check_ins=int(os.environ.get("MAX_CHECK_INS", "2")),
             check_in_timeout=float(os.environ.get("CHECK_IN_TIMEOUT", "10.0")),
             check_in_max_turns=int(os.environ.get("CHECK_IN_MAX_TURNS", "3")),
+            converse_max_turns=int(os.environ.get("CONVERSE_MAX_TURNS", "30")),
             nebula_username=_env("NEBULA_USERNAME"),
             nebula_secret=_env("NEBULA_SECRET"),
             composer_api_url=_env("COMPOSER_API_URL"),

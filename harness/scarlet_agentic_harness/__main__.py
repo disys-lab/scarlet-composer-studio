@@ -15,6 +15,7 @@ from scarlets.utils.RedisLogger import RedisLogger
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
 from scarlet_agentic_harness.config import HarnessConfig
+from scarlet_agentic_harness import data_profile
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness import local_config
@@ -56,6 +57,33 @@ def main() -> None:
         # hasn't ticked yet. Per-source failures are already caught inside
         # build_tag_cache() itself - one bad source never blocks this.
         tag_cache: dict[str, list] = local_config.build_tag_cache()
+
+        # Built in the same synchronous pre-announcement window as the tag
+        # cache, and for the same reason: a peer that reads this worker's
+        # record the instant it comes online must not see an empty profile.
+        #
+        # Where tag_cache answers "which columns exist", this answers "how
+        # much data is there and what shape is it" - the row count and the
+        # numeric column count. That pair is what the consensus step
+        # negotiates over, so it is published as structured numbers rather
+        # than left to be inferred from prose later. Profiling is one-shot
+        # by design (the sprint objective says a worker builds its
+        # understanding once at boot); the refresh loop below deliberately
+        # does NOT rebuild it, so a mid-run config edit changes tags but
+        # not shapes.
+        #
+        # Per-source failures are swallowed inside profile_sources()
+        # itself, same contract as build_tag_cache() - one unreadable
+        # source must never stop a worker booting.
+        data_profiles: dict = data_profile.profile_sources()
+
+        # The readable companion to those numbers, written where the
+        # worker's own LLM can be pointed at it later. Best-effort: an
+        # unwritable home is not a reason to refuse to boot, since the
+        # structured profiles above are the authoritative copy and they
+        # live in memory regardless.
+        data_profile.write_profile_markdown(data_profiles)
+
         # activity_mapper rides along in the status record so a reader
         # never has to know (or be told) this name out of band: it gathers
         # agents from the one bus it already has, and each agent's record
@@ -67,7 +95,15 @@ def main() -> None:
         # re-report without it would silently overwrite the field away.
         buses.report_status(
             capabilities=list(skills.keys()),
-            extra={"activity_mapper": config.activity_mapper},
+            extra={
+                "activity_mapper": config.activity_mapper,
+                # Published as structured numbers so a peer can read this
+                # worker's dimensions straight off the status record,
+                # without a dialogue round trip and without inferring
+                # "(80, 5)" out of English. The consensus step reasons over
+                # these; the prose profile is only for a model to read.
+                "data_shapes": {n: p["shape"] for n, p in data_profiles.items()},
+            },
         )
 
         # report_status() above (and the tag cache build before it) only
@@ -92,13 +128,30 @@ def main() -> None:
                 time.sleep(config.data_source_refresh_interval)
                 try:
                     tag_cache = local_config.build_tag_cache()
+                    # Shapes are published from data_profiles, so if the
+                    # config changed under us this is what stops the status
+                    # record advertising dimensions the worker no longer has.
+                    # In-place, so every HarnessContext already holding this
+                    # dict sees the new values too.
+                    data_profile.refresh_if_stale(data_profiles)
                     # extra= must match the startup call above - see its
                     # comment: report_status rebuilds the record each
                     # time, so omitting it here would drop activity_mapper
                     # from the record on the first refresh.
                     buses.report_status(
                         capabilities=list(skills.keys()),
-                        extra={"activity_mapper": config.activity_mapper},
+                        extra={
+                            "activity_mapper": config.activity_mapper,
+                            # Must be repeated here for the same reason
+                            # activity_mapper is: report_status rebuilds the
+                            # record from scratch, so omitting it would drop
+                            # every worker's shape on the first refresh tick
+                            # and silently break consensus 300s into a run.
+                            # data_profiles is NOT rebuilt - profiling is
+                            # one-shot at boot by design - so this re-reports
+                            # the same boot-time numbers.
+                            "data_shapes": {n: p["shape"] for n, p in data_profiles.items()},
+                        },
                     )
                 except Exception as exc:
                     RedisLogger.warning(f"[{config.agent_id}] data source refresh cycle failed: {exc}")
@@ -142,7 +195,8 @@ def main() -> None:
             if worker_llm_client else None
         )
         worker_mod.start_dispatch(
-            config, buses, skills, dialogue=dialogue, registry=registry, llm_client=worker_llm_client,
+            config, buses, skills, dialogue=dialogue, registry=registry,
+            llm_client=worker_llm_client, data_profiles=data_profiles,
         )
         print(
             f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
@@ -243,6 +297,7 @@ def main() -> None:
                         # destination.
                         on_event=reasoning.publishing_on_event(buses, inner=_log_event),
                         dialogue=dialogue,
+                        max_turns=config.converse_max_turns,
                     )
                     done.wait()
                     if box["error"] is not None:

@@ -76,9 +76,25 @@ class QueryFeatureSkill(Skill):
                 "type": "object",
                 "description": (
                     "Connector-specific query, passed straight through to the "
-                    "matching connector's query() - e.g. {\"query\": \"SELECT ...\"} "
-                    "for a SQL source, {\"tag_name\": \"Roll Speed\"} for PI, "
-                    "{\"command\": [\"GET\", \"key\"]} for Redis."
+                    "matching connector's query(). "
+                    # CSV/Excel called out first and by name. The previous
+                    # wording offered {"query": "SELECT ..."} only "for a SQL
+                    # source", and a model reading that does not necessarily
+                    # class a CSV as SQL - observed: it guessed a column
+                    # selector, {"cpu_pct": true, "heartbeat": true}, got an
+                    # error, and only then sent the SELECT. That cost one
+                    # wasted turn per source, which across four sources was
+                    # enough to exhaust converse's 5-turn budget and fail the
+                    # whole conversation. The table name is spelled out for
+                    # the same reason: it is always `data`, never the file or
+                    # source name, and there is no way to infer that.
+                    "For a CSV or Excel source: {\"query\": \"SELECT col1, col2 "
+                    "FROM data\"} - the table is ALWAYS named `data`, whatever "
+                    "the source is called. "
+                    "For a SQL database: {\"query\": \"SELECT ... FROM "
+                    "real_table\"}. "
+                    "For PI: {\"tag_name\": \"Roll Speed\"}. "
+                    "For Redis: {\"command\": [\"GET\", \"key\"]}."
                 ),
             },
         },

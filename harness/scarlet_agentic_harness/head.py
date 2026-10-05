@@ -725,7 +725,12 @@ def converse(
     skills: dict[str, Skill],
     llm_client: ChatClient,
     on_done: Callable[["ConverseResult | None", Exception | None], None],
-    max_turns: int = 5,
+    # Callers in this package pass config.converse_max_turns explicitly.
+    # This default exists for tests and ad-hoc callers; it tracks the
+    # config default rather than the old hardcoded 5, so forgetting the
+    # kwarg degrades to "generous" instead of to "fails on any realistic
+    # multi-skill request".
+    max_turns: int = 30,
     on_event: Callable[[dict], None] | None = None,
     store: ConversationStore | None = None,
     dialogue: AgentDialogue | None = None,

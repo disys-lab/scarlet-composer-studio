@@ -71,6 +71,8 @@ def handle_message(
     skills: dict[str, Skill],
     token: CancellationToken,
     llm_client: "ChatClient | None" = None,
+    data_profiles: dict | None = None,
+    dialogue: AgentDialogue | None = None,
 ) -> None:
     """
     Deterministically dispatch one ``skill_contribute``/``skill_coordinate`` message to its `Skill`.
@@ -119,7 +121,10 @@ def handle_message(
         })
         return
 
-    ctx = HarnessContext(config, buses, cancellation=token, llm_client=llm_client)
+    ctx = HarnessContext(
+        config, buses, cancellation=token, llm_client=llm_client,
+        data_profiles=data_profiles, dialogue=dialogue,
+    )
 
     # contribute() and coordinate() both run on a thread whose only
     # exception handling is a `finally` (see start_dispatch's _dispatch), so
@@ -205,6 +210,7 @@ def start_dispatch(
     dialogue: AgentDialogue | None = None,
     registry: CancellationRegistry | None = None,
     llm_client: "ChatClient | None" = None,
+    data_profiles: dict | None = None,
 ) -> CancellationRegistry:
     """
     Start servicing this worker's incoming dispatch messages concurrently.
@@ -271,7 +277,10 @@ def start_dispatch(
 
             def run():
                 try:
-                    handle_message(msg, config, buses, skills, token, llm_client=llm_client)
+                    handle_message(
+                        msg, config, buses, skills, token, llm_client=llm_client,
+                        data_profiles=data_profiles, dialogue=dialogue,
+                    )
                 finally:
                     registry.forget(request_id)
 

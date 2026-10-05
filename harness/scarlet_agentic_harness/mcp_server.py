@@ -109,7 +109,8 @@ def main() -> None:
         on_event = reasoning.publishing_on_event(buses, inner=log_event)
 
         head_mod.converse(
-            message, config, buses, skills, llm_client, on_done, on_event=on_event, dialogue=dialogue,
+            message, config, buses, skills, llm_client, on_done, on_event=on_event,
+            dialogue=dialogue, max_turns=config.converse_max_turns,
         )
         await done.wait()
 

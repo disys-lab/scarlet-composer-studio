@@ -65,7 +65,18 @@ class CombineSkill(Skill):
                 "description": (
                     "An arithmetic expression using only the names given in "
                     "`variables`, e.g. \"s2/n - (s1/n)**2\" for variance given "
-                    "s1=sum(x), s2=sum(x^2), n=count."
+                    "s1=sum(x), s2=sum(x^2), n=count. "
+                    # Spelled out as a worked example rather than left to the
+                    # "no function calls" prohibition above. Observed: the
+                    # model asked for sqrt(var), got a SafeEvalError, and
+                    # spent a turn recovering with var**(0.5) - which with
+                    # converse's 5-turn budget was enough to exhaust it and
+                    # fail the whole conversation. It had been told function
+                    # calls were unavailable and tried one anyway; a positive
+                    # example of the supported form is what actually changes
+                    # the behaviour.
+                    "For a square root write \"var**0.5\" - there is no sqrt() "
+                    "function, so a standard deviation is \"var**0.5\"."
                 ),
             },
             "variables": {

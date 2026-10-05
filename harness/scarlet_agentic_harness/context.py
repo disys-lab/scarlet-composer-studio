@@ -76,6 +76,8 @@ class HarnessContext:
         buses: Buses,
         cancellation: "CancellationToken | None" = None,
         llm_client: "ChatClient | None" = None,
+        data_profiles: dict | None = None,
+        dialogue=None,
     ):
         self.config = config
         self.buses = buses
@@ -86,6 +88,20 @@ class HarnessContext:
         # same convention as everything else in this codebase that needs a
         # real backend to do its job.
         self.llm_client = llm_client
+        # This worker's own boot-time data profiles, keyed by source name
+        # (see data_profile.profile_sources()). Profiled once at startup and
+        # passed down unchanged, so every skill in a request sees exactly
+        # the dimensions the worker published to its status record - a skill
+        # that re-profiled mid-request could otherwise negotiate against
+        # numbers no peer ever saw. Empty dict, never None, so a skill can
+        # iterate it without guarding.
+        self.data_profiles = data_profiles if data_profiles is not None else {}
+        # The worker's AgentDialogue, so a skill can *start* a conversation
+        # with a peer rather than only answer one. Workers were previously
+        # responders only - nothing called dialogue.start() - which made
+        # worker-to-worker negotiation impossible from inside a skill.
+        # None when no LLM backend is configured, same as llm_client.
+        self.dialogue = dialogue
         # Lazily populated by query_data_source() on its first call, then
         # reused for the rest of this process's lifetime - same
         # "authenticate once, cache, reuse" discipline as llm_client itself

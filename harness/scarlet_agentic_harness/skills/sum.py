@@ -25,7 +25,7 @@ from scarlets.core.Mapper import Mapper
 
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.skills.base import Skill
-from scarlet_agentic_harness.skills.local_data import local_numbers
+from scarlet_agentic_harness import local_matrix
 
 _READY_MSG_TYPE = "sum_contribution_ready"
 _TRANSFORMS = {
@@ -71,6 +71,25 @@ class SumSkill(Skill):
                 "enum": ["identity", "square"],
                 "description": "Applied to each value before summing. identity for a plain sum, square for a sum of squares.",
             },
+            "objective": {
+                "type": "string",
+                "description": (
+                    "A plain-language statement of what measurements are wanted, e.g. "
+                    "\"vibration and torque readings\". Do NOT name a data source, a "
+                    "file or a column - each worker knows its own data and selects and "
+                    "queries it locally. Describe the goal, not the location."
+                ),
+            },
+            "columns": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "The exact column list every worker should read, as returned by "
+                    "the agree_representation skill. Pass this whenever workers may "
+                    "hold different columns - without it each worker reads whatever "
+                    "it has and the shapes will not aggregate."
+                ),
+            },
         },
         "required": [],
     }
@@ -91,10 +110,19 @@ class SumSkill(Skill):
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         """Sum this worker's local numbers (after `transform`), `Map` `[total, count]`, and signal readiness."""
-        transform_name = request.get("params", {}).get("transform", "identity")
+        params = request.get("params", {})
+        transform_name = params.get("transform", "identity")
         transform = _TRANSFORMS.get(transform_name, _TRANSFORMS["identity"])
-        values = local_numbers()
-        local_total = sum(transform(x) for x in values)
+
+        # The head states an objective; this worker decides for itself which
+        # of its own sources answers it and writes its own SQL. Nothing here
+        # is told a path, a filename or a column - see local_matrix.
+        matrix, meta = local_matrix.load_local_matrix(
+            ctx,
+            params.get("objective", "all available numeric measurements"),
+            columns=params.get("columns"),
+        )
+        matrix = transform(matrix)  # elementwise: identity or square
 
         # Co-aggregate [sum, count] as one numpy array in a single Federator
         # round trip, rather than reporting n = len(workers). Those are two
@@ -104,10 +132,32 @@ class SumSkill(Skill):
         # variance composition needs total element count, so that's what n
         # has to mean here. operator.add (Federator's SUM op) is elementwise
         # on numpy arrays, so both values fold correctly in one Aggregate().
+        # Contribution is (2, ncols): row 0 is this worker's column sums,
+        # row 1 is the element count behind each of those sums.
+        #
+        # Two rows rather than one because mean/variance composition needs
+        # the element count, and len(workers) is the wrong number - a worker
+        # holding 80 rows contributes exactly one partial sum. Carrying the
+        # count alongside keeps both folding in a single Aggregate(), since
+        # Federator's SUM op is elementwise on numpy arrays.
+        #
+        # Per-column counts rather than one scalar: rows are dropped per
+        # row, not per column, but keeping the count aligned to the sum it
+        # belongs to means a later change to column-wise dropping needs no
+        # change here. It also makes the contribution rectangular, which is
+        # what Federator requires.
+        #
+        # This shape is identical across workers as long as they agree on
+        # the column count - which is exactly what the consensus step
+        # negotiates. Row counts may differ freely (80/100/120/90 here) and
+        # never reach the Federator, because summing has already reduced
+        # that axis away.
+        column_sums = matrix.sum(axis=0)
+        column_counts = np.full(matrix.shape[1], matrix.shape[0], dtype=float)
+        contribution = np.vstack([column_sums, column_counts])
+
         federator = ctx.federator(request["mapper_name"], op=Mapper.SUM)
-        _, map_status, map_exc = federator.Map(
-            np.array([local_total, len(values)], dtype=float), key=ctx.agent_id
-        )
+        _, map_status, map_exc = federator.Map(contribution, key=ctx.agent_id)
 
         # Always signal, even to self if this worker is also the coordinator
         # - see median.py's contribute() for why (a coordinator-side Map()
@@ -116,6 +166,9 @@ class SumSkill(Skill):
             "type": _READY_MSG_TYPE,
             "request_id": request["request_id"],
             "from": ctx.agent_id,
+            # The coordinator needs this to size the Aggregate identity
+            # element; only a contributor knows how wide its matrix is.
+            "ncols": int(matrix.shape[1]),
             "map_status": bool(map_status),
             "map_error": str(map_exc) if map_exc else None,
         })
@@ -143,6 +196,7 @@ class SumSkill(Skill):
             Aggregate failure.
         """
         ready_from: set[str] = set()
+        ncols: set[int] = set()
         # Reported before anything has checked in, not just after the
         # first one - a check-in arriving in that early window should
         # still see "0 of N so far", not nothing at all.
@@ -167,6 +221,8 @@ class SumSkill(Skill):
                         "retryable": True,
                     }
                 ready_from.add(body["from"])
+                if body.get("ncols") is not None:
+                    ncols.add(int(body["ncols"]))
                 ctx.report_progress(ready_count=len(ready_from), expected_count=len(workers))
 
         if ctx.cancelled.is_set():
@@ -181,20 +237,54 @@ class SumSkill(Skill):
             }
 
         federator = ctx.federator(request["mapper_name"], op=Mapper.SUM)
-        # [0, 0] is SUM's identity element (elementwise) - Federator.Aggregate(x)
-        # folds AllGather results onto whatever x you pass, so passing a real
-        # value here (rather than the identity element) would double-count
-        # the coordinator's own contribution, since it's already in the
-        # AllGather results too (it Mapped its own value in contribute()).
-        totals, status, exc = federator.Aggregate(np.array([0.0, 0.0]))
+
+        # The identity element has to match the contribution's shape, which
+        # is now (2, ncols) rather than the old flat [sum, count]. Seeding
+        # with the wrong shape fails loudly inside numpy ("operands could not
+        # be broadcast together with shapes (2,5) (2,)") rather than
+        # silently truncating, but it still has to be right, and only the
+        # contributors know ncols - so it is read back from the readiness
+        # signals rather than assumed.
+        #
+        # Zeros, not a real value: Federator.Aggregate(x) folds the
+        # AllGather results onto whatever x it is given, and the
+        # coordinator's own contribution is already among those results
+        # (it Mapped in contribute()). Seeding with anything but the
+        # identity element double-counts it.
+        if not ncols:
+            return {
+                "status": "error",
+                "detail": "no worker reported a column count - nothing to aggregate",
+                "retryable": True,
+            }
+        if len(ncols) != 1:
+            return {
+                "status": "error",
+                "detail": (f"workers disagree on column count {sorted(ncols)} - "
+                           f"reshape consensus required before aggregation"),
+                "retryable": False,
+            }
+        width = next(iter(ncols))
+
+        totals, status, exc = federator.Aggregate(np.zeros((2, width), dtype=float))
         if not status:
             return {"status": "error", "detail": f"Aggregate failed: {exc}", "retryable": True}
 
-        total, element_count = float(totals[0]), int(totals[1])
+        totals = np.atleast_2d(np.asarray(totals, dtype=float))
+        column_sums = totals[0]
+        # Per-column counts are identical by construction (rows are dropped
+        # whole, never per column), so one representative count is the
+        # element count behind every column. Taking the max rather than [0]
+        # keeps this honest if that ever stops being true: a caller
+        # composing a mean would otherwise divide by a count that silently
+        # under-reports.
+        element_count = int(totals[1].max()) if totals.shape[0] > 1 else 0
         transform_name = request.get("params", {}).get("transform", "identity")
         return {
             "status": "ok",
-            "result": total,
+            "result": column_sums.tolist(),
             "n": element_count,
-            "detail": f"sum(transform={transform_name}) over n={element_count} elements across {len(workers)} workers",
+            "columns": int(width),
+            "detail": (f"sum(transform={transform_name}) per column over n={element_count} "
+                       f"rows x {width} columns across {len(workers)} workers"),
         }

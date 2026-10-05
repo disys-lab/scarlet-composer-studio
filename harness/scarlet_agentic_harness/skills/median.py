@@ -16,11 +16,13 @@ scarlet-composer-studio's own three-tier data source system
 (DESIGN_v3.md section 9) - not a permanent design choice.
 """
 import heapq
+
+import numpy as np
 import time
 
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.skills.base import Skill
-from scarlet_agentic_harness.skills.local_data import local_numbers
+from scarlet_agentic_harness import local_matrix
 
 _READY_MSG_TYPE = "median_contribution_ready"
 
@@ -37,9 +39,15 @@ class MedianSkill(Skill):
     waits for the other workers to signal readiness on the local bus,
     then `AllGather`s every partition and does a real k-way merge.
 
-    Where each worker's numbers come from: `skills.local_data.local_numbers`
-    (a `LOCAL_NUMBERS` env var, comma-separated floats) - a deliberate
-    placeholder, not a permanent design choice.
+    Where each worker's data comes from: `local_matrix.load_local_matrix`
+    - the worker picks one of its own configured sources, writes its own
+    SQL against it, and returns a 2-D matrix. It is never told a path, a
+    filename or a column. This replaced the `CSV_PATH`/`local_numbers`
+    placeholder, which could only ever read one file and one column named
+    `value`.
+
+    The median is per-column: the result is a list with one median per
+    numeric column, not a single scalar.
     """
 
     name = "median"
@@ -61,7 +69,17 @@ class MedianSkill(Skill):
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         """Sort this worker's local numbers, `Map` them, and signal readiness to the coordinator."""
-        sorted_local = sorted(local_numbers())
+        # Each column is sorted independently. The median is per-column now,
+        # so a row is not a meaningful unit here - sorting whole rows by
+        # their first element (what a naive sort of a 2-D array does) would
+        # silently produce the wrong answer for every column but the first.
+        _p = request.get("params", {})
+        matrix, meta = local_matrix.load_local_matrix(
+            ctx,
+            _p.get("objective", "all available numeric measurements"),
+            columns=_p.get("columns"),
+        )
+        sorted_local = np.sort(matrix, axis=0)
 
         mapper = ctx.mapper(
             request["mapper_name"],
@@ -69,7 +87,8 @@ class MedianSkill(Skill):
                 f"Sorted local partitions for median request "
                 f"{request['request_id']}. Each worker Maps its sorted local "
                 f"list under its own agent id as key; the coordinator "
-                f"AllGathers and merges them."
+                f"AllGathers and merges them. Each partition is a 2-D "
+                f"(rows, columns) array sorted down each column."
             ),
         )
         _, map_status, map_exc = mapper.Map(sorted_local, key=ctx.agent_id)
@@ -85,7 +104,7 @@ class MedianSkill(Skill):
             "type": _READY_MSG_TYPE,
             "request_id": request["request_id"],
             "from": ctx.agent_id,
-            "count": len(sorted_local),
+            "count": int(sorted_local.shape[0]),
             "map_status": bool(map_status),
             "map_error": str(map_exc) if map_exc else None,
         })
@@ -155,21 +174,40 @@ class MedianSkill(Skill):
         if not status:
             return {"status": "error", "detail": f"AllGather failed: {exc}", "retryable": True}
 
-        partitions = list(gathered.values())
-        merged = list(heapq.merge(*partitions))
-        n = len(merged)
-
+        partitions = [np.atleast_2d(np.asarray(p, dtype=float)) for p in gathered.values()]
         mapper.clearAll()
 
+        if not partitions:
+            return {"status": "error", "detail": "no data across any worker", "retryable": True}
+
+        # Column counts must agree or the stack is meaningless - a worker
+        # offering a different number of columns is a consensus failure, not
+        # something to paper over by truncating to the narrowest. Report it
+        # as what it is so the coordinator's hint can address it.
+        widths = {p.shape[1] for p in partitions}
+        if len(widths) != 1:
+            return {
+                "status": "error",
+                "detail": (f"workers disagree on column count {sorted(widths)} - "
+                           f"reshape consensus required before median"),
+                "retryable": False,
+            }
+
+        # Row counts may differ freely (that is the point of the sprint's
+        # data), so partitions stack along rows. heapq.merge is gone: it
+        # merges 1-D sorted sequences, and there is no k-way merge that is
+        # simultaneously correct for every column of a 2-D stack. The
+        # per-column sort above is preserved within each partition; numpy
+        # re-sorts the stacked column, which is O(n log n) on data this size.
+        stacked = np.vstack(partitions)
+        n = int(stacked.shape[0])
         if n == 0:
             return {"status": "error", "detail": "no data across any worker", "retryable": True}
-        if n % 2 == 1:
-            median = merged[n // 2]
-        else:
-            median = (merged[n // 2 - 1] + merged[n // 2]) / 2
+
+        medians = np.median(stacked, axis=0)
 
         return {
             "status": "ok",
-            "result": median,
-            "detail": f"n={n} across {len(gathered)} workers",
+            "result": medians.tolist(),
+            "detail": f"n={n} rows x {stacked.shape[1]} columns across {len(gathered)} workers",
         }
