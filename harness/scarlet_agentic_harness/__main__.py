@@ -21,6 +21,7 @@ from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
+from scarlet_agentic_harness import dispatch as dispatch_mod
 from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness import reasoning
 from scarlet_agentic_harness import worker as worker_mod
@@ -240,7 +241,7 @@ def main() -> None:
                         box["result"] = result
                         done.set()
 
-                    head_mod.run_skill(skill, req.get("params", {}), config, buses, on_result)
+                    dispatch_mod.run_skill(skill, req.get("params", {}), config, buses, on_result)
                     done.wait()
                     print(json.dumps(box["result"]))
                 except Exception as exc:  # surfaced to the operator driving stdin manually

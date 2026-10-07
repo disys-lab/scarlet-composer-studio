@@ -42,7 +42,7 @@ class CreateScarletSkill(Skill):
     """
     Mint a scarlet via the same generic `Skill` dispatch mechanism as median/sum.
 
-    Invocable by *any* agent - the head (via `head.run_skill`/`converse`,
+    Invocable by *any* agent - the head (via `dispatch.run_skill`/`converse`,
     as always), or any worker acting as coordinator or contributor (via
     `HarnessContext.invoke_skill`), with no head involvement required at
     all. Any agent can dispatch "I need a shared bucket for X" as a real

@@ -26,7 +26,7 @@ from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
-from scarlet_agentic_harness.skills.create_scarlet import CreateScarletSkill
+from scarlet_agentic_harness.skills.core.create_scarlet import CreateScarletSkill
 from scarlet_agentic_harness.skills.registry import discover_skills
 from scarlet_agentic_harness import worker as worker_mod
 from tests.fakes import ScriptedLLMClient, assistant_tool_call

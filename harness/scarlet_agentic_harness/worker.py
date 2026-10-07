@@ -256,7 +256,7 @@ def start_dispatch(
 
     Notes
     -----
-    ``skill_cancel`` messages (sent by `head.run_skill` when a retry
+    ``skill_cancel`` messages (sent by `dispatch.run_skill` when a retry
     supersedes an earlier attempt) look up the matching `request_id` in
     the registry and cancel its token, if this worker is still tracking
     it - a cancel for a request that already finished, or that this

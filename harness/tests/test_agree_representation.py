@@ -1,4 +1,4 @@
-"""Tests for scarlet_agentic_harness.skills.agree_representation.
+"""Tests for scarlet_agentic_harness.skills.core.agree_representation.
 
 These tests run without Docker or Redis. They stub the bus, router, and
 dialogue to exercise the skill's agreement logic directly. The dialogue
@@ -23,7 +23,7 @@ import threading
 
 import pytest
 
-from scarlet_agentic_harness.skills.agree_representation import AgreeRepresentationSkill
+from scarlet_agentic_harness.skills.core.agree_representation import AgreeRepresentationSkill
 
 
 

@@ -1,7 +1,7 @@
 """
 CancellationToken / CancellationRegistry — worker-side tracking of
 in-flight requests, so a skill_cancel message (sent when the head
-supersedes an attempt with a retry - see head.run_skill()) can actually
+supersedes an attempt with a retry - see dispatch.run_skill()) can actually
 reach whatever's running for that request_id.
 
 A CancellationToken gives a skill two ways to notice cancellation, both

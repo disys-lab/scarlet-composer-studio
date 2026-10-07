@@ -18,7 +18,7 @@ import os
 import pytest
 
 from scarlet_agentic_harness.config import HarnessConfig
-from scarlet_agentic_harness.head import _deliberate
+from scarlet_agentic_harness.dispatch import _deliberate
 from scarlet_agentic_harness.llm.client import LLMClient
 from tests.transcript import write_transcript
 

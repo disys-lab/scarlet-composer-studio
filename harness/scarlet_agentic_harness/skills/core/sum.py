@@ -26,6 +26,7 @@ from scarlets.core.Mapper import Mapper
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.skills.base import Skill
 from scarlet_agentic_harness import local_matrix
+from scarlet_agentic_harness.skills import predicate
 
 _READY_MSG_TYPE = "sum_contribution_ready"
 _TRANSFORMS = {
@@ -34,7 +35,7 @@ _TRANSFORMS = {
 }
 
 
-class SumSkill(Skill):
+class SumCoreSkill(Skill):
     """
     The first `Federator`-backed `Skill`, and the first to accept a parameter (`transform`).
 
@@ -54,7 +55,7 @@ class SumSkill(Skill):
     sum, not what a caller does with two sums.
     """
 
-    name = "sum"
+    name = "sum_core"
     description = (
         "Compute the sum of the real numbers held privately across all "
         "currently-registered worker agents, optionally applying a transform "
@@ -90,6 +91,17 @@ class SumSkill(Skill):
                     "it has and the shapes will not aggregate."
                 ),
             },
+            "workers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Agent ids that should contribute. Omit for all of them. Use this to "
+                    "aggregate over only the workers that hold a named column, as reported "
+                    "by list_sources - a worker lacking the column would otherwise fail the "
+                    "whole call."
+                ),
+            },
+            "conditions": predicate.CONDITIONS_SCHEMA,
         },
         "required": [],
     }
@@ -110,6 +122,15 @@ class SumSkill(Skill):
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         """Sum this worker's local numbers (after `transform`), `Map` `[total, count]`, and signal readiness."""
+        # Self-filter, the same shape query_feature uses: a worker the caller
+        # did not ask for sends nothing at all, not even a "not applicable"
+        # signal. coordinate() narrows its expected set identically below -
+        # narrowing only one of the two turns a filter into a readiness
+        # timeout, which reads as a hang rather than as a filter.
+        requested = request.get("params", {}).get("workers")
+        if requested and ctx.agent_id not in requested:
+            return
+
         params = request.get("params", {})
         transform_name = params.get("transform", "identity")
         transform = _TRANSFORMS.get(transform_name, _TRANSFORMS["identity"])
@@ -121,6 +142,7 @@ class SumSkill(Skill):
             ctx,
             params.get("objective", "all available numeric measurements"),
             columns=params.get("columns"),
+            conditions=params.get("conditions"),
         )
         matrix = transform(matrix)  # elementwise: identity or square
 
@@ -169,6 +191,18 @@ class SumSkill(Skill):
             # The coordinator needs this to size the Aggregate identity
             # element; only a contributor knows how wide its matrix is.
             "ncols": int(matrix.shape[1]),
+            # How many rows this worker actually contributed. Zero is a real
+            # answer once filtering exists - "I have nothing in that window"
+            # - and it is arithmetically harmless, because a zero sum over a
+            # zero count moves neither the numerator nor the denominator.
+            #
+            # But it is invisible in the total, and the head will otherwise
+            # infer from a successful round that every worker had data.
+            # Observed exactly that: a window only one worker could answer
+            # returned the right mean, and the head reported "no workers were
+            # missing readings for this filter", which was false for three of
+            # the four. The number has to arrive with the fact.
+            "rows": int(matrix.shape[0]),
             "map_status": bool(map_status),
             "map_error": str(map_exc) if map_exc else None,
         })
@@ -195,14 +229,42 @@ class SumSkill(Skill):
             on a Map failure, missing workers, cancellation, or an
             Aggregate failure.
         """
+        # Narrowed in step with contribute()'s self-filter. The coordinator
+        # itself may legitimately be absent from this list: it still
+        # coordinates, it just contributes nothing.
+        requested = request.get("params", {}).get("workers")
+        if requested:
+            absent = [w for w in requested if w not in workers]
+            if absent:
+                # Quietly aggregating fewer workers than asked for would hand
+                # back a plausible number for a different question.
+                return {
+                    "status": "error",
+                    "detail": (f"requested workers not available: {sorted(absent)} "
+                               f"(dispatched: {sorted(workers)})"),
+                    "retryable": False,
+                }
+            workers = [w for w in workers if w in requested]
+            if not workers:
+                return {
+                    "status": "error",
+                    "detail": "requested worker list matches none of the dispatched workers",
+                    "retryable": False,
+                }
+
         ready_from: set[str] = set()
+        rows_from: dict[str, int] = {}
         ncols: set[int] = set()
         # Reported before anything has checked in, not just after the
         # first one - a check-in arriving in that early window should
         # still see "0 of N so far", not nothing at all.
         ctx.report_progress(ready_count=0, expected_count=len(workers))
-        deadline = time.time() + self.coordinate_timeout
-        while len(ready_from) < len(workers) and time.time() < deadline:
+        # Staggered rather than flat: the wait extends while workers are
+        # still reporting in, up to a hard ceiling. A filtered query adds
+        # work to every worker's path, and a flat timeout has to be either
+        # generous enough for the slowest or short enough to catch a hang.
+        still_waiting = self.staggered_deadline(len(workers))
+        while len(ready_from) < len(workers) and still_waiting(len(ready_from)):
             if ctx.cancelled.is_set():
                 # head.run_skill() already started a fresh attempt under a
                 # new request_id (see cancellation.py) - no point finishing
@@ -221,6 +283,8 @@ class SumSkill(Skill):
                         "retryable": True,
                     }
                 ready_from.add(body["from"])
+                if body.get("rows") is not None:
+                    rows_from[body["from"]] = int(body["rows"])
                 if body.get("ncols") is not None:
                     ncols.add(int(body["ncols"]))
                 ctx.report_progress(ready_count=len(ready_from), expected_count=len(workers))
@@ -280,11 +344,23 @@ class SumSkill(Skill):
         # under-reports.
         element_count = int(totals[1].max()) if totals.shape[0] > 1 else 0
         transform_name = request.get("params", {}).get("transform", "identity")
+        empty_workers = sorted(w for w, r in rows_from.items() if r == 0)
         return {
             "status": "ok",
             "result": column_sums.tolist(),
             "n": element_count,
             "columns": int(width),
+            # Named, not just counted: "worker2 and worker4 had nothing in
+            # range" is the answer to a question the total cannot express.
+            "empty_workers": empty_workers,
+            "rows_per_worker": dict(sorted(rows_from.items())),
+            # The empty workers are named in the detail, not just in a field,
+            # because the head narrates from this string. Left out, it fills
+            # the gap by inference and gets it wrong - it reported that no
+            # worker was missing readings when three of four had none.
             "detail": (f"sum(transform={transform_name}) per column over n={element_count} "
-                       f"rows x {width} columns across {len(workers)} workers"),
+                       f"rows x {width} columns across {len(workers)} workers"
+                       + (f"; {len(empty_workers)} of them matched no rows in "
+                          f"range and contributed nothing: "
+                          f"{', '.join(empty_workers)}" if empty_workers else "")),
         }

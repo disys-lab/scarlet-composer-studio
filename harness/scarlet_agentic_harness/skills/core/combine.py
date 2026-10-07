@@ -81,8 +81,17 @@ class CombineSkill(Skill):
             },
             "variables": {
                 "type": "object",
-                "description": "Name -> numeric value bindings referenced by `expression`.",
-                "additionalProperties": {"type": "number"},
+                "description": (
+                    "Name -> value bindings referenced by `expression`. A value may be a "
+                    "number or a list of numbers; lists combine elementwise, and a scalar "
+                    "broadcasts against a list. Two lists of different length is an error."
+                ),
+                "additionalProperties": {
+                    "anyOf": [
+                        {"type": "number"},
+                        {"type": "array", "items": {"type": "number"}},
+                    ]
+                },
             },
         },
         "required": ["expression", "variables"],
@@ -110,7 +119,7 @@ class CombineSkill(Skill):
         if not expression:
             # A logical/input error, not a transient one - retrying with a
             # fresh worker survey would hit the exact same error again, so
-            # this is explicitly not retryable (see head.run_skill()).
+            # this is explicitly not retryable (see dispatch.run_skill()).
             return {"status": "error", "detail": "combine requires a non-empty `expression`", "retryable": False}
         try:
             result = safe_eval(expression, variables)

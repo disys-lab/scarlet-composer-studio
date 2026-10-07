@@ -367,7 +367,7 @@ class HarnessContext:
         what makes a `Skill` invocable by *any* agent (head, a
         coordinating worker, or a contributing worker), not only by head
         via its own top-level `run_skill`/`converse` entry points:
-        `head.run_skill` has no head-specific logic in it at all - it
+        `dispatch.run_skill` is generic - it
         only ever touches whatever config/buses it's handed - so this is
         a thin synchronous wrapper around it, not a new dispatch
         mechanism. See `skills.create_scarlet` for the motivating case: a
@@ -383,16 +383,16 @@ class HarnessContext:
         timeout : float, optional
             Seconds to wait for a result before giving up. Default `60.0`.
         **run_skill_kwargs
-            Forwarded to `head.run_skill`.
+            Forwarded to `dispatch.run_skill`.
 
         Returns
         -------
         dict
-            `head.run_skill`'s result dict directly, or a synthetic
+            `dispatch.run_skill`'s result dict directly, or a synthetic
             ``{"status": "error", "retryable": True, "detail": "invoke_skill() timed out..."}``
             if no result arrives within `timeout` seconds.
         """
-        from scarlet_agentic_harness import head as head_mod
+        from scarlet_agentic_harness import dispatch as dispatch_mod
 
         done = threading.Event()
         box: dict = {}
@@ -401,7 +401,7 @@ class HarnessContext:
             box["result"] = result
             done.set()
 
-        head_mod.run_skill(skill, params, self.config, self.buses, on_result, **run_skill_kwargs)
+        dispatch_mod.run_skill(skill, params, self.config, self.buses, on_result, **run_skill_kwargs)
         if not done.wait(timeout=timeout):
             return {
                 "status": "error",

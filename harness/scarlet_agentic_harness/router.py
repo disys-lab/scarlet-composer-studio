@@ -43,7 +43,7 @@ and for the same reason: the polling thread must never do slow work, or it
 stalls delivery to every other key on this bus). One-shot per
 registration - call on_key() again inside the callback to keep watching.
 This is what lets a caller wait for a reply without occupying a thread for
-the whole wait: head.run_skill()'s async form registers a callback and
+the whole wait: dispatch.run_skill()'s async form registers a callback and
 returns, rather than blocking in _wait_for_result().
 
 on_key() also takes an optional timeout/on_timeout pair, backed by

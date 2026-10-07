@@ -18,7 +18,7 @@ import time
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
-from scarlet_agentic_harness.skills.median import MedianSkill
+from scarlet_agentic_harness.skills.core.median import MedianSkill
 from scarlet_agentic_harness import worker as worker_mod
 from tests.helpers import APP_ID
 

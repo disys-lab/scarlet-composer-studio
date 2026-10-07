@@ -1,4 +1,4 @@
-"""Tests for scarlet_agentic_harness.skills.list_sources.
+"""Tests for scarlet_agentic_harness.skills.core.list_sources.
 
 These tests run without Docker or Redis. They stub the bus, router, and
 context to exercise the skill's source-listing logic directly. The tests
@@ -8,7 +8,7 @@ workers, and error cases for missing responses.
 """
 import pytest
 
-from scarlet_agentic_harness.skills.list_sources import ListSourcesSkill
+from scarlet_agentic_harness.skills.core.list_sources import ListSourcesSkill
 
 
 class Router:

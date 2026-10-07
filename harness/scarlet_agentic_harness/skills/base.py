@@ -25,6 +25,7 @@ implementation never talks to Messenger's routing machinery directly:
     that dict becomes (or is folded into) the skill_result message sent back
     to the head.
 """
+from dataclasses import dataclass, field
 import random
 from abc import ABC, abstractmethod
 
@@ -66,6 +67,68 @@ class Skill(ABC):
     description: str = ""
     parameters: dict = {"type": "object", "properties": {}, "required": []}
     coordinate_timeout: float = 15.0
+    stagger_extension: float = 10.0
+    stagger_ceiling: float = 45.0
+
+    def staggered_deadline(self, expected: int):
+        """
+        A deadline that extends while the fleet is still answering.
+
+        A flat `coordinate_timeout` has to be either generous enough for
+        the slowest plausible worker or short enough to notice a hang, and
+        it cannot be both. Row filtering widened that gap: a filtered query
+        adds a profile lookup and a clause build to every worker's path,
+        and a worker scanning a large table for a narrow window can take
+        noticeably longer than one reading everything.
+
+        So the wait is staggered rather than flat. It starts at
+        `coordinate_timeout`, and every time another worker reports in, the
+        deadline moves out by `stagger_extension` - but never past
+        `stagger_ceiling` seconds from the start. A fleet that is still
+        making progress is given more time; one that has gone quiet is not,
+        and a genuinely wedged worker still fails at the ceiling instead of
+        hanging forever.
+
+        Parameters
+        ----------
+        expected : int
+            How many contributions completion requires. Only used to stop
+            extending once everyone has answered.
+
+        Returns
+        -------
+        callable
+            ``progress(count) -> bool``. Call it with the number of
+            contributions received so far; it returns True while there is
+            still time left, having first extended the deadline if `count`
+            grew since the last call.
+        """
+        import time as _time
+
+        started = _time.time()
+        state = {"deadline": started + self.coordinate_timeout, "seen": 0}
+        ceiling = started + self.stagger_ceiling
+
+        def progress(count: int) -> bool:
+            if count > state["seen"]:
+                state["seen"] = count
+                if count < expected:
+                    # Someone answered and we are not done - buy more time.
+                    #
+                    # max() against the current deadline is load-bearing: a
+                    # worker replying early must never move the deadline
+                    # *earlier* than it already was. Written as a bare
+                    # min(ceiling, now + extension) it did exactly that - a
+                    # reply at t=1s pulled a 15s deadline back to 11s - which
+                    # produced spurious timeouts, retries, and a notebook that
+                    # ran until the cell limit killed it. The deadline only
+                    # ever moves outward, and never past the ceiling.
+                    state["deadline"] = min(
+                        ceiling,
+                        max(state["deadline"], _time.time() + self.stagger_extension))
+            return _time.time() < state["deadline"]
+
+        return progress
 
     def coordinator_for(self, ctx: HarnessContext, workers: list[str]) -> str:
         """
@@ -204,3 +267,71 @@ class Skill(ABC):
                 "parameters": self.parameters,
             },
         }
+
+@dataclass
+class Step:
+    """
+    One step in a `CompoundSkill`'s plan.
+
+    Parameters
+    ----------
+    skill : str
+        Name of the skill to run, as registered.
+    params : dict
+        Overlaid on the ambient namespace for this step only. Any string of
+        the form ``"$name"`` is replaced with ``ns["name"]`` before dispatch,
+        recursively, including inside nested dicts - which is what lets a
+        step pass a literal and a computed value in the same call.
+    produces : dict
+        ``{namespace_var: result_field}``. After the step succeeds, each
+        named field of its result is bound to that namespace variable. A
+        step with an empty `produces` is a check rather than a producer, and
+        is never skipped.
+    """
+
+    skill: str
+    params: dict = field(default_factory=dict)
+    produces: dict = field(default_factory=dict)
+
+
+class CompoundSkill(Skill):
+    """
+    A skill whose body is a plan over other skills, not a contribute/coordinate pair.
+
+    A compound is never dispatched to workers - no worker advertises it as a
+    capability. It is executed by the plan runner, which drives `run_skill`
+    once per step over a shared namespace seeded from the caller's params.
+
+    Subclasses declare `plan` and `returns` instead of implementing
+    `contribute`/`coordinate`; both inherited methods raise, because reaching
+    them means a compound was dispatched, which is a routing bug rather than
+    a skill error.
+
+    Attributes
+    ----------
+    plan : list of Step
+        Executed in order.
+    returns : str or dict
+        A namespace variable name, or ``{output_field: namespace_var}`` when
+        more than one value must come back. The mapping form matters: a
+        compound wrapping a skill whose callers read several fields must
+        expose all of them, or it silently hands back less than the skill it
+        replaced.
+    """
+
+    plan: list = []
+    returns = "result"
+
+    def contribute(self, ctx, request):
+        """Never called - a compound is executed by the plan runner, not dispatched."""
+        raise RuntimeError(
+            f"{self.name!r} is a compound skill and was dispatched to a worker. "
+            f"run_skill must branch to the plan runner before resolving workers."
+        )
+
+    def coordinate(self, ctx, request, workers):
+        """Never called - see `contribute`."""
+        raise RuntimeError(
+            f"{self.name!r} is a compound skill and was dispatched to a worker. "
+            f"run_skill must branch to the plan runner before resolving workers."
+        )

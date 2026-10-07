@@ -10,6 +10,8 @@ if the set of local sources changes after boot, `refresh_if_stale()` can
 rebuild the profiles in place to prevent mismatches between the worker's
 cached view and the current configuration.
 """
+import datetime as _dt
+
 from scarlets.utils.RedisLogger import RedisLogger
 from scarlet_agentic_harness import local_config
 
@@ -30,10 +32,17 @@ def profile_sources() -> dict:
     dict
         Mapping of source name to profile dict with keys:
         - "rows": int
-        - "columns": list of {"name": str, "numeric": bool, "nulls": int}
+        - "columns": list of {"name": str, "numeric": bool,
+          "temporal": bool, "format": str or None, "nulls": int}
         - "numeric_columns": list of str
+        - "temporal_columns": list of str
         - "shape": [rows, numeric_column_count]
         - "description": str (empty if absent in config)
+
+    "numeric_columns" and "temporal_columns" are disjoint, and they serve
+    different purposes: only numeric columns can be aggregated, because
+    the matrix conversion floats every value, but any column may be
+    filtered on.
     """
     profiles = {}
     for entry in local_config.load_local_config():
@@ -76,12 +85,22 @@ def profile_sources() -> dict:
             sample_rows = sample_result.get("rows", [])
             sample_columns = sample_result.get("columns", [])
 
-            # Determine which columns are numeric
+            # Determine which columns are numeric, and - only for those that
+            # are not - which are temporal. The two are mutually exclusive by
+            # construction: numeric needs float() to succeed, temporal needs a
+            # string that parses as ISO-8601 or an already-parsed date object,
+            # and no value satisfies both.
             numeric_columns = []
+            temporal_columns = []
+            temporal_formats = {}
             for col_idx, col_name in enumerate(sample_columns):
-                is_numeric = _is_numeric_column(sample_rows, col_idx)
-                if is_numeric:
+                if _is_numeric_column(sample_rows, col_idx):
                     numeric_columns.append(col_name)
+                    continue
+                fmt = _temporal_format(sample_rows, col_idx)
+                if fmt is not None:
+                    temporal_columns.append(col_name)
+                    temporal_formats[col_name] = fmt
 
             # Build column metadata
             columns = []
@@ -91,6 +110,8 @@ def profile_sources() -> dict:
                 columns.append({
                     "name": col_name,
                     "numeric": col_name in numeric_columns,
+                    "temporal": col_name in temporal_columns,
+                    "format": temporal_formats.get(col_name),
                     "nulls": nulls
                 })
 
@@ -99,6 +120,7 @@ def profile_sources() -> dict:
                 "rows": int(total_rows) if total_rows is not None else 0,
                 "columns": columns,
                 "numeric_columns": numeric_columns,
+                "temporal_columns": temporal_columns,
                 "shape": [
                     int(total_rows) if total_rows is not None else 0,
                     len(numeric_columns)
@@ -153,6 +175,114 @@ def _is_numeric_column(rows, col_idx):
         for row in rows if col_idx < len(row)
     )
     return has_non_null
+
+
+def _temporal_format(rows, col_idx):
+    """
+    Detect whether a column holds timestamps, and in what form.
+
+    ISO is recognised directly. A non-ISO column is accepted only when
+    exactly one known pattern parses every sampled value, and the pattern
+    itself is returned - that is what lets each worker cast its own column
+    to the one logical instant the fleet agreed on, whatever shape it
+    stores dates in.
+
+    Ambiguity is refused rather than guessed. "03/01/2025" parses under
+    both ``%m/%d/%Y`` and ``%d/%m/%Y``, and nothing in the data says which
+    was meant; picking one shifts the whole series by months without ever
+    erroring. An ambiguous column stays untyped, and `build_where` then
+    refuses to filter on it.
+
+    Never falls back to comparing dates as strings: lexicographic order
+    agrees with chronological order for ISO and for nothing else, so
+    ``'03/01/2025' >= '01/15/2026'`` is True - wrong by a year, and silent.
+
+    Called only for columns `_is_numeric_column` already rejected, so the
+    two classifications cannot both be true.
+
+    Parameters
+    ----------
+    rows : list of list
+        Sample rows from the data.
+    col_idx : int
+        Index of the column to test.
+
+    Returns
+    -------
+    str or None
+        ``"native"`` when the connector returned date/datetime objects,
+        ``"iso"`` when every sampled value is an ISO-8601 string, a
+        `strptime` pattern when exactly one known non-ISO format fits every
+        value, and `None` when the column is not temporal, is ambiguous, or
+        the sample was all null.
+    """
+    kind = None
+    seen = 0
+    non_iso = []
+    for row in rows:
+        if col_idx >= len(row):
+            return None
+        val = row[col_idx]
+        if val is None or val == "":
+            continue
+        if isinstance(val, (_dt.datetime, _dt.date)):
+            this = "native"
+        elif isinstance(val, str):
+            probe = val[:-1] + "+00:00" if val.endswith("Z") else val
+            try:
+                _dt.datetime.fromisoformat(probe)
+                this = "iso"
+            except ValueError:
+                this = None  # resolved after the loop, against the whole sample
+                non_iso.append(val)
+        else:
+            return None
+        if this is None:
+            continue
+        if kind is not None and this != kind:
+            return None
+        kind = this
+        seen += 1
+
+    # Non-ISO strings are only accepted if ONE known pattern parses every
+    # sampled value. Several patterns matching means the column is genuinely
+    # ambiguous - "03/01/2025" is March 1st or January 3rd depending on the
+    # convention, and nothing in the data says which. Guessing shifts the
+    # whole series by months without erroring, so an ambiguous column stays
+    # untyped and the predicate builder refuses to filter on it.
+    if non_iso:
+        if kind is not None:
+            return None  # mixed ISO and non-ISO in one column
+        matched = [f for f in _KNOWN_DATE_FORMATS
+                   if all(_parses(v, f) for v in non_iso)]
+        if len(matched) != 1:
+            return None
+        return matched[0]
+
+    return kind if seen else None
+
+
+# Tried in order, and only used when exactly one of them parses every sampled
+# value. Deliberately short: each addition is another chance for two patterns
+# to both match and make a column ambiguous.
+_KNOWN_DATE_FORMATS = (
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+    "%m/%d/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M:%S",
+    "%d-%m-%Y",
+    "%d.%m.%Y",
+    "%Y%m%d",
+)
+
+
+def _parses(value: str, fmt: str) -> bool:
+    """True if `value` parses cleanly under `fmt`."""
+    try:
+        _dt.datetime.strptime(value, fmt)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def render_profile_markdown(profiles: dict) -> str:

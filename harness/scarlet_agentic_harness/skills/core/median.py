@@ -23,6 +23,7 @@ import time
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.skills.base import Skill
 from scarlet_agentic_harness import local_matrix
+from scarlet_agentic_harness.skills import predicate
 
 _READY_MSG_TYPE = "median_contribution_ready"
 
@@ -57,6 +58,41 @@ class MedianSkill(Skill):
         "unordered local list; this skill coordinates sorting, exchange, and "
         "merge across workers and returns a single global median value."
     )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "objective": {
+                "type": "string",
+                "description": (
+                    "A plain-language statement of what measurements are wanted. Do NOT "
+                    "name a data source, a file or a column - each worker knows its own "
+                    "data and selects and queries it locally."
+                ),
+            },
+            "columns": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "The exact column list every worker should read, as returned by the "
+                    "agree_representation skill. Pass this whenever workers may hold "
+                    "different columns."
+                ),
+            },
+            "workers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Agent ids that should contribute. Omit for all of them. Use this to "
+                    "aggregate over only the workers that hold a named column, as reported "
+                    "by list_sources - a worker lacking the column would otherwise fail the "
+                    "whole call."
+                ),
+            },
+            "conditions": predicate.CONDITIONS_SCHEMA,
+        },
+        "required": [],
+    }
+
     coordinate_timeout = 15.0
 
     # No coordinator_for() override needed - Skill's base default (a
@@ -69,6 +105,15 @@ class MedianSkill(Skill):
 
     def contribute(self, ctx: HarnessContext, request: dict) -> None:
         """Sort this worker's local numbers, `Map` them, and signal readiness to the coordinator."""
+        # Self-filter, the same shape query_feature uses: a worker the caller
+        # did not ask for sends nothing at all, not even a "not applicable"
+        # signal. coordinate() narrows its expected set identically below -
+        # narrowing only one of the two turns a filter into a readiness
+        # timeout, which reads as a hang rather than as a filter.
+        requested = request.get("params", {}).get("workers")
+        if requested and ctx.agent_id not in requested:
+            return
+
         # Each column is sorted independently. The median is per-column now,
         # so a row is not a meaningful unit here - sorting whole rows by
         # their first element (what a naive sort of a 2-D array does) would
@@ -78,6 +123,7 @@ class MedianSkill(Skill):
             ctx,
             _p.get("objective", "all available numeric measurements"),
             columns=_p.get("columns"),
+            conditions=_p.get("conditions"),
         )
         sorted_local = np.sort(matrix, axis=0)
 
@@ -131,15 +177,42 @@ class MedianSkill(Skill):
             on a Map failure, missing workers, cancellation, or an
             AllGather failure.
         """
+        # Narrowed in step with contribute()'s self-filter. The coordinator
+        # itself may legitimately be absent from this list: it still
+        # coordinates, it just contributes nothing.
+        requested = request.get("params", {}).get("workers")
+        if requested:
+            absent = [w for w in requested if w not in workers]
+            if absent:
+                # Quietly aggregating fewer workers than asked for would hand
+                # back a plausible number for a different question.
+                return {
+                    "status": "error",
+                    "detail": (f"requested workers not available: {sorted(absent)} "
+                               f"(dispatched: {sorted(workers)})"),
+                    "retryable": False,
+                }
+            workers = [w for w in workers if w in requested]
+            if not workers:
+                return {
+                    "status": "error",
+                    "detail": "requested worker list matches none of the dispatched workers",
+                    "retryable": False,
+                }
+
         ready_from: set[str] = set()
         # Reported before anything has checked in, not just after the
         # first one - a check-in arriving in that early window should
         # still see "0 of N so far", not nothing at all.
         ctx.report_progress(ready_count=0, expected_count=len(workers))
-        deadline = time.time() + self.coordinate_timeout
-        while len(ready_from) < len(workers) and time.time() < deadline:
+        # Staggered rather than flat: the wait extends while workers are
+        # still reporting in, up to a hard ceiling. A filtered query adds
+        # work to every worker's path, and a flat timeout has to be either
+        # generous enough for the slowest or short enough to catch a hang.
+        still_waiting = self.staggered_deadline(len(workers))
+        while len(ready_from) < len(workers) and still_waiting(len(ready_from)):
             if ctx.cancelled.is_set():
-                # head.run_skill() already started a fresh attempt under a
+                # dispatch.run_skill() already started a fresh attempt under a
                 # new request_id (see cancellation.py) - no point finishing
                 # this one, nothing is waiting on its answer anymore.
                 return {"status": "error", "detail": "cancelled", "retryable": False}

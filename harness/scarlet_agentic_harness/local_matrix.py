@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import data_profile
+from scarlet_agentic_harness.skills import predicate
 from scarlets.utils.RedisLogger import RedisLogger
 
 
@@ -224,7 +225,8 @@ def _validate_sql(query: str) -> str:
     return query
 
 
-def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> tuple:
+def load_local_matrix(ctx: Any, objective: str, columns: list | None = None,
+                      conditions: list | None = None) -> tuple:
     """
     Load a 2-D numeric matrix from the worker's local data.
 
@@ -240,6 +242,16 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> 
         The harness context.
     objective : str
         The worker's objective text.
+    columns : list of str or None, optional
+        The agreed column list. When given, the SELECT list is built from
+        it rather than generated, so every worker returns the same columns
+        in the same order.
+    conditions : list of dict or None, optional
+        Structured row filter, each ``{"column", "op", "value"}``, combined
+        with AND by `skills.predicate.build_where`. Settled once by the
+        caller and passed to every worker unchanged - a predicate applied
+        by some workers and not others silently answers a different
+        question. `None` or empty reads every row.
 
     Returns
     -------
@@ -247,12 +259,21 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> 
         `(matrix, meta)` where:
         - matrix: 2-D numpy array of float64, shape (rows, cols)
         - meta: dict with keys "source", "sql", "columns", "rows_returned",
-          "rows_dropped", "shape"
+          "rows_dropped", "shape", "rows_matched", "filtered"
+
+        `rows_matched` is how many rows the filter admitted before
+        conversion. A worker that matched nothing returns an empty matrix
+        with ``rows_matched == 0`` rather than raising - see below.
 
     Raises
     ------
     ValueError
-        If choose_source returns None, or if no rows survive conversion.
+        If choose_source returns None, if the filter names a column this
+        worker does not have, or if rows were matched but none survived
+        conversion to float. Matching no rows at all is NOT an error: an
+        empty window is an ordinary outcome once filtering exists, and the
+        caller needs to tell "nothing in range here" apart from "this
+        worker is broken".
     """
     # Profiles are built once at boot, but local_config re-reads the file on
     # every call - so a config rewritten underneath a running worker (which
@@ -287,6 +308,21 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> 
     else:
         sql = generate_sql(ctx, source_name, objective)
 
+    # The filter is appended after the SELECT is settled, by the same code
+    # on every worker, from conditions the caller fixed once. The LLM never
+    # writes this clause - see skills.predicate for why that matters.
+    #
+    # The columns we may filter on are not the columns we may aggregate.
+    # Aggregation is numeric-only because _convert_to_matrix floats every
+    # value, but a time window filters on a timestamp, which is never
+    # numeric. So this validates against the profile's full column list,
+    # not against `columns` above.
+    where = ""
+    if conditions:
+        profile = ctx.data_profiles.get(source_name) or {}
+        where = predicate.build_where(conditions, profile)
+        sql = sql + where
+
     entry = local_config.find_source(source_name)
     if entry is None:
         raise ValueError(f"source {source_name!r} not found in local config")
@@ -302,7 +338,17 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> 
     # Convert to numpy array with explicit row-dropping rules
     matrix, rows_dropped = _convert_to_matrix(rows, len(columns))
 
-    if matrix.shape[0] == 0:
+    # Two different empties, and conflating them hides a real failure.
+    #
+    # The filter matching nothing is an ordinary outcome once row filtering
+    # exists - a window this worker simply has no readings for. It returns
+    # an empty matrix and lets the caller see rows_matched == 0, so an
+    # empty window reads as "nothing here" rather than as a broken worker,
+    # and never contributes a silent zero to an average.
+    #
+    # Rows coming back that then all fail conversion is still an error:
+    # the worker matched data it cannot turn into numbers.
+    if matrix.shape[0] == 0 and rows:
         raise ValueError(
             f"no rows survived conversion for source {source_name!r} "
             f"with query {sql!r}"
@@ -314,6 +360,9 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None) -> 
         "columns": columns,
         "rows_returned": matrix.shape[0],
         "rows_dropped": rows_dropped,
+        "rows_matched": len(rows),
+        "filtered": bool(where),
+        "where": where,
         "sql_source": "agreed_columns" if columns else "llm",
         "shape": matrix.shape,
     }
