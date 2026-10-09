@@ -95,16 +95,33 @@ def choose_source(ctx: Any, objective: str) -> str | None:
     return _fallback_source(profiles)
 
 
+def _source_rank(profile: dict, name: str) -> tuple:
+    """
+    Sort key for picking a source: most numeric columns, then most rows, then name.
+
+    Name breaks the tie last so the choice is stable across workers and
+    runs rather than depending on dict ordering.
+
+    Parameters
+    ----------
+    profile : dict
+        One entry from `data_profile.profile_sources`.
+    name : str
+        The source name, used only as the final tie-break.
+
+    Returns
+    -------
+    tuple
+        Ascending sort key; the counts are negated so larger sorts first.
+    """
+    return (-len(profile.get("numeric_columns") or []),
+            -profile.get("rows", 0),
+            name)
+
+
 def _fallback_source(profiles: dict) -> str:
     """Return the source with most numeric columns, tie-break by rows, then name."""
-    # Sort key: (-numeric_columns count, -rows, name)
-    def sort_key(name: str) -> tuple:
-        profile = profiles[name]
-        num_cols = len(profile.get("numeric_columns") or [])
-        rows = profile.get("rows", 0)
-        return (-num_cols, -rows, name)
-
-    return sorted(profiles.keys(), key=sort_key)[0]
+    return sorted(profiles, key=lambda n: _source_rank(profiles[n], n))[0]
 
 
 def generate_sql(ctx: Any, source_name: str, objective: str) -> str:
@@ -292,17 +309,15 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None,
         )
 
     if columns:
-        # A consensus round has already agreed exactly which columns every
-        # worker will contribute, so the query is fully determined and is
-        # built here rather than generated. This is still worker-local - the
-        # head never named these columns, the workers agreed them among
-        # themselves - but spending an LLM call to re-derive a list we were
-        # just handed would only add latency and a chance to deviate from
-        # the agreement, which would break aggregation.
+        # Consensus already agreed these columns, so the query is fully
+        # determined and built here rather than generated. Still
+        # worker-local: the head never named them, the workers agreed them.
+        # An LLM call to re-derive a list we were just handed would only add
+        # latency and a chance to deviate, which breaks aggregation.
         #
-        # Column order follows the agreed list, not the file's own order, so
-        # every worker's matrix has the same column in the same position.
-        # Without that, the sums would align by accident at best.
+        # Column order follows the agreed list, not the file's, so the same
+        # column sits at the same index on every worker. Without that the
+        # sums would align only by accident.
         quoted = ", ".join('"' + c.replace('"', '""') + '"' for c in columns)
         sql = _validate_sql(f"SELECT {quoted} FROM data")
     else:
@@ -338,15 +353,14 @@ def load_local_matrix(ctx: Any, objective: str, columns: list | None = None,
     # Convert to numpy array with explicit row-dropping rules
     matrix, rows_dropped = _convert_to_matrix(rows, len(columns))
 
-    # Two different empties, and conflating them hides a real failure.
+    # Two different empties; conflating them hides a real failure.
     #
-    # The filter matching nothing is an ordinary outcome once row filtering
-    # exists - a window this worker simply has no readings for. It returns
-    # an empty matrix and lets the caller see rows_matched == 0, so an
-    # empty window reads as "nothing here" rather than as a broken worker,
-    # and never contributes a silent zero to an average.
+    # Matching no rows is ordinary - a window this worker has no readings
+    # for. It returns an empty matrix with rows_matched == 0, so the caller
+    # reads "nothing here" rather than "broken worker", and no silent zero
+    # enters an average.
     #
-    # Rows coming back that then all fail conversion is still an error:
+    # Rows that come back and then all fail conversion is still an error:
     # the worker matched data it cannot turn into numbers.
     if matrix.shape[0] == 0 and rows:
         raise ValueError(

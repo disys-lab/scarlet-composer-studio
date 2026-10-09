@@ -119,12 +119,31 @@ class MedianSkill(Skill):
         # their first element (what a naive sort of a 2-D array does) would
         # silently produce the wrong answer for every column but the first.
         _p = request.get("params", {})
-        matrix, meta = local_matrix.load_local_matrix(
-            ctx,
-            _p.get("objective", "all available numeric measurements"),
-            columns=_p.get("columns"),
-            conditions=_p.get("conditions"),
-        )
+        # Guarded like the Map below: an unguarded raise reports the round as
+        # permanently failed, which is wrong for a dropped connector
+        # connection. ValueError is ours and will fail the same way next
+        # time; anything else came from the connector and is worth a retry.
+        try:
+            matrix, meta = local_matrix.load_local_matrix(
+                ctx,
+                _p.get("objective", "all available numeric measurements"),
+                columns=_p.get("columns"),
+                conditions=_p.get("conditions"),
+            )
+        except Exception as exc:
+            ctx.buses.local_bus.Send(request["coordinator"], {
+                "type": _READY_MSG_TYPE,
+                "request_id": request["request_id"],
+                "from": ctx.agent_id,
+                "count": 0,
+                "read_status": False,
+                "read_error": f"{type(exc).__name__}: {exc}",
+                "read_retryable": not isinstance(exc, ValueError),
+                "map_status": False,
+                "map_error": None,
+            })
+            return
+
         sorted_local = np.sort(matrix, axis=0)
 
         mapper = ctx.mapper(
@@ -151,6 +170,9 @@ class MedianSkill(Skill):
             "request_id": request["request_id"],
             "from": ctx.agent_id,
             "count": int(sorted_local.shape[0]),
+            "read_status": True,
+            "read_error": None,
+            "read_retryable": False,
             "map_status": bool(map_status),
             "map_error": str(map_exc) if map_exc else None,
         })
@@ -209,8 +231,8 @@ class MedianSkill(Skill):
         # still reporting in, up to a hard ceiling. A filtered query adds
         # work to every worker's path, and a flat timeout has to be either
         # generous enough for the slowest or short enough to catch a hang.
-        still_waiting = self.staggered_deadline(len(workers))
-        while len(ready_from) < len(workers) and still_waiting(len(ready_from)):
+        deadline = self.staggered_deadline(len(workers))
+        while len(ready_from) < len(workers) and deadline.still_waiting(len(ready_from)):
             if ctx.cancelled.is_set():
                 # dispatch.run_skill() already started a fresh attempt under a
                 # new request_id (see cancellation.py) - no point finishing
@@ -221,6 +243,13 @@ class MedianSkill(Skill):
                 continue
             body = msg.get("body", {})
             if body.get("type") == _READY_MSG_TYPE:
+                if body.get("read_status") is False:
+                    return {
+                        "status": "error",
+                        "detail": (f"worker {body.get('from')} could not read "
+                                   f"its data: {body.get('read_error')}"),
+                        "retryable": bool(body.get("read_retryable", False)),
+                    }
                 if body.get("map_status") is False:
                     return {
                         "status": "error",

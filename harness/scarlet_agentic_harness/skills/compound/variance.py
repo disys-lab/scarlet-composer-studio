@@ -25,10 +25,15 @@ class VarianceSkill(CompoundSkill):
 
     name = "variance"
     description = (
-        "Per-column population variance of measurements held across worker agents. "
-        "Agrees which columns every worker can contribute, then composes the "
-        "variance from a mean and a sum of squares. Pass `columns` to skip the "
-        "agreement step; pass `workers` to compute over a subset."
+        "Per-column POPULATION variance (ddof=0) of measurements held across "
+        "worker agents. Agrees which columns every worker can contribute, then "
+        "composes the variance from a mean and a sum of squares. Pass "
+        "`columns` to skip the agreement step; pass `workers` to compute over "
+        "a subset. "
+        "A hypothesis test about a variance - chi-squared for a variance, or "
+        "an F-test - is defined on the SAMPLE variance, so multiply this by "
+        "n/(n-1) first. Skipping that step gave a chi-squared statistic of "
+        "35.4046 where the correct value was 35.7659."
     )
     parameters = {
         "type": "object",

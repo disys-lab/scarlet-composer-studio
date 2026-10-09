@@ -26,7 +26,7 @@ on the Agents page after a process restart.
 """
 import os
 import socket
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from scarlets.utils.RedisLogger import RedisLogger
 
@@ -156,6 +156,10 @@ class HarnessConfig:
         still be constructible and testable without one.
     llm_api_key : str or None
     llm_model : str or None
+    llm_timeout : float
+        Seconds to wait for one chat completion. Default 60.0.
+    llm_max_retries : int
+        Attempts the OpenAI client makes per call. Default 2.
     timeout_scan_interval : float
         Seconds between `MessageRouter`'s `TimeoutWatcher` deadline
         scans. Default `0.5`.
@@ -203,6 +207,8 @@ class HarnessConfig:
     llm_base_url: str | None
     llm_api_key: str | None
     llm_model: str | None
+    llm_timeout: float = 60.0
+    llm_max_retries: int = 2
 
     # Timing/retry knobs, all with defaults matching what run_skill()/
     # Buses/MessageRouter already defaulted to before these existed -
@@ -228,16 +234,13 @@ class HarnessConfig:
     # minutes of real work has already succeeded.
     converse_max_turns: int = 30
 
-    # This agent's own Nebula identity + where to find composer-api - only
-    # needed by a worker that calls ctx.query_data_source() (see context.py).
-    # Not auto-populated for a plain Gustavo "app" deployment (Gustavo
-    # deliberately doesn't inject Nebula credentials into app env_vars, to
-    # avoid credential sprawl - see gustavo/api/routers/apps.py), so this is
-    # a required manual env var for any worker that needs data-source
-    # access, same operational step as setting REDIS_HOST etc. today. None
-    # (the default) means "this worker never calls query_data_source()" -
-    # that call raises clearly rather than silently no-op'ing, same
-    # convention as mint_scarlet() and its llm_client check.
+    # Nebula identity plus where to find composer-api. Only a worker that
+    # calls ctx.query_data_source() needs these.
+    #
+    # Gustavo does not inject Nebula credentials into app env_vars (to avoid
+    # credential sprawl), so these are set manually, like REDIS_HOST. The
+    # default None means this worker never calls query_data_source(); that
+    # call then raises clearly rather than silently doing nothing.
     nebula_username: str | None = None
     nebula_secret: str | None = None
     composer_api_url: str | None = None
@@ -250,24 +253,16 @@ class HarnessConfig:
     # reflected on the Agents page until the process restarts.
     data_source_refresh_interval: float = 300.0
 
-    # The shared Mapper every agent publishes in-flight activity to (see
-    # observability.py). Same override-or-derive shape as device_group and
-    # head_bus above; the only difference is that those two are required
-    # fields resolved in from_env(), while this one is defaulted and
-    # resolved in __post_init__ instead, so the existing direct
-    # HarnessConfig(...) constructions across the test suite keep working
-    # without having to pass it.
+    # The shared Mapper every agent publishes in-flight activity to.
+    # Resolved here rather than in from_env() so existing direct
+    # HarnessConfig(...) constructions keep working without passing it.
     #
-    # Setting this explicitly matters wherever app_id is not under your
-    # control. Gustavo overwrites APP_ID with the app's own name (see
-    # gustavo/api/routers/apps.py), so a fleet whose agents are separate
-    # Gustavo apps derives a different mapper name per app and fragments
-    # into one mapper each. That alone loses nothing - every agent
-    # advertises its own mapper name in its status record (see
-    # __main__.py's report_status calls), so a reader gathering the union
-    # still sees the whole fleet - but observability.snapshot() takes a
-    # single Mapper, so anything written against that signature would see
-    # only the agents sharing one name.
+    # Set it explicitly wherever app_id is not under your control. Gustavo
+    # overwrites APP_ID with the app's own name, so a fleet of separate
+    # Gustavo apps derives a different mapper per app. Nothing is lost on
+    # its own - each agent advertises its mapper name in its status record
+    # - but observability.snapshot() takes a single Mapper, so a reader
+    # using it would see only the agents sharing one name.
     activity_mapper: str | None = None
 
     def __post_init__(self):
@@ -348,6 +343,8 @@ class HarnessConfig:
             llm_base_url=_env("LLM_BASE_URL"),
             llm_api_key=_env("LLM_API_KEY"),
             llm_model=_env("LLM_MODEL"),
+            llm_timeout=float(os.environ.get("LLM_TIMEOUT", "60")),
+            llm_max_retries=int(os.environ.get("LLM_MAX_RETRIES", "2")),
             # float()/int() raise ValueError on a malformed override - fail
             # loud on bad config, same as ROLE's validation above, rather
             # than silently falling back.

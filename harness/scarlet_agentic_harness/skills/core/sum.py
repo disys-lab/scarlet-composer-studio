@@ -57,12 +57,15 @@ class SumCoreSkill(Skill):
 
     name = "sum_core"
     description = (
-        "Compute the sum of the real numbers held privately across all "
-        "currently-registered worker agents, optionally applying a transform "
-        "to each value first. Also returns n, the number of contributing "
-        "workers. Composable: Sigma(x) via transform=identity and Sigma(x^2) "
-        "via transform=square, together with n, are enough to derive mean, "
-        "variance, and standard deviation without a dedicated skill for each."
+        "LOW-LEVEL BUILDING BLOCK. Prefer a dedicated skill if one exists for "
+        "what you are computing - mean, variance, rms, z_test, chi2_test and "
+        "f_test all call this internally and handle the column agreement and "
+        "the arithmetic for you. Reach for sum_core directly only when no "
+        "dedicated skill fits. "
+        "Sums the real numbers held privately across all currently-registered "
+        "worker agents, optionally applying a transform first. Returns the "
+        "per-column sums and n, the element count behind them. Sigma(x) via "
+        "transform=identity, Sigma(x^2) via transform=square."
     )
     parameters = {
         "type": "object",
@@ -138,42 +141,56 @@ class SumCoreSkill(Skill):
         # The head states an objective; this worker decides for itself which
         # of its own sources answers it and writes its own SQL. Nothing here
         # is told a path, a filename or a column - see local_matrix.
-        matrix, meta = local_matrix.load_local_matrix(
-            ctx,
-            params.get("objective", "all available numeric measurements"),
-            columns=params.get("columns"),
-            conditions=params.get("conditions"),
-        )
+        # Reading the data is guarded the same way the Map below is, and for
+        # the same reason: letting it raise reports the round as permanently
+        # failed. That is right for a bad column, and wrong for a dropped
+        # database connection - a CSV read rarely fails transiently, but a
+        # Postgres/Influx/PI one does, and the head would give up on a round
+        # a second attempt would have completed.
+        #
+        # ValueError is ours - a missing source, an unknown filter column, no
+        # rows convertible - and will fail identically next time. Anything
+        # else came from the connector and is worth one retry.
+        try:
+            matrix, meta = local_matrix.load_local_matrix(
+                ctx,
+                params.get("objective", "all available numeric measurements"),
+                columns=params.get("columns"),
+                conditions=params.get("conditions"),
+            )
+        except Exception as exc:
+            ctx.buses.local_bus.Send(request["coordinator"], {
+                "type": _READY_MSG_TYPE,
+                "request_id": request["request_id"],
+                "from": ctx.agent_id,
+                "ncols": 0,
+                "rows": 0,
+                "read_status": False,
+                "read_error": f"{type(exc).__name__}: {exc}",
+                "read_retryable": not isinstance(exc, ValueError),
+                "map_status": False,
+                "map_error": None,
+            })
+            return
+
         matrix = transform(matrix)  # elementwise: identity or square
 
-        # Co-aggregate [sum, count] as one numpy array in a single Federator
-        # round trip, rather than reporting n = len(workers). Those are two
-        # different numbers: len(workers) is how many partial sums got
-        # combined, not how many underlying elements they represent (a
-        # worker holding 4 numbers contributes exactly 1 partial sum). Mean/
-        # variance composition needs total element count, so that's what n
-        # has to mean here. operator.add (Federator's SUM op) is elementwise
-        # on numpy arrays, so both values fold correctly in one Aggregate().
-        # Contribution is (2, ncols): row 0 is this worker's column sums,
-        # row 1 is the element count behind each of those sums.
-        #
-        # Two rows rather than one because mean/variance composition needs
-        # the element count, and len(workers) is the wrong number - a worker
-        # holding 80 rows contributes exactly one partial sum. Carrying the
-        # count alongside keeps both folding in a single Aggregate(), since
+        # Contribution is (2, ncols): row 0 the column sums, row 1 the
+        # element count behind each. Both fold in one Aggregate() because
         # Federator's SUM op is elementwise on numpy arrays.
         #
-        # Per-column counts rather than one scalar: rows are dropped per
-        # row, not per column, but keeping the count aligned to the sum it
-        # belongs to means a later change to column-wise dropping needs no
-        # change here. It also makes the contribution rectangular, which is
-        # what Federator requires.
+        # The count is carried rather than derived: n must be the number of
+        # elements, not len(workers), since a worker holding 80 rows still
+        # contributes exactly one partial sum - and mean/variance need the
+        # element count.
         #
-        # This shape is identical across workers as long as they agree on
-        # the column count - which is exactly what the consensus step
-        # negotiates. Row counts may differ freely (80/100/120/90 here) and
-        # never reach the Federator, because summing has already reduced
-        # that axis away.
+        # Per-column counts rather than one scalar keep the contribution
+        # rectangular, which Federator requires, and keep each count beside
+        # the sum it belongs to.
+        #
+        # Workers must agree on ncols - that is what consensus negotiates.
+        # Row counts may differ freely and never reach the Federator, since
+        # summing has already reduced that axis away.
         column_sums = matrix.sum(axis=0)
         column_counts = np.full(matrix.shape[1], matrix.shape[0], dtype=float)
         contribution = np.vstack([column_sums, column_counts])
@@ -191,18 +208,19 @@ class SumCoreSkill(Skill):
             # The coordinator needs this to size the Aggregate identity
             # element; only a contributor knows how wide its matrix is.
             "ncols": int(matrix.shape[1]),
-            # How many rows this worker actually contributed. Zero is a real
-            # answer once filtering exists - "I have nothing in that window"
-            # - and it is arithmetically harmless, because a zero sum over a
-            # zero count moves neither the numerator nor the denominator.
+            # Rows this worker actually contributed. Zero is a real answer
+            # once filtering exists, and arithmetically harmless - a zero sum
+            # over a zero count moves neither numerator nor denominator.
             #
-            # But it is invisible in the total, and the head will otherwise
-            # infer from a successful round that every worker had data.
-            # Observed exactly that: a window only one worker could answer
-            # returned the right mean, and the head reported "no workers were
-            # missing readings for this filter", which was false for three of
-            # the four. The number has to arrive with the fact.
+            # It is also invisible in the total, so the head infers from a
+            # successful round that every worker had data. Observed: a window
+            # only one worker could answer gave the right mean, and the head
+            # reported no workers were missing readings - false for three of
+            # four. The count has to travel with the number.
             "rows": int(matrix.shape[0]),
+            "read_status": True,
+            "read_error": None,
+            "read_retryable": False,
             "map_status": bool(map_status),
             "map_error": str(map_exc) if map_exc else None,
         })
@@ -263,8 +281,8 @@ class SumCoreSkill(Skill):
         # still reporting in, up to a hard ceiling. A filtered query adds
         # work to every worker's path, and a flat timeout has to be either
         # generous enough for the slowest or short enough to catch a hang.
-        still_waiting = self.staggered_deadline(len(workers))
-        while len(ready_from) < len(workers) and still_waiting(len(ready_from)):
+        deadline = self.staggered_deadline(len(workers))
+        while len(ready_from) < len(workers) and deadline.still_waiting(len(ready_from)):
             if ctx.cancelled.is_set():
                 # head.run_skill() already started a fresh attempt under a
                 # new request_id (see cancellation.py) - no point finishing
@@ -275,6 +293,15 @@ class SumCoreSkill(Skill):
                 continue
             body = msg.get("body", {})
             if body.get("type") == _READY_MSG_TYPE:
+                if body.get("read_status") is False:
+                    # The worker could not read its data. Retryable only if
+                    # the connector raised, not if the request was wrong.
+                    return {
+                        "status": "error",
+                        "detail": (f"worker {body.get('from')} could not read "
+                                   f"its data: {body.get('read_error')}"),
+                        "retryable": bool(body.get("read_retryable", False)),
+                    }
                 if body.get("map_status") is False:
                     return {
                         "status": "error",
@@ -302,19 +329,14 @@ class SumCoreSkill(Skill):
 
         federator = ctx.federator(request["mapper_name"], op=Mapper.SUM)
 
-        # The identity element has to match the contribution's shape, which
-        # is now (2, ncols) rather than the old flat [sum, count]. Seeding
-        # with the wrong shape fails loudly inside numpy ("operands could not
-        # be broadcast together with shapes (2,5) (2,)") rather than
-        # silently truncating, but it still has to be right, and only the
-        # contributors know ncols - so it is read back from the readiness
-        # signals rather than assumed.
+        # The identity must match the contribution's (2, ncols) shape. Only
+        # contributors know ncols, so it is read back from the readiness
+        # signals rather than assumed. A wrong shape raises in numpy rather
+        # than truncating silently, but it still has to be right.
         #
-        # Zeros, not a real value: Federator.Aggregate(x) folds the
-        # AllGather results onto whatever x it is given, and the
-        # coordinator's own contribution is already among those results
-        # (it Mapped in contribute()). Seeding with anything but the
-        # identity element double-counts it.
+        # Zeros specifically: Aggregate(x) folds the AllGather results onto
+        # x, and the coordinator's own contribution is already among them -
+        # seeding with anything but the identity double-counts it.
         if not ncols:
             return {
                 "status": "error",

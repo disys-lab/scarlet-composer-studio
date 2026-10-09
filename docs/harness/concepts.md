@@ -42,11 +42,29 @@ logic never changes. Reference skills already included:
 
 | Skill | Shape |
 |---|---|
+| `sum_core` | Associative reduction, backed by `Federator`. Parameterized (`transform: identity\|square`); with `n`, enough to derive mean and variance. |
 | `median` | Not associative — needs the full partitioned data and a real merge. Backed by `Mapper.AllGather()`. |
-| `sum` | Associative reduction, backed by `Federator`. Parameterized (`transform: identity\|square`); combined with `combine`, enough to derive variance without a dedicated skill. |
 | `combine` | Local, non-distributed arithmetic over an AST-whitelisted expression — closes the composition loop without a skill per formula. |
+| `agree_representation` | Workers propose their columns; the intersection becomes the shape everyone contributes. |
 | `create_scarlet` | A worker mints a new scarlet mid-task via its own LLM reasoning, invocable by any agent, not just the head. |
-| `query_feature` / `list_tags` | Edge-local data-source lookup — see [Local-First Data Access](#local-first-data-access) below. |
+| `query_feature` / `list_tags` / `list_sources` | Edge-local data-source lookup — see [Local-First Data Access](#local-first-data-access) below. |
+
+### Compound skills
+
+A `CompoundSkill` is a plan over other skills rather than a new
+computation. The ordering lives in the skill, not in the prompt — a prompt
+that forgets a step produces a confident wrong answer, a plan cannot.
+
+| Skill | Plan |
+|---|---|
+| `sum` | `agree_representation` → `sum_core` |
+| `mean` | `agree_representation` → `sum_core` → `combine` |
+| `variance` | `agree_representation` → `mean` → `sum_core` → `combine` |
+
+`variance` nests `mean`, and consensus runs once for the whole nested
+plan: `columns` is already bound when `mean` is reached, so its own
+agreement step is skipped. See [Architecture](architecture.md) for the
+three stepping rules and the depth cap.
 
 ## Talking to the harness: `converse()`
 

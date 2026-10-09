@@ -49,6 +49,89 @@ from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness import reasoning
 
 
+
+class _Runtime:
+    """
+    Per-process dependencies the MCP tool needs.
+
+    `ask_scarlet_agent` has to keep the exact signature ``(message: str) ->
+    str``, because MCPServer builds the tool's schema from it - any extra
+    parameter would appear as something the caller must supply. So the
+    dependencies arrive here instead, set once by `main`, rather than being
+    captured by defining the tool inside it.
+    """
+
+    def __init__(self, config, buses, skills, llm_client, dialogue):
+        self.config = config
+        self.buses = buses
+        self.skills = skills
+        self.llm_client = llm_client
+        self.dialogue = dialogue
+
+
+_RUNTIME: _Runtime | None = None
+
+
+def _log_event(event: dict) -> None:
+    """
+    Print one conversation event as a real-time audit trail.
+
+    Goes to stderr: MCP's stdio transport uses stdout for protocol framing.
+    """
+    print(event, file=sys.stderr)
+
+
+class _AsyncResultBox:
+    """
+    Catches `converse`'s completion callback and wakes the awaiting coroutine.
+
+    `converse` finishes on a worker thread, so the event has to be set via
+    `call_soon_threadsafe` rather than directly.
+    """
+
+    def __init__(self, loop, done):
+        self._loop = loop
+        self._done = done
+        self.result = None
+        self.error = None
+
+    def __call__(self, result, error) -> None:
+        """Store the outcome and signal the waiting coroutine."""
+        self.result = result
+        self.error = error
+        self._loop.call_soon_threadsafe(self._done.set)
+
+
+async def ask_scarlet_agent(message: str) -> str:
+    """
+    Ask this scarlet-agents head a question or give it an instruction
+    in plain language. It may invoke one or more of its skills
+    (currently: median, sum, combine) to answer - real distributed
+    dispatch across whatever workers are online right now, not a
+    simulation. Returns the final natural-language answer.
+    """
+    rt = _RUNTIME
+    loop = asyncio.get_running_loop()
+    done = asyncio.Event()
+    box = _AsyncResultBox(loop, done)
+
+    # Wrapped so the same events also reach the bus, where something other
+    # than this process can read them - stderr is visible only to whoever
+    # is attached to this container and is gone once the request ends.
+    on_event = reasoning.publishing_on_event(rt.buses, inner=_log_event)
+
+    head_mod.converse(
+        message, rt.config, rt.buses, rt.skills, rt.llm_client, box,
+        on_event=on_event, dialogue=rt.dialogue,
+        max_turns=rt.config.converse_max_turns,
+    )
+    await done.wait()
+
+    if box.error is not None:
+        raise box.error
+    return box.result.answer
+
+
 def main() -> None:
     config = HarnessConfig.from_env()
     if config.role != "head":
@@ -78,45 +161,9 @@ def main() -> None:
 
     mcp = MCPServer("scarlet-agents")
 
-    @mcp.tool()
-    async def ask_scarlet_agent(message: str) -> str:
-        """
-        Ask this scarlet-agents head a question or give it an instruction
-        in plain language. It may invoke one or more of its skills
-        (currently: median, sum, combine) to answer - real distributed
-        dispatch across whatever workers are online right now, not a
-        simulation. Returns the final natural-language answer.
-        """
-        loop = asyncio.get_running_loop()
-        done = asyncio.Event()
-        box: dict = {}
-
-        def on_done(result, error):
-            box["result"] = result
-            box["error"] = error
-            loop.call_soon_threadsafe(done.set)
-
-        def log_event(event: dict) -> None:
-            # Real-time audit trail, same as __main__.py's stdin REPL -
-            # goes to stderr since MCP's stdio transport uses stdout for
-            # protocol framing.
-            print(event, file=sys.stderr)
-
-        # Wrapped so the same events also reach the bus, where something
-        # other than this process can read them. stderr is visible only to
-        # whoever is attached to this container and is gone once the
-        # request ends - see reasoning.py.
-        on_event = reasoning.publishing_on_event(buses, inner=log_event)
-
-        head_mod.converse(
-            message, config, buses, skills, llm_client, on_done, on_event=on_event,
-            dialogue=dialogue, max_turns=config.converse_max_turns,
-        )
-        await done.wait()
-
-        if box["error"] is not None:
-            raise box["error"]
-        return box["result"].answer
+    global _RUNTIME
+    _RUNTIME = _Runtime(config, buses, skills, llm_client, dialogue)
+    mcp.tool()(ask_scarlet_agent)
 
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     if transport == "stdio":

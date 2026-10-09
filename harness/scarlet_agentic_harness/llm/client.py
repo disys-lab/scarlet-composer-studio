@@ -66,9 +66,22 @@ class LLMClient:
                 "configured yet. See README for the current status."
             )
         self.model = config.llm_model or "default"
+        # Overridable, but 0 by default - see `chat` for why.
+        self.temperature = getattr(config, "llm_temperature", 0.0)
+        # An explicit timeout, because the default is 600s read with 2
+        # retries - one hung request blocks the head for up to 30 minutes.
+        #
+        # That is what made the notebook suite bimodal: a run either finished
+        # in ~2 minutes or sat idle until its cell limit killed it. Traced by
+        # timing the head's log - the fleet work completed in 2.5 minutes and
+        # nothing was dispatched for the following 14, because `chat` never
+        # returned. A completion for this workload takes seconds, so 60s is
+        # already generous; the point is that it fails rather than hangs.
         self._client = OpenAI(
             base_url=config.llm_base_url,
             api_key=config.llm_api_key or "not-needed",
+            timeout=config.llm_timeout,
+            max_retries=config.llm_max_retries,
         )
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
@@ -97,7 +110,16 @@ class LLMClient:
             ``{"role": "assistant", "content": ..., "tool_calls": [...]}``.
         """
         wire_messages = [_to_wire(m) for m in messages]
-        kwargs = {"model": self.model, "messages": wire_messages}
+        # temperature=0 so the same question takes the same path twice.
+        #
+        # Left unset, the endpoint's default sampling made the notebook suite
+        # an unreliable gate: notebook 13 failed and then passed on identical
+        # code and identical data, because the head explored a longer chain of
+        # tool calls on one run than the other and exhausted the cell timeout.
+        # A regression suite that disagrees with itself cannot tell a real
+        # break from a slow conversation.
+        kwargs = {"model": self.model, "messages": wire_messages,
+                  "temperature": self.temperature}
         if tools:
             kwargs["tools"] = tools
         response = self._client.chat.completions.create(**kwargs)

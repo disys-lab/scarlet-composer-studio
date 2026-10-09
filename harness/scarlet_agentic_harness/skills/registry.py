@@ -47,7 +47,9 @@ def discover_skills() -> dict[str, Skill]:
             continue
         # module_name is fully qualified now, so match on the last segment.
         if module_name.rsplit(".", 1)[-1] in (
-                "base", "registry", "safe_eval", "local_data", "predicate"):
+                "base", "skill", "step", "compound_skill",
+                "registry", "safe_eval", "local_data", "predicate",
+                "staggered_deadline", "distributions"):
             continue
         module = importlib.import_module(module_name)
         for _, obj in inspect.getmembers(module, inspect.isclass):

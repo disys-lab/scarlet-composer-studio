@@ -13,8 +13,9 @@ export interface DashboardStats {
 // Redacted view of a worker's own ~/.scarlet/config.yaml entries - no
 // credential fields, ever (see scarlet-agentic-harness's
 // local_config.describe_sources()). "broker" entries relay through a
-// centralized broker (see the Data Sources tab's own registry); "local"
-// entries are queried by this worker directly, in-process.
+// centralized broker (the broker service itself remains; its management
+// UI was removed). "local" entries are queried by this worker directly,
+// in-process.
 export interface AgentDataSource {
   name: string;
   type: string;

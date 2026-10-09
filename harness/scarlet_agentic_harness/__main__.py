@@ -59,23 +59,14 @@ def main() -> None:
         # build_tag_cache() itself - one bad source never blocks this.
         tag_cache: dict[str, list] = local_config.build_tag_cache()
 
-        # Built in the same synchronous pre-announcement window as the tag
-        # cache, and for the same reason: a peer that reads this worker's
-        # record the instant it comes online must not see an empty profile.
+        # Built before this worker announces itself, so a peer reading its
+        # record immediately never sees an empty profile.
         #
-        # Where tag_cache answers "which columns exist", this answers "how
-        # much data is there and what shape is it" - the row count and the
-        # numeric column count. That pair is what the consensus step
-        # negotiates over, so it is published as structured numbers rather
-        # than left to be inferred from prose later. Profiling is one-shot
-        # by design (the sprint objective says a worker builds its
-        # understanding once at boot); the refresh loop below deliberately
-        # does NOT rebuild it, so a mid-run config edit changes tags but
-        # not shapes.
-        #
-        # Per-source failures are swallowed inside profile_sources()
-        # itself, same contract as build_tag_cache() - one unreadable
-        # source must never stop a worker booting.
+        # tag_cache says which columns exist; this says how many rows and how
+        # many numeric columns - the pair the consensus step negotiates over.
+        # One-shot by design: the refresh loop below updates tags but not
+        # shapes. Per-source failures are swallowed in profile_sources(), so
+        # one unreadable source cannot stop a worker booting.
         data_profiles: dict = data_profile.profile_sources()
 
         # The readable companion to those numbers, written where the
@@ -107,22 +98,14 @@ def main() -> None:
             },
         )
 
-        # report_status() above (and the tag cache build before it) only
-        # ever run once, at startup - data_sources/tags would otherwise
-        # never reflect a site engineer hand-editing ~/.scarlet/config.yaml
-        # (or a source's schema actually changing) after this process
-        # started, short of a restart. capabilities don't change at
-        # runtime (skills are still static/bundled-in-the-image), so
-        # re-running this is purely about picking up local config/schema
-        # changes.
+        # Startup reports status once, so an edit to ~/.scarlet/config.yaml
+        # or a schema change after boot would need a restart to show up.
+        # Capabilities are static, so this refresh exists only to pick up
+        # local config and schema changes.
         #
-        # The whole body is wrapped so one bad cycle - report_status()
-        # itself hitting a transient Redis error, say, not just a single
-        # source's list_tags() failing (already handled inside
-        # build_tag_cache()) - logs and moves on to the next cycle instead
-        # of killing this thread and silently ending every future refresh,
-        # tags and the data_sources report alike, for the rest of this
-        # process's life.
+        # The whole body is wrapped: one bad cycle must log and continue.
+        # Letting it raise would kill this thread and silently end every
+        # future refresh for the life of the process.
         def _refresh_data_sources_loop():
             nonlocal tag_cache
             while True:
@@ -181,15 +164,10 @@ def main() -> None:
                 context_fn=lambda: {
                     "in_flight_status": describe_in_flight(registry.snapshot()),
                     # Grounds a reply like "does anyone have roll_speed for
-                    # equipment 1234" in this worker's own real local
-                    # sources - redacted (name/type/mode/description only,
-                    # see local_config.describe_sources()) plus each
-                    # source's real, live tags/columns from tag_cache
-                    # (Option 4+2: computed ahead of time on the periodic
-                    # refresh above, not looked up live per reply - see
-                    # that loop's own comment for why). describe_sources()
-                    # itself still re-reads the config file fresh on every
-                    # call; only the tags are cached.
+                    # equipment 1234" in this worker's own sources: redacted
+                    # metadata from describe_sources() plus live columns from
+                    # tag_cache. The config is re-read on every call; only the
+                    # tags are cached.
                     "local_data_sources": local_config.describe_sources(tag_cache=tag_cache),
                 },
             )

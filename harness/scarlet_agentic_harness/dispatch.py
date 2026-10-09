@@ -20,7 +20,9 @@ head.py now holds only `converse`, the head's LLM tool-calling loop.
 
 import threading
 import uuid
-from typing import Callable, Protocol
+from scarlet_agentic_harness.skill_dispatch import SkillDispatch
+from scarlet_agentic_harness.plan_runner import PlanRunner
+from typing import Callable
 
 from scarlets.utils.RedisLogger import RedisLogger
 from scarlets.utils.ScarletUtils import register_scarlet_definition
@@ -30,23 +32,9 @@ from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.skills.base import CompoundSkill, Skill
+from scarlet_agentic_harness.chat_client import ChatClient
 
 
-class ChatClient(Protocol):
-    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
-
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        """
-        Parameters
-        ----------
-        messages : list of dict
-        tools : list of dict or None, optional
-
-        Returns
-        -------
-        dict
-        """
-        ...
 
 
 
@@ -365,67 +353,8 @@ def run_plan(
         })
         return
 
-    ns = dict(params)
-    steps = list(compound.plan)
-    emit = on_event or (lambda _event: None)
-
-    def finish() -> None:
-        if isinstance(compound.returns, str):
-            on_result({"status": "ok", "result": ns.get(compound.returns),
-                       "detail": f"{compound.name}: {len(steps)} step(s)"})
-        else:
-            out = {"status": "ok", "detail": f"{compound.name}: {len(steps)} step(s)"}
-            out.update({field: ns.get(var) for field, var in compound.returns.items()})
-            on_result(out)
-
-    def advance(i: int) -> None:
-        # Skip forward over anything already satisfied before dispatching.
-        while i < len(steps):
-            step = steps[i]
-            # RULE 1 - always-run. A step with no outputs is a check.
-            if not step.produces:
-                break
-            # RULE 2 - skip. Every output is already bound.
-            if all(ns.get(var) is not None for var in step.produces):
-                i += 1
-                continue
-            break
-
-        if i >= len(steps):
-            finish()
-            return
-
-        step = steps[i]
-        emit({"event": "step", "skill": step.skill, "of": compound.name, "index": i})
-
-        if step.skill not in skills:
-            on_result({"status": "error",
-                       "detail": f"{compound.name!r} plan references unknown skill {step.skill!r}",
-                       "retryable": False})
-            return
-
-        def then(result: dict) -> None:
-            # RULE 3 - abort. Carry the child's retryable upward so an
-            # unretryable failure is not retried by whoever called us.
-            if result.get("status") != "ok":
-                on_result({
-                    "status": "error",
-                    "detail": f"step {step.skill!r} failed: {result.get('detail')}",
-                    "retryable": result.get("retryable", False),
-                })
-                return
-            for var, field in step.produces.items():
-                ns[var] = result.get(field)
-            advance(i + 1)
-
-        # Ambient namespace first, then this step's own params overlaid with
-        # every "$name" resolved from it.
-        step_params = {**ns, **resolve_refs(step.params, ns)}
-        run_skill(skills[step.skill], step_params, config, buses, then,
-                  skills=skills, on_event=on_event, depth=depth + 1,
-                  **run_skill_kwargs)
-
-    advance(0)
+    PlanRunner(compound, params, config, buses, on_result, skills, on_event,
+               depth, run_skill_kwargs).run()
 
 
 def run_skill(
@@ -538,200 +467,8 @@ def run_skill(
     check_in_timeout = check_in_timeout if check_in_timeout is not None else config.check_in_timeout
     check_in_max_turns = check_in_max_turns if check_in_max_turns is not None else config.check_in_max_turns
 
-    ctx = HarnessContext(config, buses)
-
-    def attempt(attempt_num: int) -> None:
-        workers_info = buses.gather_workers()
-        workers = [w for w, rec in workers_info.items() if skill.name in rec.get("capabilities", [])]
-        if not workers:
-            on_result({"status": "error", "detail": f"no online worker currently reports the {skill.name!r} capability"})
-            return
-
-        request_id = str(uuid.uuid4())
-        # Reported before dispatch so a caller can attribute bus traffic to
-        # whatever caused this call. A retry mints a *new* request_id here,
-        # so one logical invocation can span several - which is exactly why
-        # a caller cannot infer the mapping and has to be told it. Failures
-        # are swallowed: this is observability, and it must never be able
-        # to stop a dispatch.
-        if on_dispatch is not None:
-            try:
-                on_dispatch(request_id, attempt_num)
-            except Exception as exc:
-                RedisLogger.warning(f"[{config.agent_id}] on_dispatch failed: {exc}")
-
-        coordinator = skill.coordinator_for(ctx, workers)
-
-        request = {
-            "request_id": request_id,
-            "skill": skill.name,
-            "mapper_name": f"{skill.name}_{request_id}",
-            "coordinator": coordinator,
-            "workers": workers,
-            "params": params,
-        }
-
-        # Register before dispatch, not after - see _register_scarlets()'s
-        # docstring. A blocking Redis write, so it's guaranteed to land
-        # before any worker can construct its own (blank-description,
-        # no-op-against-an-existing-key) Mapper()/Federator() in response
-        # to the Send below.
-        _register_scarlets(skill, params, request["mapper_name"], llm_client)
-
-        # Defined here (not shared across attempts) so it closes over this
-        # attempt's own request_id/workers - needed to broadcast
-        # skill_cancel to exactly this attempt's workers if it's the one
-        # that ends up superseded by a retry.
-        def handle(result: dict) -> None:
-            if result.get("status") == "ok":
-                RedisLogger.info(f"[{config.agent_id}] {skill.name!r} request={request_id} succeeded")
-                on_result(result)
-                return
-            if not result.get("retryable", False) or attempt_num >= max_attempts:
-                RedisLogger.info(
-                    f"[{config.agent_id}] {skill.name!r} request={request_id} failed permanently: "
-                    f"{result.get('detail')}"
-                )
-                on_result(result)
-                return
-            RedisLogger.info(
-                f"[{config.agent_id}] {skill.name!r} request={request_id} failed (retryable): "
-                f"{result.get('detail')} - retrying as attempt {attempt_num + 1}"
-            )
-            for worker_id in workers:
-                buses.global_bus.Send(worker_id, {"type": "skill_cancel", "request_id": request_id})
-            attempt(attempt_num + 1)
-
-        RedisLogger.info(
-            f"[{config.agent_id}] dispatching {skill.name!r} request={request_id} "
-            f"attempt={attempt_num} coordinator={coordinator} workers={workers}"
-        )
-        for worker_id in workers:
-            msg_type = "skill_coordinate" if worker_id == coordinator else "skill_contribute"
-            buses.global_bus.Send(worker_id, {"type": msg_type, **request})
-
-        if coordinator == config.agent_id:
-            # Only reached if a skill explicitly overrides coordinator_for()
-            # to return the invoking agent's own id - not the default,
-            # regardless of whether that invoker is the head or a worker
-            # calling this via HarnessContext.invoke_skill(). Still
-            # dispatched onto a new thread rather than run inline, so
-            # run_skill() never blocks its own caller even in this rare
-            # case.
-            def run_in_process():
-                handle(skill.coordinate(ctx, request, workers))
-            threading.Thread(target=run_in_process, daemon=True).start()
-            return
-
-        def on_reply(msg: dict) -> None:
-            handle(msg.get("body", {}))
-
-        def wait_for_reply() -> None:
-            # No explicit forget() needed here, unlike the old receive_for()
-            # flow - on_key()'s callback/timeout pair is self-cleaning
-            # either way it resolves (see router.py).
-            buses.global_router.on_key(
-                request_id, on_reply,
-                timeout=skill.coordinate_timeout + reply_slack, on_timeout=lambda: on_timeout(0),
-            )
-
-        def on_timeout(check_in_num: int) -> None:
-            if dialogue is None or llm_client is None or check_in_num >= max_check_ins:
-                handle({"status": "error", "detail": "coordinator did not respond in time", "retryable": True})
-                return
-
-            RedisLogger.info(
-                f"[{config.agent_id}] {skill.name!r} request={request_id} coordinator {coordinator!r} "
-                f"has not replied - checking in (round {check_in_num + 1}/{max_check_ins})"
-            )
-
-            # Two independent ways this check-in can resolve - the
-            # coordinator's conversation concludes in a decision, or
-            # check_in_timeout expires first (bounding the *whole*
-            # exchange, including any follow-up rounds) - only one may
-            # ever act, whichever gets here first.
-            resolved = [False]
-            resolve_lock = threading.Lock()
-
-            def resolve_once(action: Callable[[], None]) -> None:
-                with resolve_lock:
-                    if resolved[0]:
-                        return
-                    resolved[0] = True
-                action()
-
-            def on_checkin_timeout() -> None:
-                RedisLogger.info(
-                    f"[{config.agent_id}] {skill.name!r} request={request_id} coordinator {coordinator!r} "
-                    f"did not answer the check-in itself"
-                )
-                resolve_once(lambda: handle({
-                    "status": "error",
-                    "detail": "coordinator did not respond in time (unresponsive to check-in)",
-                    "retryable": True,
-                }))
-
-            timer = threading.Timer(check_in_timeout, on_checkin_timeout)
-            timer.daemon = True
-            timer.start()
-
-            # transcript/turns_used are shared, mutable state closed over by
-            # on_checkin_reply, which re-enters itself (via dialogue.reply)
-            # for as many follow-up rounds as check_in_max_turns allows -
-            # both the opening question and every follow-up are composed by
-            # a real LLM call grounded in the actual conversation so far,
-            # not fixed text, so this exchange can genuinely go wherever the
-            # coordinator's own answer leads it, within that bound.
-            transcript: list[dict] = []
-            turns_used = [0]
-
-            def on_checkin_reply(content: str, sender: str) -> None:
-                transcript.append({"speaker": "coordinator", "content": content})
-                allow_followup = turns_used[0] < check_in_max_turns
-                decision = _deliberate_or_followup(
-                    llm_client, transcript, skill.name, skill.coordinate_timeout, allow_followup,
-                )
-                RedisLogger.info(
-                    f"[{config.agent_id}] {skill.name!r} request={request_id} check-in reply from "
-                    f"{sender!r}: {content!r} - decision: {decision}"
-                )
-                if decision["action"] == "followup":
-                    turns_used[0] += 1
-                    question = decision["question"]
-                    transcript.append({"speaker": "head", "content": question})
-                    # request_id rides along so the whole exchange is
-                    # threadable to the dispatch it is about - see
-                    # AgentDialogue.start's `context`.
-                    dialogue.reply(
-                        coordinator, conv_id, question, on_checkin_reply,
-                        context={"request_id": request_id},
-                    )
-                elif decision["action"] == "wait":
-                    resolve_once(wait_for_reply)
-                else:
-                    resolve_once(lambda: handle({
-                        "status": "error",
-                        "detail": f"coordinator did not respond in time (checked in, decided to retry: {content!r})",
-                        "retryable": True,
-                    }))
-
-            opening_question = _compose_checkin_question(
-                llm_client, skill.name, request_id, skill.coordinate_timeout, check_in_num, max_check_ins,
-            )
-            transcript.append({"speaker": "head", "content": opening_question})
-            turns_used[0] += 1
-            conv_id = dialogue.start(
-                coordinator, opening_question, on_checkin_reply,
-                # Without this an agent_message carries only its own
-                # conversation_id, and what it concerns lives solely in
-                # this process's memory - a reader would see the head and
-                # a worker talking with no way to tell which dispatch
-                # prompted it.
-                context={"request_id": request_id},
-            )
-
-        wait_for_reply()
-
-    attempt(1)
+    SkillDispatch(skill, params, config, buses, on_result, max_attempts,
+                  reply_slack, dialogue, llm_client, max_check_ins,
+                  check_in_timeout, check_in_max_turns, on_dispatch).run()
 
 

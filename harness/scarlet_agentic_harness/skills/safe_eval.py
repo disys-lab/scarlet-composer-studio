@@ -81,17 +81,14 @@ def safe_eval(expression: str, variables: dict) -> float:
 
     # A non-finite result never leaves this function.
     #
-    # Row filtering made n=0 reachable for the first time: a window no
-    # worker has any rows for gives sum=0 and n=0, and `mean = s1/n` is
-    # 0/0 = NaN. That NaN is not just a wrong number, it is an unsendable
-    # one - it crosses the bus as JSON, and `json` emits a bare `NaN`
-    # literal which is not valid JSON. Observed: the composer's
-    # /api/conversations endpoint returned 500 ("Out of range float values
-    # are not JSON compliant") and the UI showed no conversations at all,
-    # for every bus, because one stored message could not be serialised.
+    # Row filtering made n=0 reachable: a window no worker has rows for
+    # gives sum=0 and n=0, so `mean = s1/n` is NaN. That NaN is unsendable,
+    # not just wrong - `json` writes it as a bare NaN literal, which is not
+    # valid JSON. Observed: one stored message broke the composer's
+    # /api/conversations with a 500, hiding every conversation on every bus.
     #
-    # So it fails here, where the cause is still legible, rather than
-    # several hops away as a blank screen.
+    # Failing here keeps the cause legible instead of surfacing several
+    # hops away as a blank screen.
     finite = np.isfinite(np.asarray(result, dtype=float))
     if not np.all(finite):
         zeroed = [name for name, value in variables.items()

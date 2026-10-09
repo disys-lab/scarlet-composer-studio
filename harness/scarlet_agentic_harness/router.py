@@ -58,6 +58,7 @@ silently ignored rather than invoking a callback that already gave up.
 import queue
 import threading
 import time
+from scarlet_agentic_harness.timeout_handler import TimeoutHandler
 from typing import Callable
 
 from scarlet_agentic_harness.timeout_watcher import TimeoutWatcher
@@ -240,18 +241,7 @@ class MessageRouter:
         callable
             A zero-argument handler safe to pass to `TimeoutWatcher.schedule`.
         """
-        def _handler():
-            # Whoever successfully pops the callback under the lock is the
-            # one that actually happened - the real message and a
-            # same-moment timeout race here, and only the winner acts. If
-            # _run() already popped it (the real message won), this pop
-            # returns None and on_timeout must NOT fire - the wait was
-            # already satisfied for a real reason.
-            with self._lock:
-                had_callback = self._callbacks.pop(key, None) is not None
-            if had_callback and on_timeout is not None:
-                on_timeout()
-        return _handler
+        return TimeoutHandler(self, key, on_timeout)
 
     def _queue_for(self, key) -> queue.Queue:
         """Get (creating if needed) the queue for `key`. Acquires `_lock` itself."""

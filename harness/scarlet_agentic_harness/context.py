@@ -4,6 +4,7 @@ request-scoped Mapper/Federator instances. Passed into every Skill handler
 so a skill never has to touch env vars or bus wiring directly.
 """
 import threading
+from scarlet_agentic_harness.result_box import ResultBox
 
 import requests
 from scarlets.core.Mapper import Mapper
@@ -13,35 +14,9 @@ from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationToken
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.scarlet_minting import ChatClient, mint_scarlet_with_reasoning
+from scarlet_agentic_harness.noop_cancellation import _NoopCancellation
 
 
-class _NoopCancellation:
-    """
-    Stand-in for a real `CancellationToken` on a context that isn't
-    scoped to one in-flight, cancellable request (e.g. `run_skill`'s own
-    top-level `ctx`, used only for `coordinator_for` calls).
-
-    `cancelled` reports "not cancelled" (a fresh, unset `Event`) and
-    `on_cancel` is a silent no-op, so code written against
-    `ctx.cancelled`/`ctx.on_cancel` doesn't need to branch on whether a
-    real token exists.
-
-    Attributes
-    ----------
-    event : threading.Event
-        A fresh, never-set event.
-    """
-
-    def __init__(self):
-        self.event = threading.Event()
-
-    def on_cancel(self, fn) -> None:
-        """No-op. Parameters: `fn` (callable), ignored."""
-        pass
-
-    def update_progress(self, **kwargs) -> None:
-        """No-op. Parameters: arbitrary keyword progress fields, ignored."""
-        pass
 
 
 class HarnessContext:
@@ -264,6 +239,27 @@ class HarnessContext:
             raise RuntimeError(f"{self.agent_id}: composer-api login failed: {data.get('response')}")
         return data["response"]["token"]
 
+    def _get_data_sources(self, composer_api_url: str):
+        """
+        GET the composer's data-source list with the cached token.
+
+        Parameters
+        ----------
+        composer_api_url : str
+            Base URL, already stripped of a trailing slash.
+
+        Returns
+        -------
+        requests.Response
+            Returned rather than raised on, because a 401 is handled by the
+            caller re-authenticating once and asking again.
+        """
+        return requests.get(
+            f"{composer_api_url}/api/data-sources",
+            headers={"Authorization": f"Bearer {self._composer_token}"},
+            timeout=10,
+        )
+
     def query_data_source(self, name: str, query: dict) -> dict:
         """
         Query the centrally-registered data source `name`, via its broker.
@@ -315,20 +311,13 @@ class HarnessContext:
 
         composer_api_url = self.config.composer_api_url.rstrip("/")
 
-        def _list_data_sources() -> requests.Response:
-            return requests.get(
-                f"{composer_api_url}/api/data-sources",
-                headers={"Authorization": f"Bearer {self._composer_token}"},
-                timeout=10,
-            )
-
-        resp = _list_data_sources()
+        resp = self._get_data_sources(composer_api_url)
         if resp.status_code == 401:
             # Cached token expired mid-process (composer's session TTL,
             # default 12h) - re-authenticate once and retry, rather than
             # failing a long-running worker for a stale cache alone.
             self._composer_token = self._authenticate_to_composer()
-            resp = _list_data_sources()
+            resp = self._get_data_sources(composer_api_url)
         if resp.status_code != 200:
             raise RuntimeError(f"{self.agent_id}: GET /api/data-sources returned HTTP {resp.status_code}")
 
@@ -394,18 +383,12 @@ class HarnessContext:
         """
         from scarlet_agentic_harness import dispatch as dispatch_mod
 
-        done = threading.Event()
-        box: dict = {}
-
-        def on_result(result: dict) -> None:
-            box["result"] = result
-            done.set()
-
-        dispatch_mod.run_skill(skill, params, self.config, self.buses, on_result, **run_skill_kwargs)
-        if not done.wait(timeout=timeout):
+        box = ResultBox()
+        dispatch_mod.run_skill(skill, params, self.config, self.buses, box, **run_skill_kwargs)
+        if not box.wait(timeout=timeout):
             return {
                 "status": "error",
                 "detail": f"invoke_skill({skill.name!r}) timed out after {timeout}s waiting for a result",
                 "retryable": True,
             }
-        return box["result"]
+        return box.result

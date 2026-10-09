@@ -27,7 +27,6 @@ Open **http://localhost:8501** in a browser. See [Docker Images](../deployment/d
 | **Dashboard** | Redis health, agent/scarlet counts at a glance |
 | **[Agents](agents.md)** | Live agent registry — status, capabilities, data sources |
 | **Scarlets** | Registered scarlet definitions; interpret and deploy from source |
-| **[Data Sources](data-sources.md)** | The centralized data-source broker registry |
 | **[Logging](logging.md)** | Live tail of the `RedisLogger` stream |
 | **Settings** | Composer-api configuration |
 

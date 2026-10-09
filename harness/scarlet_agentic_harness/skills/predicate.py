@@ -231,16 +231,13 @@ def build_where(conditions: Optional[List[Dict[str, Any]]], profile: Dict[str, A
 
 # --- other connector dialects ----------------------------------------------
 #
-# Groundwork only, and deliberately untested against live services this
-# sprint - the connectors get their own sprint. What matters here is that
-# it is *possible*: because a condition is structured rather than a SQL
-# string, each connector can render it in its own dialect. Had the LLM
-# written SQL there would be no way to target Flux or PI at all, so this is
-# the part of the design that earns the structured form.
+# Groundwork, untested against live services by design - the connectors get
+# their own sprint. The point is that it is possible at all: a structured
+# condition can be rendered in each connector's own dialect, where raw SQL
+# from the LLM could never have targeted Flux or PI.
 #
-# Redis is deliberately absent. Its payload is a raw command list
-# (`{"command": ["GET", "key"]}`) with nowhere for a predicate to go, and
-# pretending otherwise would be worse than saying so.
+# Redis is absent deliberately. Its payload is a raw command list with
+# nowhere to put a predicate.
 
 def render_flux(conditions, profile) -> str:
     """

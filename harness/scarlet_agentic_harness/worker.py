@@ -52,6 +52,7 @@ never race ahead of it. Creating the token inside the spawned thread
 instead would reopen exactly that race.
 """
 import threading
+from scarlet_agentic_harness.worker_dispatcher import WorkerDispatcher
 
 from scarlets.utils.RedisLogger import RedisLogger
 
@@ -62,6 +63,48 @@ from scarlet_agentic_harness.context import HarnessContext
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.scarlet_minting import ChatClient
 from scarlet_agentic_harness.skills.base import Skill
+
+
+def _report_skill_failure(config, buses, msg: dict, body: dict,
+                          skill_name: str, stage: str, exc: Exception) -> None:
+    """
+    Tell the head a skill raised, instead of letting it wait for a timeout.
+
+    Parameters
+    ----------
+    config : HarnessConfig
+    buses : Buses
+    msg : dict
+        The dispatch message; its ``"from"`` is where the reply goes.
+    body : dict
+        The dispatch body, for ``request_id``.
+    skill_name : str
+    stage : str
+        ``"contribute"`` or ``"coordinate"``.
+    exc : Exception
+        What was raised.
+    """
+    detail = (f"{config.agent_id} failed during {stage} of {skill_name!r}: "
+              f"{type(exc).__name__}: {exc}")
+    RedisLogger.error(f"[{config.agent_id}] {detail}")
+    try:
+        buses.global_bus.Send(msg["from"], {
+            "type": "skill_result",
+            "request_id": body.get("request_id"),
+            "status": "error",
+            "detail": detail,
+            # Not retryable. These are overwhelmingly configuration faults -
+            # an unreadable source, a bad path - which a second attempt
+            # against the same worker cannot fix. Retrying them is the storm
+            # this replaces: the same failure re-run until max_attempts, and
+            # a final error naming a timeout rather than the cause.
+            "retryable": False,
+        })
+    except Exception as send_exc:
+        # Nothing further to do - the head falls back to its own timeout.
+        RedisLogger.error(f"[{config.agent_id}] could not report failure for "
+                          f"request={body.get('request_id')}: {send_exc}")
+
 
 
 def handle_message(
@@ -126,60 +169,27 @@ def handle_message(
         data_profiles=data_profiles, dialogue=dialogue,
     )
 
-    # contribute() and coordinate() both run on a thread whose only
-    # exception handling is a `finally` (see start_dispatch's _dispatch), so
-    # anything either raised used to kill that thread outright and send
-    # nothing at all. The result was a request that simply never completed:
-    # a coordinator waiting for a readiness signal that could no longer be
-    # sent, the head waiting out its full timeout, retrying onto the same
-    # broken worker, failing identically, then giving up - while the only
-    # account of what went wrong was a traceback on the container's stderr,
-    # which the Composer's log view cannot show, because RedisLogger writes
-    # to Redis and an uncaught exception does not.
+    # contribute() and coordinate() run on a thread guarded only by a
+    # `finally`, so anything they raised used to kill that thread and send
+    # nothing. The request then never completed: the head waited out its
+    # timeout, retried onto the same broken worker, and gave up - with the
+    # traceback only on the container's stderr, where the Composer cannot
+    # show it, because RedisLogger writes to Redis and an uncaught
+    # exception does not.
     #
-    # Seen in practice: a worker whose CSV_PATH named a file that did not
-    # exist raised FileNotFoundError inside contribute(), and the symptom
-    # was a dispatch that hung for minutes with no error anywhere a reader
-    # would think to look.
+    # Observed with a worker whose configured file did not exist: a
+    # FileNotFoundError inside contribute() surfaced as a dispatch that
+    # hung for minutes with no error anywhere a reader would look.
     #
-    # Reporting it as a skill_result reuses the path the unknown-skill case
-    # above already takes: the head's run_skill is waiting on this
-    # request_id, so it resolves immediately with a real reason instead of
-    # timing out. No skill needs to know about this - each has its own
-    # readiness protocol, and a failure occurring before that protocol
-    # starts cannot be expressed in it.
-    def _report_failure(stage: str, exc: Exception) -> None:
-        detail = (
-            f"{config.agent_id} failed during {stage} of {skill.name!r}: "
-            f"{type(exc).__name__}: {exc}"
-        )
-        RedisLogger.error(f"[{config.agent_id}] {detail}")
-        try:
-            buses.global_bus.Send(msg["from"], {
-                "type": "skill_result",
-                "request_id": body.get("request_id"),
-                "status": "error",
-                "detail": detail,
-                # Not retryable. These are overwhelmingly configuration
-                # faults - an unreadable data source, a bad path - which a
-                # second attempt against the same worker cannot fix, and
-                # retrying them is precisely the storm this replaces: the
-                # same failure re-run until max_attempts, minutes spent, and
-                # a final error naming a timeout rather than the cause.
-                "retryable": False,
-            })
-        except Exception as send_exc:
-            # Nothing further to do - the head falls back to its own
-            # timeout, which is the behaviour this had before.
-            RedisLogger.error(
-                f"[{config.agent_id}] could not report failure for "
-                f"request={body.get('request_id')}: {send_exc}"
-            )
+    # Reporting a skill_result reuses the unknown-skill path above - the
+    # head is already waiting on this request_id, so it resolves with a
+    # real reason instead of timing out. No skill needs to know: a failure
+    # before its readiness protocol starts cannot be expressed in it.
 
     try:
         skill.contribute(ctx, body)
     except Exception as exc:
-        _report_failure("contribute", exc)
+        _report_skill_failure(config, buses, msg, body, skill.name, "contribute", exc)
         # Re-raised so the traceback still reaches stderr, which is the only
         # place the full frame list exists. The head has already been told.
         raise
@@ -190,7 +200,7 @@ def handle_message(
         except Exception as exc:
             # Same hole, same fix: a coordinator that raises leaves the head
             # waiting just as surely as a contributor that does.
-            _report_failure("coordinate", exc)
+            _report_skill_failure(config, buses, msg, body, skill.name, "coordinate", exc)
             raise
         RedisLogger.info(
             f"[{config.agent_id}] finished coordinating {skill.name!r} "
@@ -264,35 +274,10 @@ def start_dispatch(
     """
     registry = registry if registry is not None else CancellationRegistry()
 
-    def _dispatch(msg: dict) -> None:
-        body = msg.get("body", {})
-        msg_type = body.get("type")
-        request_id = body.get("request_id")
-
-        if msg_type in ("skill_contribute", "skill_coordinate"):
-            token = registry.create(request_id, skill_name=body.get("skill", ""))
-            RedisLogger.info(
-                f"[{config.agent_id}] started {msg_type} for skill={body.get('skill')!r} request={request_id}"
-            )
-
-            def run():
-                try:
-                    handle_message(
-                        msg, config, buses, skills, token, llm_client=llm_client,
-                        data_profiles=data_profiles, dialogue=dialogue,
-                    )
-                finally:
-                    registry.forget(request_id)
-
-            threading.Thread(target=run, daemon=True).start()
-        elif msg_type == "skill_cancel":
-            RedisLogger.info(f"[{config.agent_id}] received skill_cancel for request={request_id}")
-            registry.cancel(request_id)
-        elif msg_type == "agent_message" and dialogue is not None:
-            dialogue.handle(msg)
         # else: unrecognized message, or agent_message with no dialogue
         # configured - dropped, matching prior behavior for anything
         # nobody's set up to handle.
 
-    buses.global_router.default_handler = _dispatch
+    buses.global_router.default_handler = WorkerDispatcher(
+        config, buses, skills, registry, llm_client, data_profiles, dialogue)
     return registry

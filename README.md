@@ -69,10 +69,13 @@ reply = bus.Receive(timeout=5)
 ## Documentation
 
 - **[Architecture](https://disys-lab.github.io/scarlet-composer-studio/concepts/scarlets/)** — Scarlet primitives, Redis key schema, two-channel design
+- **[Agentic Harness](https://disys-lab.github.io/scarlet-composer-studio/harness/quickstart/)** — bring up a head and workers, ask them a question, run the notebooks
+- **[Harness Architecture](https://disys-lab.github.io/scarlet-composer-studio/harness/architecture/)** — every module, the skill catalogue, compound skills, row filtering
 - **[Quickstart](https://disys-lab.github.io/scarlet-composer-studio/quickstart/)** — Docker Compose, 5 minutes
 - **[Deployment](https://disys-lab.github.io/scarlet-composer-studio/deployment/gustavo/)** — Gustavo integration, multi-node edge
 - **[LLM / MCP Integration](https://disys-lab.github.io/scarlet-composer-studio/guides/llm-integration/)** — `Messenger.AsTools()`, LangChain, Open WebUI
 - **[Full API Reference](https://disys-lab.github.io/scarlet-composer-studio/reference/api/)** — every class, method, parameter, Redis key
+- **[Contributing a Skill](docs/AGENTS.md)** — the full contract for adding a skill, written to be followed by a coding agent
 - **[Changelog](CHANGELOG.md)** — what changed release to release
 
 ---

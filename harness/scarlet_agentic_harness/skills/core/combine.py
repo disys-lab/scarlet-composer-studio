@@ -49,13 +49,16 @@ class CombineSkill(Skill):
 
     name = "combine"
     description = (
-        "Evaluate a numeric arithmetic expression against a set of named "
-        "variables, typically the results of earlier skill calls (e.g. sum's "
-        "result and n). Use this to derive values like mean or variance from "
-        "already-computed building blocks instead of assuming a dedicated "
-        "skill exists for every statistic. Supports +, -, *, /, ** and unary "
-        "+/- only - no function calls, attribute access, or anything beyond "
-        "plain arithmetic."
+        "LOW-LEVEL BUILDING BLOCK. Check the available skills first - mean, "
+        "variance, rms, z_test, chi2_test and f_test already compose this "
+        "internally, and calling one of them is always preferable to "
+        "assembling the same statistic by hand, which is easy to get subtly "
+        "wrong. Use combine directly only for a quantity no skill provides. "
+        "Evaluates a numeric arithmetic expression against named variables, "
+        "typically results of earlier skill calls. Supports +, -, *, /, ** "
+        "and unary +/- only - no function calls at all, so there is no sqrt "
+        "(write x**0.5) and no way to reach a distribution (use the "
+        "`distribution` skill for p-values)."
     )
     parameters = {
         "type": "object",

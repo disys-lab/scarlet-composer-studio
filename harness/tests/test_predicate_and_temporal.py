@@ -231,17 +231,17 @@ def test_staggered_deadline_extends_while_workers_report_in():
         def contribute(self, ctx, request): pass
         def coordinate(self, ctx, request, workers): return {"status": "ok"}
 
-    still_waiting = _S().staggered_deadline(expected=3)
+    deadline = _S().staggered_deadline(expected=3)
 
     # No progress: the base deadline is all we get.
-    assert still_waiting(0) is True
+    assert deadline.still_waiting(0) is True
     time.sleep(0.3)
-    assert still_waiting(0) is False, "a silent fleet must not extend the wait"
+    assert deadline.still_waiting(0) is False, "a silent fleet must not extend the wait"
 
     # Progress past the original deadline buys more time.
-    still_waiting = _S().staggered_deadline(expected=3)
+    deadline = _S().staggered_deadline(expected=3)
     time.sleep(0.3)
-    assert still_waiting(1) is True, "a worker reporting in should extend the wait"
+    assert deadline.still_waiting(1) is True, "a worker reporting in should extend the wait"
 
 
 def test_staggered_deadline_stops_extending_once_everyone_answered():
@@ -257,10 +257,10 @@ def test_staggered_deadline_stops_extending_once_everyone_answered():
         def contribute(self, ctx, request): pass
         def coordinate(self, ctx, request, workers): return {"status": "ok"}
 
-    still_waiting = _S().staggered_deadline(expected=2)
-    still_waiting(2)          # everyone is in
+    deadline = _S().staggered_deadline(expected=2)
+    deadline.still_waiting(2)          # everyone is in
     import time; time.sleep(0.1)
-    assert still_waiting(2) is False
+    assert deadline.still_waiting(2) is False
 
 
 # --- other connector dialects ----------------------------------------------
@@ -346,8 +346,30 @@ def test_an_early_reply_never_shortens_the_deadline():
         def contribute(self, ctx, request): pass
         def coordinate(self, ctx, request, workers): return {"status": "ok"}
 
-    still_waiting = _S().staggered_deadline(expected=4)
-    still_waiting(1)            # an early reply, extension << remaining time
+    deadline = _S().staggered_deadline(expected=4)
+    deadline.still_waiting(1)            # an early reply, extension << remaining time
     time.sleep(0.3)             # past now+extension, well inside the base window
-    assert still_waiting(1) is True, \
+    assert deadline.still_waiting(1) is True, \
         "an early reply must not pull the deadline in"
+
+
+def test_llm_client_sets_an_explicit_timeout():
+    """
+    The default is 600s read with 2 retries - one hung request blocks the
+    head for up to 30 minutes, which is what made the notebook suite
+    bimodal: a run either finished in ~2 minutes or sat idle until its cell
+    limit killed it. The point is that a stalled endpoint fails rather than
+    hangs.
+    """
+    from scarlet_agentic_harness.config import HarnessConfig
+    from scarlet_agentic_harness.llm.client import LLMClient
+
+    cfg = HarnessConfig(
+        role="head", app_id="t", node_address="n",
+        device_group="t_subagent", head_bus="t_headagent",
+        llm_base_url="http://example.invalid/v1", llm_api_key="k",
+        llm_model="m")
+    client = LLMClient(cfg)
+
+    assert client._client.timeout == 60.0, "no explicit timeout - a hung call blocks the head"
+    assert client._client.max_retries == 2

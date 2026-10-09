@@ -93,17 +93,12 @@ class QueryFeatureSkill(Skill):
                 "description": (
                     "Connector-specific query, passed straight through to the "
                     "matching connector's query(). "
-                    # CSV/Excel called out first and by name. The previous
-                    # wording offered {"query": "SELECT ..."} only "for a SQL
-                    # source", and a model reading that does not necessarily
-                    # class a CSV as SQL - observed: it guessed a column
-                    # selector, {"cpu_pct": true, "heartbeat": true}, got an
-                    # error, and only then sent the SELECT. That cost one
-                    # wasted turn per source, which across four sources was
-                    # enough to exhaust converse's 5-turn budget and fail the
-                    # whole conversation. The table name is spelled out for
-                    # the same reason: it is always `data`, never the file or
-                    # source name, and there is no way to infer that.
+                    # CSV/Excel are named first and explicitly. Wording that
+                    # offered a SELECT only "for a SQL source" led a model to
+                    # guess a column selector for a CSV, waste a turn per
+                    # source, and exhaust converse's turn budget. The table
+                    # name is spelled out for the same reason: it is always
+                    # `data`, and nothing in the source makes that inferable.
                     "For a CSV or Excel source: {\"query\": \"SELECT col1, col2 "
                     "FROM data\"} - the table is ALWAYS named `data`, whatever "
                     "the source is called. "
@@ -169,17 +164,13 @@ class QueryFeatureSkill(Skill):
         source_name = params.get("source_name")
         query_payload = params.get("query_payload") or {}
 
-        # A filter can only be applied to SQL this worker builds itself. Given
-        # a caller-written query there is nowhere safe to put it - the query
-        # may already carry its own WHERE, or an ORDER BY / LIMIT the clause
-        # would land behind - and appending blind would produce a syntax error
-        # at best and a different question at worst.
+        # A filter can only go into SQL this worker builds itself. A
+        # caller-written query may already have a WHERE, or an ORDER BY /
+        # LIMIT the clause would land behind, so appending blind gives a
+        # syntax error at best and a different question at worst.
         #
-        # So refuse, loudly. Quietly dropping the filter is the one option
-        # that must not happen: the caller would get the unfiltered answer
-        # believing it was filtered, which is a plausible number and not an
-        # error. Same reasoning as the predicate being settled once and
-        # applied identically everywhere.
+        # Refuse loudly rather than drop it: a silently unfiltered answer
+        # looks exactly like a filtered one.
         if params.get("conditions") and query_payload:
             self._reject(ctx, request, source_name,
                          "conditions cannot be applied to a caller-supplied "

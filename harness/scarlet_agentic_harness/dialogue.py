@@ -40,24 +40,10 @@ always, rather than hoping the model remembers to ask for it).
 import json
 import threading
 import uuid
-from typing import Callable, Protocol
+from typing import Callable
+from scarlet_agentic_harness.chat_client import ChatClient
 
 
-class ChatClient(Protocol):
-    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
-
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        """
-        Parameters
-        ----------
-        messages : list of dict
-        tools : list of dict or None, optional
-
-        Returns
-        -------
-        dict
-        """
-        ...
 
 
 def _system_prompt(agent_id: str, context: dict) -> str:

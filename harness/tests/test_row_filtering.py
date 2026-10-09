@@ -255,3 +255,46 @@ def test_iso_workers_are_unaffected_by_the_new_formats(monkeypatch, tmp_path):
                      "value": "2026-01-01T00:05:00"}],
     )
     assert "CAST(" in meta["where"] and "strptime" not in meta["where"]
+
+
+# --- a failed data read must not permanently kill the round ----------------
+
+@pytest.mark.parametrize("read_retryable,expected", [(True, True), (False, False)])
+def test_a_read_failure_carries_its_retryability(read_retryable, expected):
+    """
+    `contribute` reads its data before it Maps. That read was unguarded, so
+    a raise was reported non-retryable - right for a bad column, wrong for a
+    dropped database connection, where the head gave up on a round a second
+    attempt would have completed.
+    """
+    import numpy as np
+    from scarlet_agentic_harness.skills.core.sum import SumCoreSkill, _READY_MSG_TYPE
+
+    body = {"type": _READY_MSG_TYPE, "from": "w1", "ncols": 0, "rows": 0,
+            "read_status": False, "read_error": "OperationalError: connection lost",
+            "read_retryable": read_retryable, "map_status": False, "map_error": None}
+
+    class _Router:
+        def __init__(self): self._q = [{"body": body}]
+        def receive_for(self, rid, timeout=1): return self._q.pop(0) if self._q else None
+        def forget(self, rid): pass
+
+    class _Ctx:
+        agent_id = "w1"
+        data_profiles = {}
+        cancelled = type("C", (), {"is_set": staticmethod(lambda: False)})()
+        def __init__(self):
+            class _B:
+                local_bus = type("X", (), {"Send": staticmethod(lambda *a, **k: None)})()
+                local_router = _Router()
+            self.buses = _B()
+        def federator(self, name, op=None): raise AssertionError("must not aggregate")
+        def report_progress(self, **kw): pass
+
+    out = SumCoreSkill().coordinate(
+        _Ctx(), {"request_id": "r1", "mapper_name": "m", "params": {}}, ["w1"])
+
+    assert out["status"] == "error"
+    assert out["retryable"] is expected
+    assert "could not read its data" in out["detail"]
+    assert "connection lost" in out["detail"]

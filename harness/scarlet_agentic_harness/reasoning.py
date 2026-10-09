@@ -31,6 +31,7 @@ data. But a trace you have to remember to switch on beforehand is never on
 when you need it, which is the failure this exists to prevent.
 """
 import os
+from scarlet_agentic_harness.publishing_event_handler import PublishingEventHandler
 
 from scarlets.utils.RedisLogger import RedisLogger
 
@@ -66,29 +67,5 @@ def publishing_on_event(buses, inner=None):
         swallowed: this is observability on the head's critical path, and
         it must never be able to break the conversation it describes.
     """
-    enabled = publishing_enabled()
-
-    def on_event(event: dict) -> None:
-        if inner is not None:
-            inner(event)
-        if not enabled:
-            return
-        try:
-            # Spread FIRST, then set "type" - the other way round lets the
-            # event's own type ("narration", "tool_call", ...) overwrite the
-            # wire discriminator, so every message would go out labelled as
-            # whatever step produced it and nothing could tell reasoning
-            # apart from ordinary bus traffic. The event's own type is kept
-            # under "event" so both remain available to a reader.
-            #
-            # conv_id already rides on every event - converse stamps it,
-            # since it mints the value and no caller can know it up front.
-            buses.global_bus.Send(REASONING_SINK, {
-                **event,
-                "event": event.get("type"),
-                "type": MSG_TYPE,
-            })
-        except Exception as exc:
-            RedisLogger.warning(f"reasoning publish failed ({event.get('type')}): {exc}")
-
-    return on_event
+    return PublishingEventHandler(buses, REASONING_SINK, MSG_TYPE,
+                                  publishing_enabled(), inner)

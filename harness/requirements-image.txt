@@ -26,6 +26,14 @@ mcp>=2.0.0
 # entirely from this image.
 pyyaml>=6.0
 
+# scipy, for skills that need real statistical machinery rather than
+# arithmetic: distributions, p-values, random-variable modelling. combine's
+# safe_eval is deliberately arithmetic-only (no function calls at all), so
+# anything needing a CDF or a survival function has to reach scipy instead.
+# Only the low-level pieces are used - scipy.stats' own high-level test
+# wrappers are not, because the fleet computes the statistic itself.
+scipy>=1.11.0
+
 # data_connectors' own drivers (setup_connectors.py's install_requires) -
 # the wheel itself is installed --no-deps, so every one of these is
 # listed here instead:

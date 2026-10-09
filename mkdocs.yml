@@ -53,11 +53,13 @@ nav:
   - Composer UI:
     - Overview: composer/index.md
     - Agents: composer/agents.md
-    - Data Sources: composer/data-sources.md
     - Logging: composer/logging.md
   - Harness:
     - Introduction: harness/index.md
+    - Quickstart: harness/quickstart.md
     - Core Concepts: harness/concepts.md
+    - Architecture: harness/architecture.md
+    - Contributing a Skill: AGENTS.md
     - Getting Started: harness/getting-started.md
     - Deployment: harness/deployment.md
   - Reference:
