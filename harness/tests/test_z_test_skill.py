@@ -19,7 +19,7 @@ from scarlet_agentic_harness.skills.registry import discover_skills
 #   two-sided = 2*sf                = 0.45519812437145857
 S1, N, MU0, SIGMA = 204.1375, 79, 2.5, 1.0
 SCIPY_Z = 0.7467770942396454
-SCIPY_P_ONE_SIDED = 0.22759906218572928
+SCIPY_P_UPPER = 0.22759906218572928
 SCIPY_P_TWO_SIDED = 0.45519812437145857
 
 
@@ -64,7 +64,7 @@ def test_the_statistic_matches_scipy(skills, monkeypatch):
 
 def test_the_p_values_match_scipy(skills, monkeypatch):
     res, _ = _drive_live(skills, monkeypatch, dict(_P))
-    assert res["p_one_sided"] == pytest.approx(SCIPY_P_ONE_SIDED, rel=1e-12)
+    assert res["p_upper"] == pytest.approx(SCIPY_P_UPPER, rel=1e-12)
     assert res["p_value"] == pytest.approx(SCIPY_P_TWO_SIDED, rel=1e-12)
 
 
@@ -103,8 +103,7 @@ def test_a_mean_far_from_mu0_is_significant(skills, monkeypatch):
 def test_the_plan_runs_its_steps_in_order(skills, monkeypatch):
     _, calls = _drive_live(skills, monkeypatch, dict(_P))
     assert [n for n, _ in calls] == [
-        "agree_representation", "sum_core", "combine", "combine",
-        "distribution", "combine"]
+        "agree_representation", "sum_core", "combine", "distribution", "combine"]
 
 
 def test_it_uses_the_normal_distribution(skills, monkeypatch):
@@ -116,7 +115,7 @@ def test_it_uses_the_normal_distribution(skills, monkeypatch):
 
 def test_returns_re_export_the_statistic_and_the_p_value(skills, monkeypatch):
     res, _ = _drive_live(skills, monkeypatch, dict(_P))
-    for field in ("result", "p_value", "p_one_sided", "columns", "n"):
+    for field in ("result", "p_value", "p_upper", "columns", "n"):
         assert field in res, f"{field} is not re-exported"
     assert res["n"] == N
 
@@ -147,3 +146,44 @@ def test_a_failed_step_aborts_the_plan(skills, monkeypatch):
                       lambda r: box.update(r), skills)
     assert box["status"] == "error"
     assert box["retryable"] is False
+
+
+# --- every tail, against scipy -------------------------------------------
+
+TAILS = {
+    "upper": 0.22759906218572928,
+    "lower": 0.7724009378142707,
+    "two-sided": 0.45519812437145857,
+}
+
+
+@pytest.mark.parametrize("mode", ["upper", "lower", "two-sided"])
+def test_each_mode_gives_the_right_p_value(mode, skills, monkeypatch):
+    """
+    One assertion per tail, against scipy.
+
+    The three are easy to confuse and all look like probabilities: for
+    this fixture upper and lower differ by a factor of thousands, and a
+    two-sided value used for a one-sided question is exactly double.
+    """
+    res, _ = _drive_live(skills, monkeypatch, dict(_P, mode=mode))
+    assert res["status"] == "ok"
+    assert res["mode"] == mode
+    assert res["p_value"] == pytest.approx(TAILS[mode], rel=1e-9)
+    assert 0.0 <= res["p_value"] <= 1.0
+
+
+def test_omitting_mode_defaults_to_two_sided(skills, monkeypatch):
+    """The schema default must reach the plan, or no branch runs at all."""
+    mode = "two-sided"
+    res, _ = _drive_live(skills, monkeypatch, dict(_P))
+    assert res["mode"] == "two-sided"
+    assert res["p_value"] == pytest.approx(TAILS["two-sided"], rel=1e-9)
+
+
+def test_the_upper_and_lower_tails_are_complementary(skills, monkeypatch):
+    mode = "upper"
+    up, _ = _drive_live(skills, monkeypatch, dict(_P, mode=mode))
+    mode = "lower"
+    lo, _ = _drive_live(skills, monkeypatch, dict(_P, mode=mode))
+    assert up["p_value"] + lo["p_value"] == pytest.approx(1.0, abs=1e-12)

@@ -58,7 +58,7 @@ class SumCoreSkill(Skill):
     name = "sum_core"
     description = (
         "LOW-LEVEL BUILDING BLOCK. Prefer a dedicated skill if one exists for "
-        "what you are computing - mean, variance, rms, z_test, chi2_test and "
+        "what you are computing - mean, variance, rms, z_test, t_test and "
         "f_test all call this internally and handle the column agreement and "
         "the arithmetic for you. Reach for sum_core directly only when no "
         "dedicated skill fits. "

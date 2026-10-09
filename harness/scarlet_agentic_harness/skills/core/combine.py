@@ -50,7 +50,8 @@ class CombineSkill(Skill):
     name = "combine"
     description = (
         "LOW-LEVEL BUILDING BLOCK. Check the available skills first - mean, "
-        "variance, rms, z_test, chi2_test and f_test already compose this "
+        "variance, rms, z_test, t_test, f_test and variance_test already "
+        "compose this "
         "internally, and calling one of them is always preferable to "
         "assembling the same statistic by hand, which is easy to get subtly "
         "wrong. Use combine directly only for a quantity no skill provides. "

@@ -32,6 +32,19 @@ matplotlib==3.11.2
 # imports `docker`.
 mcp==2.2.0
 
+# Notebooks 17/19/20 (z-test, F-test, t-test) - ground truth for a
+# p-value. Those notebooks state the expected upper, lower and two-sided
+# tails so the fleet's three answers can be checked one at a time, and a
+# tail probability cannot be computed from numpy alone.
+#
+# This is the notebooks' own copy, deliberately separate from
+# harness/requirements-image.txt's: that one is what the `distribution`
+# skill calls inside an agent, this one is what the kernel uses to check
+# the agent's answer. Checking a number against the same installation
+# that produced it proves nothing - but they are pinned to the same
+# version so a disagreement means a real disagreement, not a version skew.
+scipy==1.17.1
+
 # mcp's own transitive dependency, by way of pyjwt - pinned because newer
 # releases crash this image outright.
 #

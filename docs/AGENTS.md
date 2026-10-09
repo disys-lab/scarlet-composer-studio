@@ -156,7 +156,7 @@ No exceptions - the test has to import it without guessing.
 |---|---|
 | `rms` | `RmsSkill` |
 | `z_test` | `ZTestSkill` |
-| `chi2_test` | `Chi2TestSkill` |
+| `variance_test` | `VarianceTestSkill` |
 
 **2. The result contract.** Write the exact keys you return:
 
@@ -404,6 +404,29 @@ Step("combine", params={"expression": "2*p_one_sided",
 `chi2` and `f` statistics cannot be negative, so their upper tail is
 already the one-sided p-value and none of this applies.
 
+#### Conditional steps: `when`
+
+A step runs only if its `when` matches the namespace. This is RULE 0, and
+it is checked before RULE 1, so a conditional *check* step obeys its
+condition too:
+
+```python
+Step("combine", when={"mode": "upper"}, ...)
+Step("combine", when={"mode": ["upper", "two-sided"]}, ...)   # list = any of
+```
+
+Every entry must match. A list matches membership. A variable the
+namespace does not hold **never** matches, so a condition on a name
+nothing sets is a skip, not a guess — which is why a parameter you branch
+on must declare a `default` in your schema. `PlanRunner` seeds the
+namespace with declared defaults before the first step; without one, a
+plan branching on an omitted parameter runs *no* branch and returns
+nothing.
+
+Several steps may bind the same output under mutually exclusive
+conditions. Exactly one runs, the plan stays linear, and the branch is
+visible in the plan rather than buried in an expression.
+
 #### A hypothesis test returns the statistic AND the p-value
 
 If your skill is named `*_test`, its plan must contain a `distribution`
@@ -419,14 +442,56 @@ one. Or it improvises: asked for a chi-squared test, it once answered
 approximately 1" - a tail probability recalled from memory rather than
 computed.
 
-**Pick the right number of tails, and say which you picked.** Most tests
-here are two-sided, because the hypothesis can fail in either direction.
-`chi2_test` is not: goodness-of-fit only fails one way - a large
-statistic means a poor fit, a small one means a good one - so its
-p-value is a bare upper tail and must not be doubled. Doubling it would
-produce 1.9999999994. If your test is one-sided, put the reason in a
-comment next to the step; the next reader will otherwise assume it is a
-bug of the kind this guide keeps describing.
+**And it must offer all three tails.** This is not optional: a `*_test`
+skill declares
+
+```python
+"mode": {"type": "string",
+         "enum": ["two-sided", "upper", "lower"],
+         "default": "two-sided"},
+```
+
+and ends with this block, which is deliberately identical in every
+hypothesis test in the package:
+
+```python
+Step("distribution",
+     params={"dist": D, "method": "sf", "x": "$stat", "params": {...}},
+     produces={"p_upper": "result"}),
+Step("combine", when={"mode": "upper"},
+     params={"expression": "p_upper", "variables": {"p_upper": "$p_upper"}},
+     produces={"p_value": "result"}),
+Step("combine", when={"mode": "lower"},
+     params={"expression": "1 - p_upper", "variables": {"p_upper": "$p_upper"}},
+     produces={"p_value": "result"}),
+Step("combine", when={"mode": "two-sided"},
+     params={"expression": "1 - ((2*p_upper - 1)**2)**0.5",
+             "variables": {"p_upper": "$p_upper"}},
+     produces={"p_value": "result"}),
+```
+
+Only `dist` and its shape parameters change. Copy it.
+
+Two things make this work. `sf` is always the upper tail, so `1 - u` is
+always the lower one. And the two-sided expression is the identity
+
+```
+2*min(u, 1-u)  ==  1 - |2u - 1|
+```
+
+which holds for **every** distribution here, symmetric or not - verified
+to 5.6e-17 against norm, t, chi2 and f. That is why no separate
+`|statistic|` step is needed: the sign is handled for you.
+
+**Why all three, rather than picking one.** A hard-coded tail answers a
+different question from the one asked, and does it silently. A two-sided
+p-value used for "is the variance greater than 1?" is twice what it
+should be; an upper tail used for "do these differ?" is half. Both come
+back looking like perfectly ordinary probabilities. The conformance suite
+fails any `*_test` that does not declare the parameter, default to
+two-sided, and carry one mutually exclusive branch per mode - and it
+evaluates each branch's expression to check it computes the tail it
+claims.
 
 Existing compounds to copy from: `skills/compound/mean.py`,
 `skills/compound/variance.py`, and `skills/compound/t_test.py` for a

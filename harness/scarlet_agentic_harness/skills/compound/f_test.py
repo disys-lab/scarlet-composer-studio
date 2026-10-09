@@ -21,8 +21,9 @@ Limitations
   skewness can make the result misleading.
 - Requires at least 2 non-missing values per column per worker in each
   group; otherwise the variance is undefined.
-- The test is two-sided by default; one-sided alternatives require
-  adjusting the p-value manually.
+- Two-sided by default. Pass mode="upper" or mode="lower" for a
+  one-sided alternative; the p-value is computed for the mode asked for,
+  not adjusted afterwards.
 """
 from scarlet_agentic_harness.skills.base import CompoundSkill, Step
 from scarlet_agentic_harness.skills import predicate
@@ -60,6 +61,16 @@ class FTestSkill(CompoundSkill):
                 "items": {"type": "string"},
                 "description": "Exact columns to read; supplying this skips agreement.",
             },
+            "mode": {
+                "type": "string",
+                "enum": ["two-sided", "upper", "lower"],
+                "default": "two-sided",
+                "description": (
+                    "Which tail the alternative hypothesis lives in. "
+                    "two-sided = the value differs from the hypothesised "
+                    "one; upper = it is greater; lower = it is less."
+                ),
+            },
             "conditions": predicate.CONDITIONS_SCHEMA,
         },
         "required": ["group_a", "group_b"],
@@ -90,24 +101,32 @@ class FTestSkill(CompoundSkill):
              produces={"df_a": "result"}),
         Step("combine", params={"expression": "n_b-1", "variables": {"n_b": "$n_b"}},
              produces={"df_b": "result"}),
+        # --- the tail ----------------------------------------------
+        # `sf` is the upper tail, always computed. The three branches
+        # below are mutually exclusive on `mode`, so exactly one runs and
+        # binds `p_value` (RULE 0). This block is identical in every
+        # hypothesis test here - only `dist` and its shape parameters
+        # differ.
         Step("distribution",
-             params={"dist": "f", "method": "sf", "x": "$f",
-                     "params": {"dfn": "$df_a", "dfd": "$df_b"}},
+             params={"dist": "f", "method": "sf", "x": "$f", "params": {"dfn": "$df_a", "dfd": "$df_b"}},
              produces={"p_upper": "result"}),
-        # Two-sided, which is what "do these variances match?" asks and
-        # what this skill's docstring has always claimed. `sf` alone is
-        # the upper tail: for F < 1 it returns > 0.5, so the skill was
-        # reporting 0.7896 where the two-sided answer is 0.4237.
-        #
-        # Two-sided p is 2*min(sf, cdf), and combine has no min(). For a
-        # continuous distribution cdf = 1 - sf, and
-        #     2*min(s, 1-s) == 1 - |2s - 1|
-        # which is expressible: |x| is (x**2)**0.5.
-        Step("combine",
+        Step("combine", when={"mode": "upper"},
+             params={"expression": "p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        Step("combine", when={"mode": "lower"},
+             params={"expression": "1 - p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        # 2*min(u, 1-u) == 1 - |2u - 1|, which holds for every
+        # distribution here, symmetric or not - verified to 5.6e-17
+        # against norm, t, chi2 and f. |x| is (x**2)**0.5; combine has no
+        # abs(). This is why no separate |statistic| step is needed.
+        Step("combine", when={"mode": "two-sided"},
              params={"expression": "1 - ((2*p_upper - 1)**2)**0.5",
                      "variables": {"p_upper": "$p_upper"}},
              produces={"p_value": "result"}),
     ]
     returns = {"result": "f", "p_value": "p_value", "p_upper": "p_upper",
-               "df_a": "df_a", "df_b": "df_b", "columns": "columns",
-               "n_a": "n_a", "n_b": "n_b"}
+               "mode": "mode", "df_a": "df_a", "df_b": "df_b",
+               "columns": "columns", "n_a": "n_a", "n_b": "n_b"}

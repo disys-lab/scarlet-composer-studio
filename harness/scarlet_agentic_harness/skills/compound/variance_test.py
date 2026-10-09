@@ -18,9 +18,12 @@ normal approximation, where the correct value is 35.7659. Every attempt
 reached the right *conclusion*, which is exactly why the wrong statistics
 went unnoticed.
 
-`chi2_test` is a different test - goodness-of-fit against an expected
-value per column, sum((O-E)^2/E). It does not answer this question and
-this does not answer that one.
+This is THE chi-squared test in this package. An earlier `chi2_test`
+computed sum((x-mu)^2/mu), which is a chi-squared statistic only for
+Poisson counts - a dispersion test wearing a general name, with no count
+data in the fleet to run on. It was removed rather than kept next to this
+one, because the head cannot reliably tell two things called "the
+chi-squared test" apart.
 
 Limitations
 -----------
@@ -50,8 +53,8 @@ class VarianceTestSkill(CompoundSkill):
         "alternative. Call this rather than assembling it from variance, "
         "combine and distribution, which has produced three different "
         "statistics for the same question. "
-        "Note this is NOT chi2_test, which is goodness-of-fit against an "
-        "expected value per column - a different test entirely."
+        "This is the chi-squared test for a variance - the one meant by "
+        "\"run a chi2 test on the variance\"."
     )
     parameters = {
         "type": "object",
@@ -70,6 +73,16 @@ class VarianceTestSkill(CompoundSkill):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Agent ids that should contribute. Omit for all of them.",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["two-sided", "upper", "lower"],
+                "default": "two-sided",
+                "description": (
+                    "Which tail the alternative hypothesis lives in. "
+                    "two-sided = the value differs from the hypothesised "
+                    "one; upper = it is greater; lower = it is less."
+                ),
             },
             "conditions": predicate.CONDITIONS_SCHEMA,
         },
@@ -90,19 +103,31 @@ class VarianceTestSkill(CompoundSkill):
         Step("combine",
              params={"expression": "n-1", "variables": {"n": "$n"}},
              produces={"df": "result"}),
+        # --- the tail ----------------------------------------------
+        # `sf` is the upper tail, always computed. The three branches
+        # below are mutually exclusive on `mode`, so exactly one runs and
+        # binds `p_value` (RULE 0). This block is identical in every
+        # hypothesis test here - only `dist` and its shape parameters
+        # differ.
         Step("distribution",
-             params={"dist": "chi2", "method": "cdf", "x": "$chi2",
-                     "params": {"df": "$df"}},
-             produces={"p_lower": "result"}),
-        # Two-sided: 2*min(cdf, 1-cdf), and combine has no min(). For a
-        # continuous distribution that is 1 - |2*cdf - 1|, and |x| is
-        # written (x**2)**0.5. A chi2 statistic cannot be negative, but
-        # the TAIL still has two sides - a variance can be too small as
-        # easily as too large, and this fixture's is.
-        Step("combine",
-             params={"expression": "1 - ((2*p_lower - 1)**2)**0.5",
-                     "variables": {"p_lower": "$p_lower"}},
+             params={"dist": "chi2", "method": "sf", "x": "$chi2", "params": {"df": "$df"}},
+             produces={"p_upper": "result"}),
+        Step("combine", when={"mode": "upper"},
+             params={"expression": "p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        Step("combine", when={"mode": "lower"},
+             params={"expression": "1 - p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        # 2*min(u, 1-u) == 1 - |2u - 1|, which holds for every
+        # distribution here, symmetric or not - verified to 5.6e-17
+        # against norm, t, chi2 and f. |x| is (x**2)**0.5; combine has no
+        # abs(). This is why no separate |statistic| step is needed.
+        Step("combine", when={"mode": "two-sided"},
+             params={"expression": "1 - ((2*p_upper - 1)**2)**0.5",
+                     "variables": {"p_upper": "$p_upper"}},
              produces={"p_value": "result"}),
     ]
-    returns = {"result": "chi2", "p_value": "p_value", "p_lower": "p_lower",
-               "df": "df", "columns": "columns", "n": "n"}
+    returns = {"result": "chi2", "p_value": "p_value", "p_upper": "p_upper",
+               "mode": "mode", "df": "df", "columns": "columns", "n": "n"}

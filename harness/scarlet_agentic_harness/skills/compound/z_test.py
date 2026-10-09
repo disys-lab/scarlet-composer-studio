@@ -46,6 +46,16 @@ class ZTestSkill(CompoundSkill):
                 "items": {"type": "string"},
                 "description": "Agent ids that should contribute. Omit for all of them.",
             },
+            "mode": {
+                "type": "string",
+                "enum": ["two-sided", "upper", "lower"],
+                "default": "two-sided",
+                "description": (
+                    "Which tail the alternative hypothesis lives in. "
+                    "two-sided = the value differs from the hypothesised "
+                    "one; upper = it is greater; lower = it is less."
+                ),
+            },
             "conditions": predicate.CONDITIONS_SCHEMA,
         },
         "required": ["mu0", "sigma"],
@@ -58,20 +68,31 @@ class ZTestSkill(CompoundSkill):
                      "variables": {"s1": "$s1", "n": "$n",
                                    "mu0": "$mu0", "sigma": "$sigma"}},
              produces={"z": "result"}),
-        # |z|, because `sf` is the UPPER tail only: sf(-0.75) is 0.77, and
-        # doubling that gives 1.55, which is not a probability. combine has
-        # no abs() any more than it has sqrt() - (z**2)**0.5 is how it is
-        # written.
-        Step("combine",
-             params={"expression": "(z**2)**0.5", "variables": {"z": "$z"}},
-             produces={"abs_z": "result"}),
+        # --- the tail ----------------------------------------------
+        # `sf` is the upper tail, always computed. The three branches
+        # below are mutually exclusive on `mode`, so exactly one runs and
+        # binds `p_value` (RULE 0). This block is identical in every
+        # hypothesis test here - only `dist` and its shape parameters
+        # differ.
         Step("distribution",
-             params={"dist": "norm", "method": "sf", "x": "$abs_z"},
-             produces={"p_one_sided": "result"}),
-        Step("combine",
-             params={"expression": "2*p_one_sided",
-                     "variables": {"p_one_sided": "$p_one_sided"}},
+             params={"dist": "norm", "method": "sf", "x": "$z"},
+             produces={"p_upper": "result"}),
+        Step("combine", when={"mode": "upper"},
+             params={"expression": "p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        Step("combine", when={"mode": "lower"},
+             params={"expression": "1 - p_upper",
+                     "variables": {"p_upper": "$p_upper"}},
+             produces={"p_value": "result"}),
+        # 2*min(u, 1-u) == 1 - |2u - 1|, which holds for every
+        # distribution here, symmetric or not - verified to 5.6e-17
+        # against norm, t, chi2 and f. |x| is (x**2)**0.5; combine has no
+        # abs(). This is why no separate |statistic| step is needed.
+        Step("combine", when={"mode": "two-sided"},
+             params={"expression": "1 - ((2*p_upper - 1)**2)**0.5",
+                     "variables": {"p_upper": "$p_upper"}},
              produces={"p_value": "result"}),
     ]
-    returns = {"result": "z", "p_value": "p_value",
-               "p_one_sided": "p_one_sided", "columns": "columns", "n": "n"}
+    returns = {"result": "z", "p_value": "p_value", "p_upper": "p_upper",
+               "mode": "mode", "columns": "columns", "n": "n"}

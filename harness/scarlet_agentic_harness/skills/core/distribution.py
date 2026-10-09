@@ -41,7 +41,8 @@ class DistributionSkill(Skill):
     description = (
         "Evaluate a statistical distribution at a value: p-values, critical "
         "values, densities. Use this AFTER computing a test statistic (with "
-        "z_test, chi2_test, f_test, or combine) to turn that number into a "
+        "z_test, t_test, f_test, variance_test, or combine) to turn that "
+        "number into a "
         "probability - e.g. the two-sided p-value for a z of 2.4 is "
         "2 * distribution(dist=norm, method=sf, x=2.4). Accepts a list for "
         "x, so a per-column statistic gives a per-column p-value. "

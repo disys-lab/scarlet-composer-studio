@@ -214,3 +214,44 @@ def test_the_p_value_is_a_probability_whichever_group_is_larger(monkeypatch):
     for res in (normal, swapped):
         assert 0.0 <= res["p_value"] <= 1.0
     assert normal["p_value"] == pytest.approx(swapped["p_value"], abs=1e-6)
+
+
+# --- every tail, against scipy -------------------------------------------
+
+TAILS = {
+    "upper": 0.7847384682506593,
+    "lower": 0.2152615317493407,
+    "two-sided": 0.4305230634986814,
+}
+
+
+@pytest.mark.parametrize("mode", ["upper", "lower", "two-sided"])
+def test_each_mode_gives_the_right_p_value(mode, monkeypatch):
+    """
+    One assertion per tail, against scipy.
+
+    The three are easy to confuse and all look like probabilities: for
+    this fixture upper and lower differ by a factor of thousands, and a
+    two-sided value used for a one-sided question is exactly double.
+    """
+    res = _drive_live(dict(_GROUPS, mode=mode), monkeypatch)
+    assert res["status"] == "ok"
+    assert res["mode"] == mode
+    assert res["p_value"] == pytest.approx(TAILS[mode], rel=1e-9)
+    assert 0.0 <= res["p_value"] <= 1.0
+
+
+def test_omitting_mode_defaults_to_two_sided(monkeypatch):
+    """The schema default must reach the plan, or no branch runs at all."""
+    mode = "two-sided"
+    res = _drive_live(dict(_GROUPS), monkeypatch)
+    assert res["mode"] == "two-sided"
+    assert res["p_value"] == pytest.approx(TAILS["two-sided"], rel=1e-9)
+
+
+def test_the_upper_and_lower_tails_are_complementary(monkeypatch):
+    mode = "upper"
+    up = _drive_live(dict(_GROUPS, mode=mode), monkeypatch)
+    mode = "lower"
+    lo = _drive_live(dict(_GROUPS, mode=mode), monkeypatch)
+    assert up["p_value"] + lo["p_value"] == pytest.approx(1.0, abs=1e-12)

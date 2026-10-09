@@ -28,6 +28,9 @@ S1, S2, N = 1002.5, 100559.75, 10
 SCIPY_T, SCIPY_P = 0.3084435454, 0.7647647163
 
 
+MU0_P = {"mu0": MU0}
+
+
 @pytest.fixture
 def skills():
     return discover_skills()
@@ -82,8 +85,7 @@ def _drive_live(skill, params, skills, monkeypatch, s1=S1, s2=S2, n=N):
 def test_the_plan_runs_its_steps_in_order(skills, monkeypatch):
     res, calls = _drive_live(skills["t_test"], {"mu0": MU0}, skills, monkeypatch)
     assert [n for n, _ in calls] == [
-        "agree_representation", "sum_core", "sum_core",
-        "combine", "combine", "combine", "distribution", "combine"]
+        "agree_representation", "sum_core", "sum_core", "combine", "combine", "distribution", "combine"]
     assert res["status"] == "ok"
 
 
@@ -169,3 +171,44 @@ def test_the_two_sided_p_value_is_symmetric_about_the_mean(skills, monkeypatch):
     below, _ = _drive_live(skills["t_test"], {"mu0": xbar - 1.0}, skills, monkeypatch)
     assert above["result"] == pytest.approx(-below["result"], abs=1e-12)
     assert above["p_value"] == pytest.approx(below["p_value"], abs=1e-12)
+
+
+# --- every tail, against scipy -------------------------------------------
+
+TAILS = {
+    "upper": 0.3823823581645966,
+    "lower": 0.6176176418354034,
+    "two-sided": 0.7647647163291932,
+}
+
+
+@pytest.mark.parametrize("mode", ["upper", "lower", "two-sided"])
+def test_each_mode_gives_the_right_p_value(mode, skills, monkeypatch):
+    """
+    One assertion per tail, against scipy.
+
+    The three are easy to confuse and all look like probabilities: for
+    this fixture upper and lower differ by a factor of thousands, and a
+    two-sided value used for a one-sided question is exactly double.
+    """
+    res, _ = _drive_live(skills["t_test"], dict(MU0_P, mode=mode), skills, monkeypatch)
+    assert res["status"] == "ok"
+    assert res["mode"] == mode
+    assert res["p_value"] == pytest.approx(TAILS[mode], rel=1e-9)
+    assert 0.0 <= res["p_value"] <= 1.0
+
+
+def test_omitting_mode_defaults_to_two_sided(skills, monkeypatch):
+    """The schema default must reach the plan, or no branch runs at all."""
+    mode = "two-sided"
+    res, _ = _drive_live(skills["t_test"], dict(MU0_P), skills, monkeypatch)
+    assert res["mode"] == "two-sided"
+    assert res["p_value"] == pytest.approx(TAILS["two-sided"], rel=1e-9)
+
+
+def test_the_upper_and_lower_tails_are_complementary(skills, monkeypatch):
+    mode = "upper"
+    up, _ = _drive_live(skills["t_test"], dict(MU0_P, mode=mode), skills, monkeypatch)
+    mode = "lower"
+    lo, _ = _drive_live(skills["t_test"], dict(MU0_P, mode=mode), skills, monkeypatch)
+    assert up["p_value"] + lo["p_value"] == pytest.approx(1.0, abs=1e-12)

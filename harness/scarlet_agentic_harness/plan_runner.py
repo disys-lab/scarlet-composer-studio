@@ -46,9 +46,14 @@ class PlanRunner:
     produced. Three rules govern stepping, and each is a separate branch in
     `advance` so removing one is visible:
 
+    RULE 0 - a step whose `when` does not match the namespace is skipped.
     RULE 1 - a step with no outputs always runs; it is a check.
     RULE 2 - a step whose outputs are all already bound is skipped.
     RULE 3 - a step that fails aborts the plan (see `StepResult`).
+
+    RULE 0 is checked first so that a conditional *check* step - one with
+    no `produces` - is still governed by its condition. Were it second,
+    RULE 1 would run every such step unconditionally.
 
     Parameters
     ----------
@@ -71,7 +76,11 @@ class PlanRunner:
     def __init__(self, compound, params: dict, config, buses, on_result,
                  skills: dict, on_event, depth: int, run_skill_kwargs: dict):
         self._compound = compound
-        self._ns = dict(params)
+        # Declared defaults seed the namespace first, so a `when` on a
+        # parameter the caller omitted still resolves. Without this a plan
+        # branching on `mode` would silently run none of its branches when
+        # the head did not name one.
+        self._ns = dict(_schema_defaults(compound), **params)
         self._steps = list(compound.plan)
         self._config = config
         self._buses = buses
@@ -120,6 +129,11 @@ class PlanRunner:
         # Skip forward over anything already satisfied before dispatching.
         while i < len(self._steps):
             step = self._steps[i]
+            # RULE 0 - condition. Checked before RULE 1 so a conditional
+            # check step is also governed by its condition.
+            if step.when and not _matches(step.when, self._ns):
+                i += 1
+                continue
             # RULE 1 - always-run. A step with no outputs is a check.
             if not step.produces:
                 break
@@ -156,3 +170,45 @@ class PlanRunner:
             StepResult(self, step, i), skills=self._skills,
             on_event=self._on_event, depth=self._depth + 1,
             **self._run_skill_kwargs)
+
+
+def _matches(when: dict, ns: dict) -> bool:
+    """
+    True if every entry of `when` is satisfied by the namespace.
+
+    A list, tuple or set on the right matches membership; anything else
+    matches equality. A variable the namespace does not hold never
+    matches - a condition on an unknown name is a skip, not a guess.
+
+    Parameters
+    ----------
+    when : dict
+    ns : dict
+
+    Returns
+    -------
+    bool
+    """
+    for var, expected in when.items():
+        if var not in ns:
+            return False
+        actual = ns[var]
+        if isinstance(expected, (list, tuple, set)):
+            if actual not in expected:
+                return False
+        elif actual != expected:
+            return False
+    return True
+
+
+def _schema_defaults(compound) -> dict:
+    """
+    The `default` of every parameter the compound's schema declares one for.
+
+    Returns
+    -------
+    dict
+    """
+    props = (getattr(compound, "parameters", None) or {}).get("properties", {})
+    return {name: spec["default"] for name, spec in props.items()
+            if isinstance(spec, dict) and "default" in spec}
