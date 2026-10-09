@@ -1,5 +1,5 @@
 """
-Tests for the variance_test compound skill.
+Tests for the chi2_test compound skill.
 
 This skill exists because the head could not compose the test reliably:
 asked the same question three times with `variance` + `combine` +
@@ -57,7 +57,7 @@ def _drive_live(skills, monkeypatch, params, var_pop=VAR_POP, n=N):
 
     monkeypatch.setattr(dispatch, "run_skill", fake)
     box = {}
-    dispatch.run_plan(skills["variance_test"], params, None, None,
+    dispatch.run_plan(skills["chi2_test"], params, None, None,
                       lambda r: box.update(r), skills)
     return box, calls
 
@@ -148,7 +148,7 @@ def test_supplying_columns_skips_the_agreement_step(skills, monkeypatch):
 
 def test_it_can_be_scoped_to_one_worker(skills, monkeypatch):
     """Without `workers` declared, a per-worker question gets the fleet."""
-    assert "workers" in skills["variance_test"].parameters["properties"]
+    assert "workers" in skills["chi2_test"].parameters["properties"]
     _, calls = _drive_live(skills, monkeypatch,
                            {"sigma0_sq": SIGMA0_SQ, "workers": ["w2"]})
     var = next(p for n, p in calls if n == "variance")
@@ -164,7 +164,7 @@ def test_a_failed_step_aborts_the_plan(skills, monkeypatch):
 
     monkeypatch.setattr(dispatch, "run_skill", fake)
     box = {}
-    dispatch.run_plan(skills["variance_test"], {"sigma0_sq": SIGMA0_SQ},
+    dispatch.run_plan(skills["chi2_test"], {"sigma0_sq": SIGMA0_SQ},
                       None, None, lambda r: box.update(r), skills)
     assert box["status"] == "error"
     assert box["retryable"] is False

@@ -18,12 +18,14 @@ normal approximation, where the correct value is 35.7659. Every attempt
 reached the right *conclusion*, which is exactly why the wrong statistics
 went unnoticed.
 
-This is THE chi-squared test in this package. An earlier `chi2_test`
-computed sum((x-mu)^2/mu), which is a chi-squared statistic only for
-Poisson counts - a dispersion test wearing a general name, with no count
-data in the fleet to run on. It was removed rather than kept next to this
-one, because the head cannot reliably tell two things called "the
-chi-squared test" apart.
+A note on the name, because the history is confusing. An earlier skill
+held this name and computed sum((x-mu)^2/mu) - a chi-squared statistic
+only for Poisson counts, i.e. a dispersion test under a general name,
+with no count data in the fleet to run it on. That one was removed and
+this took the name, because "run a chi2 test" means the test for a
+variance to nearly everyone who asks, and two skills both calling
+themselves the chi-squared test is a choice the head cannot make
+reliably.
 
 Limitations
 -----------
@@ -41,20 +43,20 @@ from scarlet_agentic_harness.skills.base import CompoundSkill, Step
 from scarlet_agentic_harness.skills import predicate
 
 
-class VarianceTestSkill(CompoundSkill):
+class Chi2TestSkill(CompoundSkill):
     """Chi-squared test of the fleet's variance against a hypothesised value."""
 
-    name = "variance_test"
+    name = "chi2_test"
     description = (
         "PREFERRED for a chi-squared test of a VARIANCE - whether the "
         "fleet's variance of a column equals, exceeds, or falls below a "
         "hypothesised sigma0^2. Returns the chi2 statistic, its degrees of "
-        "freedom, and a two-sided p-value, plus `p_lower` for a one-sided "
-        "alternative. Call this rather than assembling it from variance, "
-        "combine and distribution, which has produced three different "
-        "statistics for the same question. "
-        "This is the chi-squared test for a variance - the one meant by "
-        "\"run a chi2 test on the variance\"."
+        "freedom and its p-value; pass mode=upper or mode=lower for a "
+        "one-sided alternative. Call this rather than assembling it from "
+        "variance, combine and distribution, which produced three "
+        "different statistics for the same question across three "
+        "attempts. This is the test meant by \"run a chi2 test on the "
+        "variance\"; it is not a goodness-of-fit test."
     )
     parameters = {
         "type": "object",

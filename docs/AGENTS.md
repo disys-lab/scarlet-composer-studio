@@ -156,7 +156,7 @@ No exceptions - the test has to import it without guessing.
 |---|---|
 | `rms` | `RmsSkill` |
 | `z_test` | `ZTestSkill` |
-| `variance_test` | `VarianceTestSkill` |
+| `chi2_test` | `Chi2TestSkill` |
 
 **2. The result contract.** Write the exact keys you return:
 
