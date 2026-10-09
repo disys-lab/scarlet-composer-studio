@@ -76,14 +76,32 @@ def postgres_conn_info():
         else:
             raise RuntimeError("test Postgres container did not become ready in time")
 
-        subprocess.run(
-            [
-                "docker", "exec", _PG_CONTAINER_NAME, "psql", "-U", "postgres", "-d", _PG_DATABASE,
-                "-c", "CREATE TABLE sensors (name text, value float8); "
-                      "INSERT INTO sensors VALUES ('roll_speed', 1200.5);",
-            ],
-            check=True, capture_output=True,
-        )
+        # Retry rather than trusting the probe above.
+        #
+        # `pg_isready` reports ready a moment before the server will accept
+        # a CREATE TABLE, so this seeding step intermittently died with
+        # exit 2 and took every dependent test down as a collection error -
+        # four of them, on a run that was otherwise green. Measured: it
+        # failed on roughly half the runs. The only honest readiness check
+        # for "can I run this statement" is running it.
+        seed_sql = ("CREATE TABLE sensors (name text, value float8); "
+                    "INSERT INTO sensors VALUES ('roll_speed', 1200.5);")
+        for attempt in range(30):
+            seeded = subprocess.run(
+                [
+                    "docker", "exec", _PG_CONTAINER_NAME, "psql", "-U", "postgres",
+                    "-d", _PG_DATABASE, "-v", "ON_ERROR_STOP=1", "-c", seed_sql,
+                ],
+                capture_output=True, text=True,
+            )
+            if seeded.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError(
+                f"test Postgres never accepted the seed statement: "
+                f"{seeded.stderr.strip()}"
+            )
 
         yield {
             "host": "127.0.0.1", "port": str(_PG_PORT), "database": _PG_DATABASE,

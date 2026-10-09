@@ -27,9 +27,10 @@ import threading
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
+@requires_llm
 def test_two_concurrent_invocations_on_the_same_coordinator_both_succeed(redis_conn_info, monkeypatch):
     base_env = dict(os.environ)
     base_env.update({
@@ -61,10 +62,10 @@ def test_two_concurrent_invocations_on_the_same_coordinator_both_succeed(redis_c
         results: dict = {}
 
         def run_median():
-            results["median"] = run_skill_sync(median_skill, {}, head_config, head_buses)
+            results["median"] = run_skill_sync(median_skill, {}, head_config, head_buses, skills=skills)
 
         def run_sum():
-            results["sum"] = run_skill_sync(sum_skill, {"transform": "identity"}, head_config, head_buses)
+            results["sum"] = run_skill_sync(sum_skill, {"transform": "identity"}, head_config, head_buses, skills=skills)
 
         t1 = threading.Thread(target=run_median)
         t2 = threading.Thread(target=run_sum)
@@ -77,8 +78,8 @@ def test_two_concurrent_invocations_on_the_same_coordinator_both_succeed(redis_c
 
         all_numbers = [n for nums in WORKER_DATA.values() for n in nums]
         assert results["median"]["status"] == "ok", results["median"]
-        assert results["median"]["result"] == statistics.median(all_numbers)
+        assert results["median"]["result"] == [statistics.median(all_numbers)]
         assert results["sum"]["status"] == "ok", results["sum"]
-        assert results["sum"]["result"] == sum(all_numbers)
+        assert results["sum"]["result"] == [sum(all_numbers)]
     finally:
         terminate_all(procs)

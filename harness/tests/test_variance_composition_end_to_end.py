@@ -19,9 +19,10 @@ import statistics
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
+@requires_llm
 def test_variance_via_two_sums_and_a_combine(redis_conn_info):
     base_env = dict(os.environ)
     base_env.update({
@@ -44,9 +45,9 @@ def test_variance_via_two_sums_and_a_combine(redis_conn_info):
         wait_for_workers(head_buses, procs, "sum", expected_count=3)
         wait_for_workers(head_buses, procs, "combine", expected_count=3)
 
-        r1 = run_skill_sync(skills["sum"], {"transform": "identity"}, head_config, head_buses)
+        r1 = run_skill_sync(skills["sum"], {"transform": "identity"}, head_config, head_buses, skills=skills)
         assert r1["status"] == "ok", r1
-        r2 = run_skill_sync(skills["sum"], {"transform": "square"}, head_config, head_buses)
+        r2 = run_skill_sync(skills["sum"], {"transform": "square"}, head_config, head_buses, skills=skills)
         assert r2["status"] == "ok", r2
         assert r1["n"] == r2["n"]
 
@@ -54,7 +55,9 @@ def test_variance_via_two_sums_and_a_combine(redis_conn_info):
             skills["combine"],
             {
                 "expression": "s2/n - (s1/n)**2",
-                "variables": {"s1": r1["result"], "s2": r2["result"], "n": r1["n"]},
+                # per-column now: one agreed column, so take element 0
+                "variables": {"s1": r1["result"][0], "s2": r2["result"][0],
+                              "n": r1["n"]},
             },
             head_config,
             head_buses,

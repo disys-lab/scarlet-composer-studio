@@ -53,48 +53,178 @@ top to bottom; the numbered sections below are reference for each step.
 Writing the files is step 5 of 7. You are not finished until these four
 have run and you have read their output.
 
-**All four need the image, so build it first** (§7 step 4). Until you do,
-every one of them fails with `manifest unknown` - the `:local` tag does
-not exist until you build it:
+**Set your environment up once**, exactly as `harness/README.md` says -
+that is the authoritative path and this guide does not restate it. It is
+a virtualenv on Python 3.11-3.13, `scarlets` installed from this repo
+rather than PyPI, and `composer-api` on `PYTHONPATH`. Docker must be
+running, because the integration tests start throwaway Redis and Postgres
+containers.
 
-```bash
-docker build -f harness/Dockerfile -t ghcr.io/disys-lab/scarlet-agents:local .
-```
+**Run the tests on your machine, not inside the agent image.** Commands 0
+and 2 below are plain pytest for that reason. Wrapping them in
+`docker run` looks like it should work and silently disables 34 of them:
+`conftest.py` publishes Redis to a host port and connects to
+`127.0.0.1`, which from inside a sibling container reaches nothing. That
+mistake was in this guide for a while, and the resulting errors read as
+normal.
 
-If your environment builds that image under a different name, substitute
-it throughout - the tag below is the one §7 step 4 produces, nothing more.
-Do not try to run the suite on your host Python instead: the harness
-depends on scipy, pandas and openai, and installing them outside the
-image is a detour that has eaten whole sessions. The image already has
-them.
+Command 1 **is** a `docker run`, on purpose - it is the only one asking a
+question about the image, and it needs the image built (§7 step 4).
 
 ```bash
 # 0. the conformance suite - the cheapest signal, and it finds your skill
 #    by itself. Every rule in §2a is checked here; each failure names its
 #    own fix. Run this one FIRST and after every edit.
-docker run --rm -v "$PWD/harness/tests:/app/tests:ro" \
-  -v "$PWD/harness/scarlet_agentic_harness:/app/scarlet_agentic_harness:ro" -w /app \
-  ghcr.io/disys-lab/scarlet-agents:local \
-  sh -c "pip install -q pytest pyyaml && \
-         python -m pytest tests/test_compound_skill_conformance.py -q"
+python -m pytest harness/tests/test_compound_skill_conformance.py -q
 
-# 1. your skill is in the image and registered. NO source mount here, on
-#    purpose - this asks what the fleet will actually see. If your skill
-#    is missing from this list, the image is stale: rebuild it.
+# 1. your skill is in the image and registered. This one is a container
+#    on purpose: it asks what the FLEET will see, not what your working
+#    tree holds. If your skill is missing here, the image is stale -
+#    rebuild it (§7 step 4).
 docker run --rm ghcr.io/disys-lab/scarlet-agents:local python -c \
   "from scarlet_agentic_harness.skills.registry import discover_skills; print(sorted(discover_skills()))"
 
 # 2. your tests - and everyone else's - pass
-docker run --rm -v "$PWD/harness/tests:/app/tests:ro" \
-  -v "$PWD/harness/scarlet_agentic_harness:/app/scarlet_agentic_harness:ro" -w /app \
-  ghcr.io/disys-lab/scarlet-agents:local \
-  sh -c "pip install -q pytest pyyaml && python -m pytest tests/ -q"
+python -m pytest harness/tests/ -q
 
 # 3. your notebook runs against a live fleet and prints the right number
 docker exec scarlet-notebooks-jupyter sh -c \
   "cd /notebooks && jupyter nbconvert --to notebook --execute --inplace \
    --ExecutePreprocessor.timeout=800 <NN>_<name>.ipynb"
 ```
+
+**What a green run looks like.** Measured:
+
+```
+with LLM endpoint  497 passed,  0 skipped, 1 failed
+no LLM endpoint    478 passed, 15 skipped, 1 failed  (+0-4 flaky errors)
+```
+
+The 15 skips are the multi-process tests - separate OS processes, a live
+bus, cancellation, concurrency. Every skill generates its worker-local SQL
+with a model, so they cannot run without one. Set `LLM_BASE_URL`,
+`LLM_API_KEY` and `LLM_MODEL` to turn them on.
+
+**One known failure**, inherited:
+
+```
+test_query_data_source.py::...brokers_real_result
+    The broker answers 404. Both sides agree the route is /query, so the
+    registered broker_url is probably pointing at the composer-api port.
+```
+
+**And one known flake**: `conftest.py`'s Postgres fixture sometimes runs
+`psql` before the server is really ready and dies with exit 2, taking
+4 tests with it (list_tags, query_feature, tag_cache_resilience x2). Its
+readiness check passes too early. Re-running usually clears it; that is a
+bug, not a workflow.
+
+**Diff against this before you start.** Anything else is yours.
+
+```bash
+# 0. the conformance suite - the cheapest signal, and it finds your skill
+#    by itself. Every rule in §2a is checked here; each failure names its
+#    own fix. Run this one FIRST and after every edit.
+python -m pytest harness/tests/test_compound_skill_conformance.py -q
+
+# 1. your skill is in the image and registered. This one is a container
+#    on purpose: it asks what the FLEET will see, not what your working
+#    tree holds. If your skill is missing here, the image is stale -
+#    rebuild it (§7 step 4).
+docker run --rm ghcr.io/disys-lab/scarlet-agents:local python -c \
+  "from scarlet_agentic_harness.skills.registry import discover_skills; print(sorted(discover_skills()))"
+
+# 2. your tests - and everyone else's - pass
+python -m pytest harness/tests/ -q
+
+# 3. your notebook runs against a live fleet and prints the right number
+docker exec scarlet-notebooks-jupyter sh -c \
+  "cd /notebooks && jupyter nbconvert --to notebook --execute --inplace \
+   --ExecutePreprocessor.timeout=800 <NN>_<name>.ipynb"
+```
+
+**What a green run looks like.** Measured on the path above:
+
+```
+no LLM endpoint    482 passed, 15 skipped, 1 failed
+with LLM endpoint  491 passed,  0 skipped, 7 failed
+```
+
+The 15 skips are the multi-process tests - separate OS processes, a live
+bus, cancellation, concurrency. Every skill now generates its worker-local
+SQL with a model, so they cannot run without one. Set `LLM_BASE_URL`,
+`LLM_API_KEY` and `LLM_MODEL` to turn them on.
+
+The remaining failures are inherited, not yours:
+
+```
+test_query_data_source.py::...brokers_real_result   broker returns 404
+test_scarlet_registration.py (x2)                   stale: asserts 'sum'
+                                                    where the prompt now
+                                                    says 'sum_core'
+test_worker_cancellation.py                         worker comes up with
+                                                    no profiled source
+test_real_llm_median.py                             per-column result
+test_sum_skill.py                                   per-column result
+```
+
+**Diff against this list before you start.** A failure not on it is
+yours. Do not treat a non-zero exit as normal - treat anything *new* as
+yours.
+
+```bash
+# 0. the conformance suite - the cheapest signal, and it finds your skill
+#    by itself. Every rule in §2a is checked here; each failure names its
+#    own fix. Run this one FIRST and after every edit.
+python -m pytest harness/tests/test_compound_skill_conformance.py -q
+
+# 1. your skill is in the image and registered. This one is a container
+#    on purpose: it asks what the FLEET will see, not what your working
+#    tree holds. If your skill is missing here, the image is stale -
+#    rebuild it (§7 step 4).
+docker run --rm ghcr.io/disys-lab/scarlet-agents:local python -c \
+  "from scarlet_agentic_harness.skills.registry import discover_skills; print(sorted(discover_skills()))"
+
+# 2. your tests - and everyone else's - pass
+python -m pytest harness/tests/ -q
+
+# 3. your notebook runs against a live fleet and prints the right number
+docker exec scarlet-notebooks-jupyter sh -c \
+  "cd /notebooks && jupyter nbconvert --to notebook --execute --inplace \
+   --ExecutePreprocessor.timeout=800 <NN>_<name>.ipynb"
+```
+
+**Known failures on a fresh clone.** Command 2 does not reach zero.
+Measured: **479 passed, 9 failed, 4 errors, 6 skipped**. Every one of the
+13 is pre-existing. They rotted during a period when this guide told
+everyone to run the suite inside a container, where they could not run at
+all and their errors read as normal.
+
+```
+test_sum_skill.py::test_sum_identity_and_square_and_variance_composition
+test_variance_composition_end_to_end.py::test_variance_via_two_sums_and_a_combine
+    "'sum' is a compound skill but no skill registry was passed to
+    run_skill" - written before `sum` became compound.
+
+test_scarlet_registration.py::test_sum_dispatch_preregisters_both_federator_scarlets_with_llm_description
+test_scarlet_registration.py::test_median_dispatch_preregisters_one_mapper_scarlet_without_llm
+    patch `head.register_scarlet_definition`, refactored away since.
+
+test_median_skill.py::test_median_across_three_worker_processes
+test_converse_end_to_end.py::test_converse_drives_a_real_median_computation
+test_worker_cancellation.py::test_skill_cancel_stops_a_stuck_coordinate_call_quickly
+test_worker_concurrency.py::test_two_concurrent_invocations_on_the_same_coordinator_both_succeed
+    spawn real worker subprocesses; the workers come up with no profiled
+    local source ("choose_source returned None").
+
+test_list_tags_skill.py, test_query_feature_skill.py, test_tag_cache_resilience.py (x2)
+test_query_data_source.py::test_query_data_source_authenticates_and_returns_the_brokers_real_result
+    need a live broker / data-source fixture.
+```
+
+**Diff against this list before you start.** A failure not on it is
+yours; one on it is inherited. Do not treat a non-zero exit as normal -
+treat anything new as yours.
 
 Paste the real output of each into your final report. If you have not run
 them, say so plainly rather than describing the files you wrote.
@@ -1080,9 +1210,7 @@ has not passed — that is the failure mode here, not crashes.
 Also run the unit suite, which needs no LLM endpoint:
 
 ```bash
-docker run --rm -v "$PWD/harness/tests:/app/tests:ro" -w /app \
-  ghcr.io/disys-lab/scarlet-agents:local \
-  sh -c "pip install -q pytest pyyaml && python -m pytest tests/ -q"
+python -m pytest harness/tests/ -q
 ```
 
 ### Step 6 — on failure, fix and go round again

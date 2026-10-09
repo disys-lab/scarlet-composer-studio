@@ -10,9 +10,10 @@ import statistics
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
+@requires_llm
 def test_median_across_three_worker_processes(redis_conn_info):
     base_env = dict(os.environ)
     base_env.update({
@@ -45,7 +46,10 @@ def test_median_across_three_worker_processes(redis_conn_info):
         expected = statistics.median(all_numbers)
 
         assert result["status"] == "ok", result
-        assert result["result"] == expected, (result, expected)
+        # Per-column now - one entry per agreed column, and the fixture gives
+        # every worker a single column. This compared against a bare float
+        # and was never updated, because for a long stretch nothing ran it.
+        assert result["result"] == [expected], (result, expected)
         assert "n=9" in result["detail"]
     finally:
         terminate_all(procs)

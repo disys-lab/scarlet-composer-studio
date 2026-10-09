@@ -10,3 +10,12 @@ pytest>=7.0.0
 # in-process (against their own real source, not reimplemented) to verify
 # HarnessContext.query_data_source() - needs their own runtime deps.
 fastapi>=0.110.0
+
+# scipy - the `distribution` skill wraps scipy.stats, so importing any
+# compound hypothesis test needs it. It was added to
+# requirements-image.txt (what the agent image installs) and to
+# docker/jupyter/requirements.txt (what the notebooks use for ground
+# truth) but not here, which is the list a developer installs from. The
+# gap only shows up when the tests are run outside a container - that is,
+# the way this repo's own README says to run them.
+scipy==1.17.1

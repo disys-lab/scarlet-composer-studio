@@ -14,15 +14,17 @@ skill_cancel). This test is about what happens on the receiving end once
 one arrives - real router, real worker dispatch, real Skill, real Redis.
 """
 import os
+from pathlib import Path
 import time
 
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.core.median import MedianSkill
 from scarlet_agentic_harness import worker as worker_mod
-from tests.helpers import APP_ID
+from tests.helpers import _profiled_home, requires_llm, APP_ID
 
 
+@requires_llm
 def test_skill_cancel_stops_a_stuck_coordinate_call_quickly(redis_conn_info):
     base_env = dict(os.environ)
     base_env.update({
@@ -30,12 +32,19 @@ def test_skill_cancel_stops_a_stuck_coordinate_call_quickly(redis_conn_info):
         "REDIS_PORT": redis_conn_info["port"],
         "REDIS_AUTH_TOKEN": redis_conn_info["auth_token"],
     })
+    # This worker is built in-process rather than via spawn_worker, so it
+    # needs the same profiled source that helper now provides.
+    base_env["HOME"] = _profiled_home("cancel-test-worker", [1.0, 2.0, 3.0])
     os.environ.update(base_env)
 
+    # Reading a source generates worker-local SQL with a model, so this
+    # worker needs the endpoint the @requires_llm gate already guarantees.
     worker_config = HarnessConfig(
         role="worker", app_id=APP_ID, node_address="cancel-test-worker",
         device_group=f"{APP_ID}_subagent", head_bus=f"{APP_ID}_headagent",
-        llm_base_url=None, llm_api_key=None, llm_model=None,
+        llm_base_url=os.environ.get("LLM_BASE_URL"),
+        llm_api_key=os.environ.get("LLM_API_KEY"),
+        llm_model=os.environ.get("LLM_MODEL"),
     )
     worker_buses = Buses(worker_config)
 
@@ -49,7 +58,22 @@ def test_skill_cancel_stops_a_stuck_coordinate_call_quickly(redis_conn_info):
     try:
         skill = MedianSkill()
         skill.coordinate_timeout = 3.0  # short, so the test stays fast even if cancellation *didn't* work
-        worker_mod.start_dispatch(worker_config, worker_buses, {"median": skill})
+        # A spawned worker profiles its own sources at startup
+        # (__main__.py calls data_profile.profile_sources()); this one is
+        # built in-process, so it has to do the same or its contribute()
+        # fails on "no profiled local sources" before the coordinate loop
+        # it is meant to get stuck in ever starts.
+        from scarlet_agentic_harness import data_profile, local_config
+        # local_config resolves CONFIG_PATH at IMPORT time from Path.home(),
+        # so setting HOME here is too late - the module already captured the
+        # real one. A spawned worker is unaffected because its env is set
+        # before its interpreter starts; this one is in-process.
+        local_config.CONFIG_PATH = Path(base_env["HOME"]) / ".scarlet" / "config.yaml"
+        # start_dispatch does not build a client from config - it takes one.
+        from scarlet_agentic_harness.llm.client import LLMClient
+        worker_mod.start_dispatch(worker_config, worker_buses, {"median": skill},
+                                  llm_client=LLMClient(worker_config),
+                                  data_profiles=data_profile.profile_sources())
 
         request_id = "cancel-test-req-1"
         # Two expected contributors - this worker itself, and a phantom one
