@@ -43,7 +43,7 @@ and for the same reason: the polling thread must never do slow work, or it
 stalls delivery to every other key on this bus). One-shot per
 registration - call on_key() again inside the callback to keep watching.
 This is what lets a caller wait for a reply without occupying a thread for
-the whole wait: head.run_skill()'s async form registers a callback and
+the whole wait: dispatch.run_skill()'s async form registers a callback and
 returns, rather than blocking in _wait_for_result().
 
 on_key() also takes an optional timeout/on_timeout pair, backed by
@@ -58,6 +58,7 @@ silently ignored rather than invoking a callback that already gave up.
 import queue
 import threading
 import time
+from scarlet_agentic_harness.timeout_handler import TimeoutHandler
 from typing import Callable
 
 from scarlet_agentic_harness.timeout_watcher import TimeoutWatcher
@@ -240,18 +241,7 @@ class MessageRouter:
         callable
             A zero-argument handler safe to pass to `TimeoutWatcher.schedule`.
         """
-        def _handler():
-            # Whoever successfully pops the callback under the lock is the
-            # one that actually happened - the real message and a
-            # same-moment timeout race here, and only the winner acts. If
-            # _run() already popped it (the real message won), this pop
-            # returns None and on_timeout must NOT fire - the wait was
-            # already satisfied for a real reason.
-            with self._lock:
-                had_callback = self._callbacks.pop(key, None) is not None
-            if had_callback and on_timeout is not None:
-                on_timeout()
-        return _handler
+        return TimeoutHandler(self, key, on_timeout)
 
     def _queue_for(self, key) -> queue.Queue:
         """Get (creating if needed) the queue for `key`. Acquires `_lock` itself."""

@@ -19,6 +19,8 @@ comprehensions, string constants - raises SafeEvalError before any code
 runs, not caught after the fact.
 """
 import ast
+
+import numpy as np
 import operator
 
 _BIN_OPS = {
@@ -75,7 +77,34 @@ def safe_eval(expression: str, variables: dict) -> float:
         tree = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
         raise SafeEvalError(f"not a valid expression: {exc}") from exc
-    return _eval_node(tree.body, variables)
+    result = _eval_node(tree.body, variables)
+
+    # A non-finite result never leaves this function.
+    #
+    # Row filtering made n=0 reachable: a window no worker has rows for
+    # gives sum=0 and n=0, so `mean = s1/n` is NaN. That NaN is unsendable,
+    # not just wrong - `json` writes it as a bare NaN literal, which is not
+    # valid JSON. Observed: one stored message broke the composer's
+    # /api/conversations with a 500, hiding every conversation on every bus.
+    #
+    # Failing here keeps the cause legible instead of surfacing several
+    # hops away as a blank screen.
+    finite = np.isfinite(np.asarray(result, dtype=float))
+    if not np.all(finite):
+        zeroed = [name for name, value in variables.items()
+                  if isinstance(value, (int, float)) and value == 0]
+        hint = (f" - {', '.join(zeroed)} is zero, so this is a division by "
+                f"zero; if that is a row count, no worker matched the filter"
+                if zeroed else "")
+        raise SafeEvalError(
+            f"expression {expression!r} produced a non-finite result{hint}")
+
+    # Hand back a plain list, not an ndarray: the result crosses a bus as
+    # JSON, and a scalar expression must still return a scalar so every
+    # existing caller is unaffected.
+    if isinstance(result, np.ndarray):
+        return result.tolist()
+    return result
 
 
 def _eval_node(node: ast.AST, variables: dict) -> float:
@@ -103,18 +132,62 @@ def _eval_node(node: ast.AST, variables: dict) -> float:
     if isinstance(node, ast.Name):
         if node.id not in variables:
             raise SafeEvalError(f"unknown variable: {node.id!r}")
-        value = variables[node.id]
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            raise SafeEvalError(f"variable {node.id!r} is not numeric: {value!r}")
-        return value
+        return _coerce(node.id, variables[node.id])
     if isinstance(node, ast.BinOp):
         op = _BIN_OPS.get(type(node.op))
         if op is None:
             raise SafeEvalError(f"operator not allowed: {type(node.op).__name__}")
-        return op(_eval_node(node.left, variables), _eval_node(node.right, variables))
+        left = _eval_node(node.left, variables)
+        right = _eval_node(node.right, variables)
+        _check_shapes(left, right, type(node.op).__name__)
+        return op(left, right)
     if isinstance(node, ast.UnaryOp):
         op = _UNARY_OPS.get(type(node.op))
         if op is None:
             raise SafeEvalError(f"unary operator not allowed: {type(node.op).__name__}")
         return op(_eval_node(node.operand, variables))
     raise SafeEvalError(f"expression element not allowed: {type(node).__name__}")
+
+
+def _coerce(name: str, value):
+    """
+    Accept a number or a flat sequence of numbers; reject everything else.
+
+    A list becomes a numpy array so the existing operators broadcast
+    elementwise with no change to `_BIN_OPS` - operator.add and friends
+    already do the right thing on ndarrays. Booleans stay rejected: bool is
+    a subclass of int, so `True + 1` would otherwise evaluate silently.
+    """
+    if isinstance(value, bool):
+        raise SafeEvalError(f"variable {name!r} is not numeric: {value!r}")
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, np.ndarray):
+        return value
+    if isinstance(value, (list, tuple)):
+        if not value:
+            raise SafeEvalError(f"variable {name!r} is an empty sequence")
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise SafeEvalError(
+                    f"variable {name!r} contains a non-numeric element: {item!r}")
+        return np.asarray(value, dtype=float)
+    raise SafeEvalError(f"variable {name!r} is not numeric: {value!r}")
+
+
+def _check_shapes(left, right, op_name: str) -> None:
+    """
+    Reject mismatched vector lengths with a message that says what is wrong.
+
+    numpy would raise "operands could not be broadcast together with shapes
+    (3,) (5,)", which is accurate and tells a caller nothing about which
+    quantities disagreed. A scalar against a vector is fine and deliberate -
+    that is how `s1/n` works when s1 is per-column and n is one count.
+    """
+    l_vec = isinstance(left, np.ndarray)
+    r_vec = isinstance(right, np.ndarray)
+    if l_vec and r_vec and left.shape != right.shape:
+        raise SafeEvalError(
+            f"cannot apply {op_name} to vectors of different length: "
+            f"{left.shape[0]} and {right.shape[0]} - the quantities being combined "
+            f"do not describe the same set of columns")

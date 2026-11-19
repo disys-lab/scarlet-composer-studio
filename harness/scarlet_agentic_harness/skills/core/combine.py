@@ -1,0 +1,136 @@
+"""
+CombineSkill — the local, non-distributed arithmetic step that turns
+already-computed skill results into a derived value (e.g. variance from
+sum's S1, S2, n), without a dedicated skill per statistic.
+
+This is deliberately generic rather than variance-specific: an earlier
+design considered a CombineVarianceSkill with the formula baked in, which
+defeats the point of a small composable skill library ("skills as
+alphabets, agents build paragraphs" - see conversation history). Instead
+the model itself supplies both the `expression` (e.g. "s2/n - (s1/n)**2")
+and the `variables` it binds (e.g. {"s1": ..., "s2": ..., "n": ...}),
+evaluated via safe_eval (AST-whitelisted, no eval(), no arbitrary code).
+
+contribute() is a no-op: combine has no per-worker local data to gather, so
+every worker asked to "contribute" simply does nothing. coordinate() does
+the one and only real work, on a single randomly-chosen worker per Skill's
+base coordinator_for() default - the head supplies the expression and
+values but never evaluates them itself ("head never computes" - see
+conversation history on why this generalizes past Federator-backed skills
+too). No readiness handshake is needed here (unlike median/sum): combine
+depends on nothing from peer workers, only on the values already handed to
+it in the request, so coordinate() can answer immediately without touching
+the local bus at all.
+"""
+from scarlet_agentic_harness.context import HarnessContext
+from scarlet_agentic_harness.skills.base import Skill
+from scarlet_agentic_harness.skills.safe_eval import SafeEvalError, safe_eval
+
+
+class CombineSkill(Skill):
+    """
+    Local, non-distributed arithmetic step deriving one value from already-computed skill results.
+
+    Deliberately generic rather than statistic-specific: the model
+    itself supplies both the `expression` (e.g. ``"s2/n - (s1/n)**2"``)
+    and the `variables` it binds, evaluated via
+    `skills.safe_eval.safe_eval` (AST-whitelisted, no `eval`, no
+    arbitrary code).
+
+    `contribute` is a no-op: combine has no per-worker local data to
+    gather. `coordinate` does the one and only real work, on a single
+    randomly-chosen worker (`Skill`'s base `coordinator_for` default) -
+    the head supplies the expression and values but never evaluates
+    them itself. No readiness handshake is needed (unlike
+    `MedianSkill`/`SumSkill`): combine depends on nothing from peer
+    workers, only on values already in the request, so `coordinate` can
+    answer immediately without touching the local bus at all.
+    """
+
+    name = "combine"
+    description = (
+        "LOW-LEVEL BUILDING BLOCK. Check the available skills first - mean, "
+        "variance, rms, z_test, t_test, f_test and chi2_test already "
+        "compose this "
+        "internally, and calling one of them is always preferable to "
+        "assembling the same statistic by hand, which is easy to get subtly "
+        "wrong. Use combine directly only for a quantity no skill provides. "
+        "Evaluates a numeric arithmetic expression against named variables, "
+        "typically results of earlier skill calls. Supports +, -, *, /, ** "
+        "and unary +/- only - no function calls at all, so there is no sqrt "
+        "(write x**0.5) and no way to reach a distribution (use the "
+        "`distribution` skill for p-values)."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "expression": {
+                "type": "string",
+                "description": (
+                    "An arithmetic expression using only the names given in "
+                    "`variables`, e.g. \"s2/n - (s1/n)**2\" for variance given "
+                    "s1=sum(x), s2=sum(x^2), n=count. "
+                    # Spelled out as a worked example rather than left to the
+                    # "no function calls" prohibition above. Observed: the
+                    # model asked for sqrt(var), got a SafeEvalError, and
+                    # spent a turn recovering with var**(0.5) - which with
+                    # converse's 5-turn budget was enough to exhaust it and
+                    # fail the whole conversation. It had been told function
+                    # calls were unavailable and tried one anyway; a positive
+                    # example of the supported form is what actually changes
+                    # the behaviour.
+                    "For a square root write \"var**0.5\" - there is no sqrt() "
+                    "function, so a standard deviation is \"var**0.5\"."
+                ),
+            },
+            "variables": {
+                "type": "object",
+                "description": (
+                    "Name -> value bindings referenced by `expression`. A value may be a "
+                    "number or a list of numbers; lists combine elementwise, and a scalar "
+                    "broadcasts against a list. Two lists of different length is an error."
+                ),
+                "additionalProperties": {
+                    "anyOf": [
+                        {"type": "number"},
+                        {"type": "array", "items": {"type": "number"}},
+                    ]
+                },
+            },
+        },
+        "required": ["expression", "variables"],
+    }
+
+    def contribute(self, ctx: HarnessContext, request: dict) -> None:
+        """No-op - combine has no per-worker data to gather."""
+        pass  # no per-worker data to gather - see module docstring
+
+    def coordinate(self, ctx: HarnessContext, request: dict, workers: list[str]) -> dict:
+        """
+        Evaluate ``request["params"]["expression"]`` against ``request["params"]["variables"]``.
+
+        Returns
+        -------
+        dict
+            ``{"status": "ok", "result": <value>, "detail": ...}`` on
+            success; ``{"status": "error", "detail": ..., "retryable": False}``
+            if `expression` is missing or invalid - a logical/input
+            error, never transient, so never retryable.
+        """
+        params = request.get("params", {})
+        expression = params.get("expression")
+        variables = params.get("variables", {})
+        if not expression:
+            # A logical/input error, not a transient one - retrying with a
+            # fresh worker survey would hit the exact same error again, so
+            # this is explicitly not retryable (see dispatch.run_skill()).
+            return {"status": "error", "detail": "combine requires a non-empty `expression`", "retryable": False}
+        try:
+            result = safe_eval(expression, variables)
+        except SafeEvalError as exc:
+            return {"status": "error", "detail": f"invalid expression: {exc}", "retryable": False}
+        return {
+            "status": "ok",
+            "result": result,
+            "detail": f"combine: {expression} = {result} (evaluated on {ctx.agent_id})",
+        }

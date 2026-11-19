@@ -15,7 +15,7 @@ import os
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
-from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def _setup_env(redis_conn_info):
@@ -33,6 +33,7 @@ def _setup_env(redis_conn_info):
     return base_env
 
 
+@requires_llm
 def test_sum_identity_and_square_and_variance_composition(redis_conn_info):
     base_env = _setup_env(redis_conn_info)
     procs = [spawn_worker(node, nums, base_env) for node, nums in WORKER_DATA.items()]
@@ -53,20 +54,20 @@ def test_sum_identity_and_square_and_variance_composition(redis_conn_info):
         expected_s1 = sum(all_numbers)
         expected_s2 = sum(x * x for x in all_numbers)
 
-        r1 = run_skill_sync(sum_skill, {"transform": "identity"}, head_config, head_buses)
+        r1 = run_skill_sync(sum_skill, {"transform": "identity"}, head_config, head_buses, skills=skills)
         assert r1["status"] == "ok", r1
-        assert r1["result"] == expected_s1
+        assert r1["result"] == [expected_s1]
         assert r1["n"] == n  # total element count (9), not worker count (3)
 
-        r2 = run_skill_sync(sum_skill, {"transform": "square"}, head_config, head_buses)
+        r2 = run_skill_sync(sum_skill, {"transform": "square"}, head_config, head_buses, skills=skills)
         assert r2["status"] == "ok", r2
-        assert r2["result"] == expected_s2
+        assert r2["result"] == [expected_s2]
         assert r2["n"] == n
 
         # default transform (no params at all) behaves as identity
-        r3 = run_skill_sync(sum_skill, {}, head_config, head_buses)
+        r3 = run_skill_sync(sum_skill, {}, head_config, head_buses, skills=skills)
         assert r3["status"] == "ok", r3
-        assert r3["result"] == expected_s1
+        assert r3["result"] == [expected_s1]
 
         # The actual composability claim: derive variance from S1, S2, and n
         # using nothing but arithmetic on the two sum results - no new

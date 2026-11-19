@@ -25,7 +25,25 @@
 #     -e LLM_BASE_URL=... -e LLM_API_KEY=... -e LLM_MODEL=... \
 #     scarlet-agents:latest
 
-ARG BASE_VERSION=0.5.0
+# Keep this in step with the current scarlet-agent-base release. CI passes
+# BASE_VERSION explicitly, so this default only governs local builds - which
+# is exactly why it is worth getting right: a stale default is invisible.
+#
+# It was left at 0.5.0 while the published agents moved to 0.5.6, and the
+# two differ in how scarlets' Messenger stores an inbox:
+#
+#   0.5.0   r.set(key, ...)           one string key per message
+#   0.5.6   r.hset(inbox, seq, ...)   one hash per agent
+#
+# composer-api reads inboxes with hgetall, so against a 0.5.0-built agent
+# every read raises WRONGTYPE, gets swallowed by its per-inbox try/except,
+# and the Conversations view silently shows nothing at all. Nothing errors,
+# nothing logs at the UI, and the agents themselves work perfectly - which
+# makes it a genuinely expensive hour to diagnose.
+#
+# Pinned rather than `latest` so a local build stays reproducible (as of
+# writing they resolve to the same digest). Bump it when a new base ships.
+ARG BASE_VERSION=0.5.6
 FROM ghcr.io/disys-lab/scarlet-agent-base:${BASE_VERSION}
 
 WORKDIR /app

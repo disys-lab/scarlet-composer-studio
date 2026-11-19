@@ -12,9 +12,10 @@ from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
 from tests.fakes import ScriptedLLMClient, assistant_final, assistant_tool_call
-from tests.helpers import APP_ID, WORKER_DATA, converse_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, converse_sync, spawn_worker, terminate_all, wait_for_workers
 
 
+@requires_llm
 def test_converse_drives_a_real_median_computation(redis_conn_info):
     base_env = dict(os.environ)
     base_env.update({
@@ -74,7 +75,9 @@ def test_converse_drives_a_real_median_computation(redis_conn_info):
         third_call_messages, _ = llm.calls[2]
         tool_result = [m for m in third_call_messages if m["role"] == "tool"][0]["content"]
         assert tool_result["status"] == "ok"
-        assert tool_result["result"] == expected
+        # Per-column now: one entry per agreed column, and the fixture gives
+        # every worker a single column.
+        assert tool_result["result"] == [expected]
         assert "n=9" in tool_result["detail"]
     finally:
         terminate_all(procs)

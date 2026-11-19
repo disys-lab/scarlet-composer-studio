@@ -29,7 +29,7 @@ from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.config import HarnessConfig
 from scarlet_agentic_harness.skills.registry import discover_skills
 from tests.fakes import ScriptedLLMClient, assistant_final
-from tests.helpers import APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
+from tests.helpers import requires_llm, APP_ID, WORKER_DATA, run_skill_sync, spawn_worker, terminate_all, wait_for_workers
 
 
 def _setup_env(redis_conn_info):
@@ -47,6 +47,7 @@ def _setup_env(redis_conn_info):
     return base_env
 
 
+@requires_llm
 def test_sum_dispatch_preregisters_both_federator_scarlets_with_llm_description(redis_conn_info):
     base_env = _setup_env(redis_conn_info)
     procs = [spawn_worker(node, nums, base_env) for node, nums in WORKER_DATA.items()]
@@ -66,11 +67,12 @@ def test_sum_dispatch_preregisters_both_federator_scarlets_with_llm_description(
         ])
 
         with patch(
-            "scarlet_agentic_harness.head.register_scarlet_definition",
+            "scarlet_agentic_harness.dispatch.register_scarlet_definition",
             side_effect=real_register_scarlet_definition,
         ) as spy:
             result = run_skill_sync(
-                sum_skill, {"transform": "identity"}, head_config, head_buses, llm_client=llm_client,
+                sum_skill, {"transform": "identity"}, head_config, head_buses,
+                llm_client=llm_client, skills=skills,
             )
             assert result["status"] == "ok", result
 
@@ -97,7 +99,10 @@ def test_sum_dispatch_preregisters_both_federator_scarlets_with_llm_description(
         # in what was sent to the model.
         assert len(llm_client.calls) == 1
         prompt = llm_client.calls[0][0][0]["content"]
-        assert "'sum'" in prompt
+        # `sum` is a compound skill now; the dispatch that actually reaches
+        # a worker - and so the one described to the tracker - is its
+        # `sum_core` step. Asserting 'sum' here predates that split.
+        assert "'sum_core'" in prompt
         assert "identity" in prompt
 
         # Real end-to-end proof, not just "the spy was called": the
@@ -120,6 +125,7 @@ def test_sum_dispatch_preregisters_both_federator_scarlets_with_llm_description(
         terminate_all(procs)
 
 
+@requires_llm
 def test_median_dispatch_preregisters_one_mapper_scarlet_without_llm(redis_conn_info):
     """No llm_client given (the common case for callers that don't opt into
     deliberation) - registration still happens, using the plain template
@@ -138,7 +144,7 @@ def test_median_dispatch_preregisters_one_mapper_scarlet_without_llm(redis_conn_
         wait_for_workers(head_buses, procs, "median", expected_count=3)
 
         with patch(
-            "scarlet_agentic_harness.head.register_scarlet_definition",
+            "scarlet_agentic_harness.dispatch.register_scarlet_definition",
             side_effect=real_register_scarlet_definition,
         ) as spy:
             result = run_skill_sync(median_skill, {}, head_config, head_buses)
@@ -155,6 +161,7 @@ def test_median_dispatch_preregisters_one_mapper_scarlet_without_llm(redis_conn_
         terminate_all(procs)
 
 
+@requires_llm
 def test_combine_skill_declares_no_scarlets():
     """combine computes purely locally (safe_eval over already-known values,
     no cross-worker Mapper/Federator use) - the base class default applies

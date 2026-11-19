@@ -24,6 +24,19 @@ from scarlet_agentic_harness.skills.registry import discover_skills
 from tests.helpers import WORKER_DATA, converse_sync, spawn_worker, terminate_all, wait_for_workers
 from tests.transcript import write_transcript
 
+def _as_scalar(value):
+    """
+    A skill result, whether it is a bare number or a per-column list.
+
+    Results became per-column lists; these assertions compared against a
+    bare float and were never updated, because for a long stretch nothing
+    could run them.
+    """
+    if isinstance(value, (list, tuple)):
+        return value[0] if len(value) == 1 else float("nan")
+    return value
+
+
 pytestmark = pytest.mark.skipif(
     not os.environ.get("LLM_BASE_URL"),
     reason="requires a real LLM backend - set LLM_BASE_URL/LLM_API_KEY/LLM_MODEL to run",
@@ -86,7 +99,7 @@ def test_converse_composes_variance_from_two_sums_and_a_combine(redis_conn_info)
             if m.get("role") == "tool" and isinstance(m.get("content"), dict) and "result" in m["content"]
         ]
         got_variance = any(
-            r.get("status") == "ok" and abs(r.get("result", float("nan")) - expected_variance) < 1e-6
+            r.get("status") == "ok" and abs(_as_scalar(r.get("result", float("nan"))) - expected_variance) < 1e-6
             for r in combine_results
         )
         assert got_variance, (

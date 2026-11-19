@@ -236,3 +236,61 @@ def test_dispatch_events_link_each_tool_call_to_its_request_ids(monkeypatch):
     assert [d["attempt"] for d in dispatches] == [1, 2]
     # Ordered so a reader sees the call before anything attributed to it.
     assert events.index(next(e for e in events if e["type"] == "tool_call")) < events.index(dispatches[0])
+
+
+def test_an_llm_error_on_a_later_turn_reports_instead_of_hanging(monkeypatch):
+    """
+    Turn 0 runs on the caller's thread; turns 1+ run on a bus callback
+    thread when the joiner fires. An exception there used to die silently -
+    on_done never fired and the caller waited forever.
+
+    Observed live: the endpoint returned HTTP 400 mid-conversation, the
+    client correctly did not retry, and the notebook sat idle for eleven
+    minutes until its cell limit killed it. The failure was instant; only
+    the reporting of it hung.
+    """
+    import threading
+    from scarlet_agentic_harness import head as head_mod
+    from scarlet_agentic_harness.config import HarnessConfig
+
+    class _Boom:
+        """Answers turn 0 with a tool call, then raises on turn 1."""
+        def __init__(self): self.calls = 0
+        def chat(self, messages, tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                return {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "name": "fake", "arguments": {}}]}
+            raise RuntimeError("Error code: 400 - Bad Request")
+
+    class _Fake:
+        name = "fake"
+        def as_tool_schema(self): return {"type": "function", "function": {"name": "fake"}}
+
+    # Answer on a REAL worker thread, so turn 1 runs where the joiner
+    # actually fires it. Answering inline would run turn 1 on the caller's
+    # thread, where an exception propagates anyway and the bug is invisible.
+    def _async_run_skill(skill, params, cfg, buses, on_result, **kw):
+        threading.Thread(target=on_result,
+                         args=({"status": "ok", "result": 1},),
+                         daemon=True).start()
+
+    monkeypatch.setattr(head_mod, "run_skill", _async_run_skill)
+
+    done = threading.Event()
+    box = {}
+    cfg = HarnessConfig(role="head", app_id="t", node_address="n",
+                        device_group="t_sub", head_bus="t_head",
+                        llm_base_url=None, llm_api_key=None, llm_model=None)
+
+    def _on_done(result, error):
+        box.update(result=result, error=error)
+        done.set()
+
+    head_mod.converse("q", cfg, None, {"fake": _Fake()}, _Boom(), _on_done,
+                      max_turns=5, on_event=None, store=None, dialogue=None)
+
+    # Bounded: without the fix this never fires and the suite would hang.
+    assert done.wait(timeout=10), "on_done never fired - the caller would hang forever"
+    assert isinstance(box["error"], RuntimeError)
+    assert "400" in str(box["error"])

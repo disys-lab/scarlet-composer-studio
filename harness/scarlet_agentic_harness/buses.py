@@ -216,7 +216,7 @@ class Buses:
             only a live heartbeat thread (every 30s) keeps a real
             agent's `ts` moving forward. Without this filter, a worker
             whose process has actually died would still show up as
-            online forever, making `head.run_skill`'s retry-on-failure
+            online forever, making `dispatch.run_skill`'s retry-on-failure
             pointless for that case - every retry would survey the same
             stale record and dispatch to the same dead worker again.
 

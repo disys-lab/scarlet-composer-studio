@@ -14,7 +14,6 @@ const NAV = [
   { href: "/agents",           label: "Agents",           icon: Users },
   { href: "/conversations",    label: "Conversations",    icon: MessagesSquare },
   { href: "/scarlets",         label: "Scarlets",         icon: Database },
-  { href: "/data-sources",     label: "Data Sources",     icon: Database },
   { href: "/logging",          label: "Logging",          icon: FileText },
   // Container Builds: hidden for now, not ready - route still exists
   // (ComingSoon placeholder), just not linked from the nav. Same

@@ -92,13 +92,23 @@ sources:
     before = local_config.build_tag_cache()
     assert before["sensors_pg"] == [{"table": "public.sensors", "columns": ["name", "value"]}]
 
-    subprocess.run(
-        [
-            "docker", "exec", "scarlet-harness-test-postgres", "psql", "-U", "postgres", "-d",
-            postgres_conn_info["database"], "-c", "ALTER TABLE sensors ADD COLUMN unit text;",
-        ],
-        check=True, capture_output=True,
-    )
+    def _alter(sql):
+        subprocess.run(
+            [
+                "docker", "exec", "scarlet-harness-test-postgres", "psql", "-U", "postgres", "-d",
+                postgres_conn_info["database"], "-v", "ON_ERROR_STOP=1", "-c", sql,
+            ],
+            check=True, capture_output=True,
+        )
 
-    after = local_config.build_tag_cache()
-    assert after["sensors_pg"] == [{"table": "public.sensors", "columns": ["name", "value", "unit"]}]
+    # The Postgres fixture is session-scoped, so this column outlives the
+    # test unless it is dropped again - and test_list_tags_skill asserts the
+    # table has exactly name/value. That cross-test leak was invisible while
+    # the fixture itself was failing and erroring both tests out.
+    _alter("ALTER TABLE sensors ADD COLUMN unit text;")
+    try:
+        after = local_config.build_tag_cache()
+        assert after["sensors_pg"] == [
+            {"table": "public.sensors", "columns": ["name", "value", "unit"]}]
+    finally:
+        _alter("ALTER TABLE sensors DROP COLUMN unit;")

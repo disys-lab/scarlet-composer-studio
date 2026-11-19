@@ -29,7 +29,7 @@
 _No messages were found on the scanned buses._
 ---
 
-Model: claude-sonnet-4-6
+Model: qwen3-coder-next
 
 Results:
 - still_working: got WAIT, expected WAIT (match)

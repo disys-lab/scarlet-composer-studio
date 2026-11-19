@@ -39,29 +39,7 @@ descriptions alone. One tutorial, one place, used by both entry points
 (HarnessContext.mint_scarlet() and CreateScarletSkill) rather than
 duplicated into each.
 """
-from typing import Protocol
-
-
-class ChatClient(Protocol):
-    """Structural type for an LLM chat client - anything with a matching `chat` method satisfies this."""
-
-    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
-        """
-        Send a chat turn to the model.
-
-        Parameters
-        ----------
-        messages : list of dict
-            Canonical-shape message history.
-        tools : list of dict or None, optional
-            Tool definitions the model may call.
-
-        Returns
-        -------
-        dict
-            The model's turn, including `tool_calls` if it called a tool.
-        """
-        ...
+from scarlet_agentic_harness.chat_client import ChatClient
 
 
 # Grounded in the real scarlets primitives (scarlets/core/Mapper.py,

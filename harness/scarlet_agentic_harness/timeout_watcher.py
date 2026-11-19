@@ -4,7 +4,7 @@ instead of one thread per pending wait.
 
 MessageRouter.on_key() lets a caller register interest in a key and return
 immediately (see router.py). Some callers also need "if nothing arrives
-within N seconds, do something else instead" (head.run_skill()'s async
+within N seconds, do something else instead" (dispatch.run_skill()'s async
 form watching for a coordinator reply; a future check-in conversation
 watching for a response). The naive way to add a per-registration timeout
 is a dedicated thread per registration that sleeps and then fires - but

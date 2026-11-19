@@ -31,6 +31,19 @@ from scarlet_agentic_harness.skills.registry import discover_skills
 from tests.helpers import WORKER_DATA, converse_sync, spawn_worker, terminate_all, wait_for_workers
 from tests.transcript import write_transcript
 
+def _as_scalar(value):
+    """
+    A skill result, whether it is a bare number or a per-column list.
+
+    Results became per-column lists; these assertions compared against a
+    bare float and were never updated, because for a long stretch nothing
+    could run them.
+    """
+    if isinstance(value, (list, tuple)):
+        return value[0] if len(value) == 1 else float("nan")
+    return value
+
+
 pytestmark = pytest.mark.skipif(
     not os.environ.get("LLM_BASE_URL"),
     reason="requires a real LLM backend - set LLM_BASE_URL/LLM_API_KEY/LLM_MODEL to run",
@@ -81,7 +94,8 @@ def test_converse_drives_a_real_median_computation_with_a_real_llm(redis_conn_in
 
         tool_results = [m["content"] for m in result.messages if m.get("role") == "tool"]
         assert any(
-            isinstance(r, dict) and r.get("status") == "ok" and r.get("result") == expected
+            isinstance(r, dict) and r.get("status") == "ok"
+            and _as_scalar(r.get("result")) == expected
             for r in tool_results
         ), f"no tool result matched the expected median {expected} - got {tool_results}"
     finally:

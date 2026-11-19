@@ -15,11 +15,13 @@ from scarlets.utils.RedisLogger import RedisLogger
 from scarlet_agentic_harness.buses import Buses
 from scarlet_agentic_harness.cancellation import CancellationRegistry, describe_in_flight
 from scarlet_agentic_harness.config import HarnessConfig
+from scarlet_agentic_harness import data_profile
 from scarlet_agentic_harness.dialogue import AgentDialogue
 from scarlet_agentic_harness.llm.client import LLMClient
 from scarlet_agentic_harness import local_config
 from scarlet_agentic_harness import observability
 from scarlet_agentic_harness.skills.registry import discover_skills
+from scarlet_agentic_harness import dispatch as dispatch_mod
 from scarlet_agentic_harness import head as head_mod
 from scarlet_agentic_harness import reasoning
 from scarlet_agentic_harness import worker as worker_mod
@@ -56,6 +58,24 @@ def main() -> None:
         # hasn't ticked yet. Per-source failures are already caught inside
         # build_tag_cache() itself - one bad source never blocks this.
         tag_cache: dict[str, list] = local_config.build_tag_cache()
+
+        # Built before this worker announces itself, so a peer reading its
+        # record immediately never sees an empty profile.
+        #
+        # tag_cache says which columns exist; this says how many rows and how
+        # many numeric columns - the pair the consensus step negotiates over.
+        # One-shot by design: the refresh loop below updates tags but not
+        # shapes. Per-source failures are swallowed in profile_sources(), so
+        # one unreadable source cannot stop a worker booting.
+        data_profiles: dict = data_profile.profile_sources()
+
+        # The readable companion to those numbers, written where the
+        # worker's own LLM can be pointed at it later. Best-effort: an
+        # unwritable home is not a reason to refuse to boot, since the
+        # structured profiles above are the authoritative copy and they
+        # live in memory regardless.
+        data_profile.write_profile_markdown(data_profiles)
+
         # activity_mapper rides along in the status record so a reader
         # never has to know (or be told) this name out of band: it gathers
         # agents from the one bus it already has, and each agent's record
@@ -67,38 +87,55 @@ def main() -> None:
         # re-report without it would silently overwrite the field away.
         buses.report_status(
             capabilities=list(skills.keys()),
-            extra={"activity_mapper": config.activity_mapper},
+            extra={
+                "activity_mapper": config.activity_mapper,
+                # Published as structured numbers so a peer can read this
+                # worker's dimensions straight off the status record,
+                # without a dialogue round trip and without inferring
+                # "(80, 5)" out of English. The consensus step reasons over
+                # these; the prose profile is only for a model to read.
+                "data_shapes": {n: p["shape"] for n, p in data_profiles.items()},
+            },
         )
 
-        # report_status() above (and the tag cache build before it) only
-        # ever run once, at startup - data_sources/tags would otherwise
-        # never reflect a site engineer hand-editing ~/.scarlet/config.yaml
-        # (or a source's schema actually changing) after this process
-        # started, short of a restart. capabilities don't change at
-        # runtime (skills are still static/bundled-in-the-image), so
-        # re-running this is purely about picking up local config/schema
-        # changes.
+        # Startup reports status once, so an edit to ~/.scarlet/config.yaml
+        # or a schema change after boot would need a restart to show up.
+        # Capabilities are static, so this refresh exists only to pick up
+        # local config and schema changes.
         #
-        # The whole body is wrapped so one bad cycle - report_status()
-        # itself hitting a transient Redis error, say, not just a single
-        # source's list_tags() failing (already handled inside
-        # build_tag_cache()) - logs and moves on to the next cycle instead
-        # of killing this thread and silently ending every future refresh,
-        # tags and the data_sources report alike, for the rest of this
-        # process's life.
+        # The whole body is wrapped: one bad cycle must log and continue.
+        # Letting it raise would kill this thread and silently end every
+        # future refresh for the life of the process.
         def _refresh_data_sources_loop():
             nonlocal tag_cache
             while True:
                 time.sleep(config.data_source_refresh_interval)
                 try:
                     tag_cache = local_config.build_tag_cache()
+                    # Shapes are published from data_profiles, so if the
+                    # config changed under us this is what stops the status
+                    # record advertising dimensions the worker no longer has.
+                    # In-place, so every HarnessContext already holding this
+                    # dict sees the new values too.
+                    data_profile.refresh_if_stale(data_profiles)
                     # extra= must match the startup call above - see its
                     # comment: report_status rebuilds the record each
                     # time, so omitting it here would drop activity_mapper
                     # from the record on the first refresh.
                     buses.report_status(
                         capabilities=list(skills.keys()),
-                        extra={"activity_mapper": config.activity_mapper},
+                        extra={
+                            "activity_mapper": config.activity_mapper,
+                            # Must be repeated here for the same reason
+                            # activity_mapper is: report_status rebuilds the
+                            # record from scratch, so omitting it would drop
+                            # every worker's shape on the first refresh tick
+                            # and silently break consensus 300s into a run.
+                            # data_profiles is NOT rebuilt - profiling is
+                            # one-shot at boot by design - so this re-reports
+                            # the same boot-time numbers.
+                            "data_shapes": {n: p["shape"] for n, p in data_profiles.items()},
+                        },
                     )
                 except Exception as exc:
                     RedisLogger.warning(f"[{config.agent_id}] data source refresh cycle failed: {exc}")
@@ -127,22 +164,18 @@ def main() -> None:
                 context_fn=lambda: {
                     "in_flight_status": describe_in_flight(registry.snapshot()),
                     # Grounds a reply like "does anyone have roll_speed for
-                    # equipment 1234" in this worker's own real local
-                    # sources - redacted (name/type/mode/description only,
-                    # see local_config.describe_sources()) plus each
-                    # source's real, live tags/columns from tag_cache
-                    # (Option 4+2: computed ahead of time on the periodic
-                    # refresh above, not looked up live per reply - see
-                    # that loop's own comment for why). describe_sources()
-                    # itself still re-reads the config file fresh on every
-                    # call; only the tags are cached.
+                    # equipment 1234" in this worker's own sources: redacted
+                    # metadata from describe_sources() plus live columns from
+                    # tag_cache. The config is re-read on every call; only the
+                    # tags are cached.
                     "local_data_sources": local_config.describe_sources(tag_cache=tag_cache),
                 },
             )
             if worker_llm_client else None
         )
         worker_mod.start_dispatch(
-            config, buses, skills, dialogue=dialogue, registry=registry, llm_client=worker_llm_client,
+            config, buses, skills, dialogue=dialogue, registry=registry,
+            llm_client=worker_llm_client, data_profiles=data_profiles,
         )
         print(
             f"[{config.agent_id}] worker online, skills={list(skills.keys())}, "
@@ -186,7 +219,7 @@ def main() -> None:
                         box["result"] = result
                         done.set()
 
-                    head_mod.run_skill(skill, req.get("params", {}), config, buses, on_result)
+                    dispatch_mod.run_skill(skill, req.get("params", {}), config, buses, on_result)
                     done.wait()
                     print(json.dumps(box["result"]))
                 except Exception as exc:  # surfaced to the operator driving stdin manually
@@ -243,6 +276,7 @@ def main() -> None:
                         # destination.
                         on_event=reasoning.publishing_on_event(buses, inner=_log_event),
                         dialogue=dialogue,
+                        max_turns=config.converse_max_turns,
                     )
                     done.wait()
                     if box["error"] is not None:
